@@ -39,7 +39,7 @@ export async function POST(request: NextRequest) {
     // 4. Gemini API 호출
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!)
     const model = genAI.getGenerativeModel({ 
-      model: 'gemini-2.5-pro'  // 최신 모델로 변경
+      model: 'gemini-1.5-pro-latest'  // 안정적인 모델 (2.5-pro는 과부하 발생)
     })
 
     // 5. 프롬프트 생성
