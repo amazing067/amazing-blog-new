@@ -39,7 +39,7 @@ export async function POST(request: NextRequest) {
     // 4. Gemini API 호출
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!)
     const model = genAI.getGenerativeModel({ 
-      model: 'gemini-2.5-pro'  // 최고 품질 (결제 계정 연결 필요)
+      model: 'gemini-2.5-pro'  // 최고 품질 모델
     })
 
     // 5. 프롬프트 생성
