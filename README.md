@@ -1,6 +1,29 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 어메이징사업부 - 보험 영업 지원 플랫폼
 
-## Getting Started
+보험 영업을 위한 전문 플랫폼입니다.
+
+## 기술 스택
+
+- **Framework**: Next.js 14 (App Router)
+- **Language**: TypeScript
+- **Styling**: Tailwind CSS
+- **Auth/DB**: Supabase (SSR Auth)
+- **Icons**: Lucide React
+
+## 환경 설정
+
+### 1. 환경 변수 설정
+
+프로젝트 루트에 `.env.local` 파일을 생성하고 다음 내용을 추가하세요:
+
+```
+NEXT_PUBLIC_SUPABASE_URL=your-supabase-url
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your-supabase-anon-key
+```
+
+자세한 설정 방법은 [SETUP.md](./SETUP.md)를 참조하세요.
+
+### 2. 개발 서버 실행
 
 First, run the development server:
 
