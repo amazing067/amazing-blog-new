@@ -66,6 +66,8 @@ export default function BlogGenerator({ profile }: { profile: Profile | null }) 
   const [isGenerating, setIsGenerating] = useState(false)
   const [generatedHTML, setGeneratedHTML] = useState('')
   const [progress, setProgress] = useState(0)
+  const [sources, setSources] = useState<any[]>([])
+  const [sourcesMarkdown, setSourcesMarkdown] = useState('')
   const [blogPosts, setBlogPosts] = useState<BlogPost[]>([])
   const [isLoadingPosts, setIsLoadingPosts] = useState(false)
 
@@ -157,6 +159,8 @@ export default function BlogGenerator({ profile }: { profile: Profile | null }) 
       clearInterval(progressInterval)
       setProgress(100)
       setGeneratedHTML(data.html)
+      setSources(data.sources || [])
+      setSourcesMarkdown(data.sourcesMarkdown || '')
       
     } catch (error: any) {
       console.error('생성 오류:', error)
@@ -325,6 +329,37 @@ h2 {
 
   const handleDownloadPDF = () => {
     alert('PDF 다운로드 기능은 곧 추가됩니다!')
+  }
+
+  const handleDownloadSources = async () => {
+    if (sources.length === 0) {
+      alert('출처 정보가 없습니다')
+      return
+    }
+
+    try {
+      // 동적 import (클라이언트 사이드에서만)
+      const { downloadSourcesPDF } = await import('@/lib/generate-sources-pdf')
+      
+      downloadSourcesPDF(sources, formData.topic || '보험 블로그')
+      
+      alert('✅ 출처 PDF가 다운로드되었습니다!')
+    } catch (error) {
+      console.error('PDF 생성 오류:', error)
+      
+      // 폴백: Markdown 다운로드
+      const blob = new Blob([sourcesMarkdown], { type: 'text/markdown;charset=utf-8' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `출처_${formData.topic.slice(0, 20)}_${new Date().toISOString().split('T')[0]}.md`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+      
+      alert('✅ 출처 Markdown이 다운로드되었습니다!')
+    }
   }
 
   const handleSave = async () => {
@@ -692,6 +727,16 @@ h2 {
                     <FileDown className="w-4 h-4" />
                     PDF
                   </button>
+                  {sources.length > 0 && (
+                    <button
+                      onClick={handleDownloadSources}
+                      className="flex items-center gap-2 px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors text-sm"
+                      title="사용된 출처 목록 다운로드"
+                    >
+                      <FileText className="w-4 h-4" />
+                      출처
+                    </button>
+                  )}
                 </div>
               )}
             </div>
