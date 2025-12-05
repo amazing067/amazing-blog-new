@@ -73,8 +73,14 @@ ${diseaseCodes.slice(0, 15).map((disease: any) => `
 - 그 의학적/보험적 의미를 2~3문장으로 풀어서 설명하세요.
 
 ### D. [추가 지침 - 매우 중요!]
-* **분쟁사례:** 실제 사례를 모르면 "금융분쟁조정위원회 2023-XXX호 유사 사례"처럼 일반적인 케이스를 예시로 활용하세요.
-* **출처 명시:** 분쟁 사례 인용 시 반드시 **'사건번호(예: 금융분쟁조정위원회 제2018-12호)'**를 명시하여 신뢰도를 극대화하세요.
+* **분쟁사례 (매우 엄격한 규칙!):**
+  - ⚠️ **실제 사건번호가 정확히 확인된 경우에만 인용하세요!**
+  - ✅ 올바른 예: "금융분쟁조정위원회 제2023-1234호 사례"
+  - ❌ 절대 금지: "금융분쟁조정위원회 제2023-XXX호" (마스킹 금지!)
+  - ❌ 절대 금지: "금융분쟁조정위원회 유사 사례" (사건번호 없이 사용 금지!)
+  - **실제 사건번호를 모르면 아예 분쟁사례를 언급하지 마세요!**
+  - 대신 정성적 표현 사용: "일부 분쟁 사례에서", "실무에서 자주 접하는 케이스" 등
+* **출처 명시:** 분쟁 사례 인용 시 반드시 **정확한 사건번호(예: 금융분쟁조정위원회 제2018-12호)**를 명시하여 신뢰도를 극대화하세요.
 * **예외 처리:** 데이터에 없는 내용은 "업계 평균 기준" 또는 "일반적인 사례"라고 명시하세요.
 
 ### E. [통계 사용 가이드 - 웹 검색 활용!]
@@ -121,7 +127,9 @@ ${diseaseCodes.slice(0, 15).map((disease: any) => `
 # 2. Writing Guidelines (작성 가이드라인)
 
 ### A. Structure (체류 시간을 늘리는 몰입형 구조)
-* **Hook (도입부):** 식상한 인사말 금지. [분쟁사례]의 충격적인 사건번호와 에피소드로 시작하거나 긴급 이슈로 시작하여 시선을 고정시키세요.
+* **Hook (도입부):** 식상한 인사말 금지. 
+  - **분쟁사례 사용 시:** ⚠️ **정확한 사건번호가 확인된 경우에만** "금융분쟁조정위원회 제2023-1234호"와 같이 정확한 번호로 시작하세요. 사건번호를 모르면 분쟁사례를 도입부에 사용하지 마세요!
+  - **대안:** 긴급 이슈, 실무 경험담, 질문형 도입 등으로 시선을 고정시키세요.
   - 단, 통계가 필요하면 정성적 표현 사용: "최근 급증하는", "빈번히 발생하는" 등
   
 * **Body (본문):** '기승전결'이 아닌 **'문제제기 -> 심층분석 -> 데이터검증 -> 함정피하기'** 흐름으로 전개하세요.
@@ -151,6 +159,8 @@ ${diseaseCodes.slice(0, 15).map((disease: any) => `
 
 ### A. [Logic Mapping] (문맥 -> 도식 매칭 규칙)
 1. **💰 '가격/수치' 비교:** 👉 **[Bar Chart SVG]** 또는 **[Table]** (보험료 데이터 반영 필수)
+   - 제목: "월보험료 비교" (❌ "데이터 시각화" 언급 금지)
+   - 차트/테이블 하단에 반드시 "※ ${age}세 / ${gender === '남' ? '남' : '여'} / 직업급수 1급기준" 표시
 2. **🧠 '보장 범위/포함 관계' 설명:** 👉 **[Venn Diagram]** 또는 **[Target Circle]**
 3. **⏳ '순서/절차/흐름' 설명:** 👉 **[Flowchart]** 또는 **[Roadmap Arrow]**
 4. **⚖️ '장단점/선택' 비교:** 👉 **[Balance Scale (저울)]** 또는 **[VS Card]**
@@ -196,22 +206,56 @@ ${diseaseCodes.slice(0, 15).map((disease: any) => `
     <!-- 상품명 컬럼 절대 없음! -->
   </tbody>
 </table>
+<p style="font-size: 12px; color: #6b7280; margin-top: 10px; text-align: center;">※ ${age}세 / ${gender === '남' ? '남' : '여'} / 직업급수 1급기준</p>
 \`\`\`
 
-**출처 섹션 작성 예시 (통계 사용 시):**
+**⚠️ 매우 중요:** 보험료가 표시되는 모든 곳(테이블, SVG 차트, 본문 텍스트) 아래에는 반드시 기준 정보를 표시하세요:
+- 테이블: 테이블 바로 아래에 작은 글씨로 "※ ${age}세 / ${gender === '남' ? '남' : '여'} / 직업급수 1급기준"
+- SVG 차트: 차트 제목은 "월보험료 비교" (❌ "데이터 시각화" 언급 금지), 차트 하단에 "※ ${age}세 / ${gender === '남' ? '남' : '여'} / 직업급수 1급기준" 표시
+- 본문에서 보험료 언급 시: 해당 문단 아래에 기준 정보 표시
+- 예: "30세 남성 기준 월 보험료는..." → 바로 아래에 "※ 30세 / 남 / 직업급수 1급기준" 표시
+
+**출처 섹션 작성 예시 (실제 사용한 자료만!):**
+
+**⚠️ 매우 중요: 실제로 본문에서 사용한 자료만 출처에 포함하세요!**
+
+**예시 1: 보험료 데이터만 사용한 경우 (질병 코드 미사용):**
 \`\`\`html
 <div class="box" style="background: #f0f9ff; margin-top: 50px;">
   <p><strong>📚 참고 자료 및 출처</strong></p>
   <ul style="line-height: 2; font-size: 14px; list-style: none; padding-left: 0;">
     <li style="margin-bottom: 10px;">
-      • 보험료 데이터: 자체 수집 데이터 (2024.12.04 기준)
+      • 보험료 데이터: 자체 수집 데이터 (${todayStr} 기준)
+    </li>
+  </ul>
+</div>
+\`\`\`
+
+**예시 2: 보험료 데이터 + 질병 코드 사용한 경우:**
+\`\`\`html
+<div class="box" style="background: #f0f9ff; margin-top: 50px;">
+  <p><strong>📚 참고 자료 및 출처</strong></p>
+  <ul style="line-height: 2; font-size: 14px; list-style: none; padding-left: 0;">
+    <li style="margin-bottom: 10px;">
+      • 보험료 데이터: 자체 수집 데이터 (${todayStr} 기준)
     </li>
     <li style="margin-bottom: 10px;">
       • 질병 코드: <a href="https://www.koicd.kr/" target="_blank" style="color: var(--primary); text-decoration: underline;">통계청 한국표준질병사인분류 KCD-9</a>
     </li>
-    <!-- 실제 사용한 통계가 있다면 여기에 추가 -->
+  </ul>
+</div>
+\`\`\`
+
+**예시 3: 외부 통계를 실제로 사용한 경우:**
+\`\`\`html
+<div class="box" style="background: #f0f9ff; margin-top: 50px;">
+  <p><strong>📚 참고 자료 및 출처</strong></p>
+  <ul style="line-height: 2; font-size: 14px; list-style: none; padding-left: 0;">
     <li style="margin-bottom: 10px;">
-      • 암 발생 통계: <a href="https://ncc.re.kr/cancerStatsView.ncc?bbsnum=578&searchKey=total&searchValue=&pageNum=1" target="_blank" style="color: var(--primary); text-decoration: underline;">국립암센터 「2023년 암등록통계 보고서」 PDF 다운로드</a>
+      • 보험료 데이터: 자체 수집 데이터 (${todayStr} 기준)
+    </li>
+    <li style="margin-bottom: 10px;">
+      • 암 발생 통계: <a href="https://cancer.go.kr/lay1/bbs/S1T674C675/B/62/view.do?article_seq=9876&cpage=1" target="_blank" style="color: var(--primary); text-decoration: underline;">국립암정보센터 「2023년 국가암등록통계」 (PDF 다운로드 가능)</a>
     </li>
   </ul>
   <p style="font-size: 13px; color: #333; margin-top: 15px; padding: 15px; background: #fff3cd; border-radius: 8px; line-height: 1.8;">
@@ -222,6 +266,14 @@ ${diseaseCodes.slice(0, 15).map((disease: any) => `
   </p>
 </div>
 \`\`\`
+
+**출처 작성 체크리스트:**
+- ✅ 본문에서 실제로 사용한 자료만 출처에 포함
+- ❌ 사용하지 않은 질병 코드를 출처에 포함하지 않음
+- ❌ 사용하지 않은 통계를 출처에 포함하지 않음
+- ✅ 보험료 데이터만 사용했다면 보험료 데이터만 출처에 표시
+- ✅ 질병 코드를 본문에서 언급했다면 출처에 포함
+- ✅ 외부 통계를 본문에서 인용했다면 출처에 포함
 
 ### B. Info Box (정보 박스 - 이모지 포함)
 * **Tip Box:** '💡 손해사정사의 꿀팁', '🔍 질병코드 체크' 등 제목 앞에 관련 이모지를 포함한 예쁜 디자인의 카드 박스.
@@ -447,9 +499,14 @@ tr:first-child td {
    - 🔍 질병코드 체크
 
 3. **SVG 다이어그램 1~2개** (선택)
-   - 보험료 막대 그래프
+   - 보험료 막대 그래프 (제목: "월보험료 비교" - "데이터 시각화" 언급 금지)
    - 보장 범위 벤 다이어그램
    - 청구 절차 플로우차트
+   
+**⚠️ SVG 차트 제목 규칙:**
+- ❌ "월보험료 비교 데이터 시각화"
+- ✅ "월보험료 비교"
+- 보험료 관련 차트는 반드시 차트 하단에 "※ ${age}세 / ${gender === '남' ? '남' : '여'} / 직업급수 1급기준" 표시
 
 ---
 
@@ -459,6 +516,11 @@ tr:first-child td {
 * **단정적 표현 금지:** "최고", "유일", "무조건", "100% 보장" 등
 * **익명화:** 보험사명은 A사, B사, C사로 익명화 (단, 보험료는 정확히!)
 * **상품명 노출 금지:** 테이블이나 본문에 실제 상품명 사용 금지
+* **분쟁사례 마스킹 절대 금지:** 
+  - ❌ "금융분쟁조정위원회 제2023-XXX호" (XXX 마스킹 금지!)
+  - ❌ "금융분쟁조정위원회 유사 사례" (사건번호 없이 사용 금지!)
+  - ✅ **정확한 사건번호가 확인된 경우에만** "금융분쟁조정위원회 제2023-1234호"와 같이 정확히 명시
+  - ✅ 사건번호를 모르면 분쟁사례를 아예 언급하지 말고, 대신 정성적 표현 사용
 
 ### B. 통계 및 수치 사용 규칙 (매우 중요!)
 **⚠️ 통계 수치 사용 시 반드시 지켜야 할 규칙:**
@@ -496,27 +558,52 @@ tr:first-child td {
    - ❌ 외부 통계: 출처 URL 없으면 사용 금지!
    - ❌ 백분율/퍼센트: 검증 불가능하면 사용 금지!
 
-### C. 면책 문구
-* 글 최하단에 필수 포함
-
-**출처 및 면책 문구 HTML (필수!):**
+### C. 출처 섹션 (출처가 있을 때만!)
 
 **[매우 중요] 출처 섹션 작성 규칙:**
 
-1. **기본 출처 (항상 포함):**
-\`\`\`html
-<div class="box" style="background: #f0f9ff; margin-top: 50px;">
-  <p><strong>📚 참고 자료 및 출처</strong></p>
-  <ul style="line-height: 2; font-size: 14px; list-style: none; padding-left: 0;">
-    <li style="margin-bottom: 10px;">
-      • 보험료 데이터: 자체 수집 데이터 (${todayStr} 기준)
-    </li>
-    <li style="margin-bottom: 10px;">
-      • 질병 코드: <a href="https://www.koicd.kr/" target="_blank" style="color: var(--primary); text-decoration: underline;">통계청 한국표준질병사인분류 KCD-9</a>
-    </li>
-\`\`\`
+1. **출처가 있는 경우에만 섹션 생성:**
+   - 통계, 데이터, 외부 자료를 **실제로 본문에서 사용한 경우에만** "참고 자료 및 출처" 섹션을 추가하세요.
+   - 출처가 전혀 없는 경우 이 섹션을 완전히 생략하세요.
+   - **⚠️ 매우 중요:** 본문에서 사용하지 않은 자료는 절대 출처에 포함하지 마세요!
+     - 예: 질병 코드를 본문에서 언급하지 않았다면 출처에 질병 코드를 포함하지 않음
+     - 예: 보험료 데이터만 사용했다면 보험료 데이터만 출처에 표시
+     - 예: 외부 통계를 사용하지 않았다면 통계 출처를 포함하지 않음
 
-2. **통계/데이터를 사용했다면 반드시 추가 (구체적 다운로드 URL!):**
+2. **출처 섹션 작성 규칙 (실제 사용한 자료만!):**
+   
+   **✅ 올바른 예시 1: 보험료 데이터만 사용한 경우 (질병 코드 미사용):**
+   \`\`\`html
+   <div class="box" style="background: #f0f9ff; margin-top: 50px;">
+     <p><strong>📚 참고 자료 및 출처</strong></p>
+     <ul style="line-height: 2; font-size: 14px; list-style: none; padding-left: 0;">
+       <li style="margin-bottom: 10px;">
+         • 보험료 데이터: 자체 수집 데이터 (${todayStr} 기준)
+       </li>
+     </ul>
+   </div>
+   \`\`\`
+   
+   **✅ 올바른 예시 2: 보험료 데이터 + 질병 코드를 본문에서 실제로 사용한 경우:**
+   \`\`\`html
+   <div class="box" style="background: #f0f9ff; margin-top: 50px;">
+     <p><strong>📚 참고 자료 및 출처</strong></p>
+     <ul style="line-height: 2; font-size: 14px; list-style: none; padding-left: 0;">
+       <li style="margin-bottom: 10px;">
+         • 보험료 데이터: 자체 수집 데이터 (${todayStr} 기준)
+       </li>
+       <li style="margin-bottom: 10px;">
+         • 질병 코드: <a href="https://www.koicd.kr/" target="_blank" style="color: var(--primary); text-decoration: underline;">통계청 한국표준질병사인분류 KCD-9</a>
+       </li>
+     </ul>
+   </div>
+   \`\`\`
+   
+   **❌ 잘못된 예시: 질병 코드를 본문에서 사용하지 않았는데 출처에 포함:**
+   - 본문에서 질병 코드(I63, I61 등)를 언급하지 않았다면 출처에 질병 코드를 포함하지 마세요!
+   - 보험료 데이터만 사용했다면 보험료 데이터만 출처에 표시하세요!
+
+3. **외부 통계를 실제로 사용했다면 반드시 추가 (구체적 다운로드 URL!):**
 
    **⚠️ 매우 중요:** URL은 메인 페이지가 아닌, **실제 PDF/Excel 파일을 다운로드할 수 있는 구체적인 페이지 링크**여야 합니다!
 
@@ -538,7 +625,9 @@ tr:first-child td {
    - 실제 자료실/게시판의 해당 글 링크 ✅
    - PDF/Excel 다운로드 버튼이 있는 페이지 ✅
 
-3. **출처 섹션 닫기:**
+4. **출처 섹션 닫기:**
+   - 보험료 데이터만 사용한 경우: \`</ul></div>\`로 끝
+   - 외부 통계를 사용한 경우에만 아래 "원본 자료 다운로드" 안내 추가:
 \`\`\`html
   </ul>
   <p style="font-size: 13px; color: #333; margin-top: 15px; padding: 15px; background: #fff3cd; border-radius: 8px; line-height: 1.8;">
@@ -550,13 +639,22 @@ tr:first-child td {
 </div>
 \`\`\`
 
-<!-- 면책 안내 -->
-<div class="box" style="margin-top: 30px; font-size: 13px; color: #9ca3af;">
-  <p><strong>※ 면책 안내</strong></p>
-  <p>본 콘텐츠는 일반적인 정보 제공 목적으로 작성되었으며, 개인의 상황에 따라 보장 내용이 달라질 수 있습니다. 
-  정확한 보장 내용은 약관을 확인하시거나 전문가와 상담하시기 바랍니다. 
-  보험료는 ${todayStr} 기준이며 변동될 수 있습니다.</p>
+**⚠️ 출처 작성 최종 체크리스트:**
+- [ ] 본문에서 실제로 사용한 자료만 출처에 포함했는가?
+- [ ] 질병 코드를 본문에서 언급하지 않았다면 출처에서 제외했는가?
+- [ ] 보험료 데이터만 사용했다면 보험료 데이터만 출처에 표시했는가?
+- [ ] 외부 통계를 사용하지 않았다면 통계 출처를 포함하지 않았는가?
+
+<!-- 필수안내사항 (본문에 1회 이상 노출 필수!) -->
+<div class="box" style="margin-top: 30px; font-size: 13px; color: #dc2626; background: #fef2f2; border-left: 4px solid #dc2626; padding: 20px;">
+  <p style="color: #dc2626; font-weight: 700; margin-bottom: 10px;">⚠️ 필수 안내사항</p>
+  <p style="color: #991b1b; line-height: 1.8;">
+    • 본 내용은 모집종사자 개인의 의견이며, 계약 체결에 따른 이익 또는 손실은 보험계약자 등에게 귀속됩니다.<br/>
+    • 보험사 및 상품별로 상이할 수 있으므로, 관련한 세부사항은 반드시 해당 약관을 참조하시기 바랍니다.<br/>
+    ${topInsurance.length > 0 ? '• 위 보험료는 보험나이, 성별, 직업에 따라 변동될 수 있는 예시입니다.<br/>' : ''}
+  </p>
 </div>
+
 \`\`\`
 
 ---
@@ -576,7 +674,8 @@ tr:first-child td {
 - [ ] 정성적 표현 사용 ("일부", "많은", "상당수")
 - [ ] 단정적 표현 금지 ("최고", "무조건")
 - [ ] A사/B사/C사 익명화
-- [ ] 면책 문구 포함
+- [ ] **분쟁사례: 정확한 사건번호만 사용 (XXX 마스킹 절대 금지!)**
+- [ ] 출처가 있을 때만 "참고 자료 및 출처" 섹션 포함
 
 **지금 바로 ${topic}에 대한 전문적인 보험 블로그 글을 작성하세요!**`
 }

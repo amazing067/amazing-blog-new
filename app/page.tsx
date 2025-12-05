@@ -66,7 +66,7 @@ export default function Home() {
                 고객의 소중한 정보를 안전하게 보호합니다
               </p>
             </div>
-          </div>
+        </div>
 
           <div className="mt-16">
             <Link
