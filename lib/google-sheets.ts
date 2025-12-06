@@ -19,6 +19,12 @@ export interface InsuranceComparison {
   totalPremium: number;
   rank: number;
   feature: string;
+  detailPremiums?: DetailPremium[];  // 세부 담보별 보험료 (선택사항)
+}
+
+export interface DetailPremium {
+  coverageName: string;  // 담보명 (예: 암보험, 입원보험)
+  premium: number;       // 해당 담보 보험료
 }
 
 export interface DiseaseCode {
@@ -41,27 +47,59 @@ export async function fetchSheetsData(): Promise<SheetsData> {
   try {
     const sheets = google.sheets({ version: 'v4', auth: GOOGLE_API_KEY });
 
-    // 2개 시트 동시에 읽기
+    // 3개 시트 동시에 읽기 (담보별 보험료 추가)
     const response = await sheets.spreadsheets.values.batchGet({
       spreadsheetId: GOOGLE_SHEETS_ID,
       ranges: [
         '보험료_전체_비교!A2:G',  // 헤더 제외
+        '담보별_보험료!A2:F',     // 담보별 보험료 시트 (선택사항)
         '질병분류표_주요!A2:D'
       ],
     });
 
-    const [comparisonsRange, diseaseCodesRange] = response.data.valueRanges || [];
+    const [comparisonsRange, detailPremiumsRange, diseaseCodesRange] = response.data.valueRanges || [];
 
-    // 보험료 비교 파싱 (전체 데이터)
-    const comparisons: InsuranceComparison[] = (comparisonsRange?.values || []).map(row => ({
-      age: parseInt(row[0]) || 0,
-      gender: row[1] || '',
-      company: row[2] || '',
-      productName: row[3] || '',
-      totalPremium: parseInt(String(row[4]).replace(/,/g, '')) || 0,
-      rank: parseInt(row[5]) || 0,
-      feature: row[6] || '',
-    }));
+    // 담보별 보험료 데이터 파싱 (연령, 성별, 담보명, 보험사, 보험료)
+    const detailPremiumsMap = new Map<string, DetailPremium[]>();
+    if (detailPremiumsRange?.values && detailPremiumsRange.values.length > 0) {
+      (detailPremiumsRange.values || []).forEach((row: any[]) => {
+        const age = parseInt(row[0]) || 0;
+        const gender = row[1] || '';
+        const coverageName = row[2] || '';  // 담보명
+        const company = row[4] || '';  // 보험사
+        const premium = parseInt(String(row[5] || '0').replace(/,/g, '')) || 0;  // 보험료
+        
+        if (age && gender && coverageName && premium && company) {
+          const key = `${age}_${gender}_${company}`;
+          if (!detailPremiumsMap.has(key)) {
+            detailPremiumsMap.set(key, []);
+          }
+          detailPremiumsMap.get(key)!.push({
+            coverageName,
+            premium
+          });
+        }
+      });
+    }
+
+    // 보험료 비교 파싱 (전체 데이터 + 담보별 보험료 연결)
+    const comparisons: InsuranceComparison[] = (comparisonsRange?.values || []).map(row => {
+      const age = parseInt(row[0]) || 0;
+      const gender = row[1] || '';
+      const company = row[2] || '';
+      const key = `${age}_${gender}_${company}`;
+      
+      return {
+        age,
+        gender,
+        company,
+        productName: row[3] || '',
+        totalPremium: parseInt(String(row[4]).replace(/,/g, '')) || 0,
+        rank: parseInt(row[5]) || 0,
+        feature: row[6] || '',
+        detailPremiums: detailPremiumsMap.get(key) || undefined,  // 세부 담보별 보험료 추가
+      };
+    });
 
     // 보험상품 목록 추출 (comparisons에서)
     const productsMap = new Map<string, InsuranceProduct>();
