@@ -113,46 +113,13 @@ export async function POST(request: NextRequest) {
     console.log('Google Custom Search 결과:', searchResults.length, '개')
     console.log('Google Grounding 활성화: 예')
 
-    // 7. 콘텐츠 생성 (Google Grounding 활성화)
-    // Google Grounding: Gemini가 자동으로 추가 웹 검색을 수행하여 최신 정보를 반영
-    // Google Custom Search: 우리가 제어하는 검색 결과를 프롬프트에 포함
-    // 두 가지를 함께 사용하여 더 풍부하고 정확한 정보 제공
+    // 7. 콘텐츠 생성
+    // Google Custom Search 결과를 프롬프트에 포함하여 최신 정보 반영
+    // (Google Grounding은 타입 오류로 인해 제거, Custom Search로 충분)
     
-    let result
-    try {
-      // Google Grounding 활성화 시도 (API가 지원하는 경우)
-      // google_search 도구 사용 (google_search_retrieval이 아님)
-      result = await model.generateContent({
-        contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        tools: [{
-          googleSearch: {}
-        }]
-      })
-      console.log('✅ Google Grounding 활성화 성공')
-    } catch (groundingError: any) {
-      // Grounding이 지원되지 않는 경우 일반 방식으로 폴백
-      console.warn('⚠️ Google Grounding 활성화 실패, 일반 모드로 전환:', groundingError.message)
-      result = await model.generateContent(prompt)
-    }
-    
+    const result = await model.generateContent(prompt)
     const response = await result.response
     let htmlContent = response.text()
-    
-    // Grounding 출처 추출 시도 (groundingMetadata가 있는 경우)
-    let groundingSources: any[] = []
-    try {
-      const groundingMetadata = response.groundingMetadata
-      if (groundingMetadata?.groundingChunks) {
-        groundingSources = groundingMetadata.groundingChunks.map((chunk: any) => ({
-          title: chunk.web?.title || 'Google Grounding 출처',
-          url: chunk.web?.uri || '',
-          organization: 'Google Grounding'
-        }))
-        console.log('Google Grounding 출처:', groundingSources.length, '개')
-      }
-    } catch (e) {
-      // Grounding 메타데이터가 없는 경우 무시
-    }
 
     // 코드 블록 제거
     htmlContent = htmlContent.replace(/```html\n?/g, '').replace(/```\n?/g, '').trim()
@@ -162,7 +129,7 @@ export async function POST(request: NextRequest) {
       console.warn('⚠️ DOCTYPE 없음. HTML 형식 아닐 수 있음')
     }
 
-    // 8. 출처 추출 (기존 출처 + Google Custom Search 출처 + Google Grounding 출처)
+    // 8. 출처 추출 (기존 출처 + Google Custom Search 출처)
     const extractedSources = extractSources(htmlContent)
     
     // 모든 출처 통합 (중복 제거)
@@ -180,24 +147,11 @@ export async function POST(request: NextRequest) {
       }
     })
     
-    // Google Grounding 출처 추가
-    groundingSources.forEach(groundingSource => {
-      const isDuplicate = allSources.some(s => s.url === groundingSource.url)
-      if (!isDuplicate && groundingSource.url) {
-        allSources.push({
-          title: groundingSource.title,
-          url: groundingSource.url,
-          organization: groundingSource.organization || 'Google Grounding'
-        })
-      }
-    })
-    
     const sourcesMarkdown = sourcesToMarkdown(allSources)
     
     console.log('생성 완료! HTML 길이:', htmlContent.length)
     console.log('추출된 출처:', extractedSources.length, '개')
     console.log('Google Custom Search 출처:', searchSources.length, '개')
-    console.log('Google Grounding 출처:', groundingSources.length, '개')
     console.log('총 출처:', allSources.length, '개')
 
     return NextResponse.json({
@@ -213,7 +167,6 @@ export async function POST(request: NextRequest) {
         wordCount: htmlContent.length,
         sourceCount: allSources.length,
         customSearchCount: searchResults.length,
-        groundingSourceCount: groundingSources.length,
         generatedAt: new Date().toISOString(),
       },
     })

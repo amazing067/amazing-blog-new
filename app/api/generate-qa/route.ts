@@ -59,8 +59,8 @@ export async function POST(request: NextRequest) {
       questionText = questionText.replace(/[\x00-\x1F\x7F]/g, '') // 기타 제어 문자 제거
 
       // 제목과 본문 분리
-      const titleMatch = questionText.match(/제목:\s*(.+?)(?:\n|본문:)/s)
-      const contentMatch = questionText.match(/본문:\s*(.+?)$/s)
+      const titleMatch = questionText.match(/제목:\s*([\s\S]+?)(?:\n|본문:)/)
+      const contentMatch = questionText.match(/본문:\s*([\s\S]+?)$/)
       
       finalQuestionTitle = titleMatch 
         ? titleMatch[1].trim().replace(/<ctrl\d+>/gi, '').replace(/[\x00-\x1F\x7F]/g, '')
