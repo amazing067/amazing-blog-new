@@ -1409,16 +1409,21 @@ h2 {
           isolation: 'isolate',
           position: 'relative',
           zIndex: 9999,
-          paddingTop: 0,
-          paddingBottom: 0,
-          paddingLeft: 0,
-          paddingRight: 0,
-          margin: 0,
+          paddingTop: '0px',
+          paddingBottom: '0px',
+          paddingLeft: '0px',
+          paddingRight: '0px',
+          margin: '0px',
+          marginTop: '0px',
+          marginBottom: '0px',
+          marginLeft: '0px',
+          marginRight: '0px',
           height: 'auto',
           minHeight: 'auto',
           maxHeight: 'none',
           lineHeight: 'normal',
-          boxSizing: 'border-box'
+          boxSizing: 'border-box',
+          overflow: 'visible'
         } : {}}
       >
         <div 
