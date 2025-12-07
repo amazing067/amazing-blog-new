@@ -111,11 +111,10 @@ export async function POST(request: NextRequest) {
 
     console.log('프롬프트 생성 완료, Gemini 호출 중...')
     console.log('Google Custom Search 결과:', searchResults.length, '개')
-    console.log('Google Grounding 활성화: 예')
+    console.log('Google Grounding: 비활성화 (타입 오류로 인해 제거, Custom Search 사용)')
 
     // 7. 콘텐츠 생성
     // Google Custom Search 결과를 프롬프트에 포함하여 최신 정보 반영
-    // (Google Grounding은 타입 오류로 인해 제거, Custom Search로 충분)
     
     const result = await model.generateContent(prompt)
     const response = await result.response
