@@ -27,13 +27,23 @@ export async function searchGoogle(
   const apiKey = process.env.GOOGLE_CUSTOM_SEARCH_API_KEY || process.env.GOOGLE_API_KEY
   const searchEngineId = process.env.GOOGLE_CUSTOM_SEARCH_ENGINE_ID
 
+  // 디버깅: 환경 변수 확인
+  console.log('🔍 Google Custom Search 환경 변수 확인:', {
+    hasCustomSearchKey: !!process.env.GOOGLE_CUSTOM_SEARCH_API_KEY,
+    hasGoogleApiKey: !!process.env.GOOGLE_API_KEY,
+    hasSearchEngineId: !!searchEngineId,
+    usingApiKey: apiKey ? `${apiKey.substring(0, 10)}...` : '없음',
+    searchEngineId: searchEngineId ? `${searchEngineId.substring(0, 10)}...` : '없음',
+    environment: process.env.NODE_ENV || 'unknown'
+  })
+
   if (!apiKey || !searchEngineId) {
-    console.warn('⚠️ Google Custom Search API 키가 설정되지 않았습니다.')
+    console.error('❌ Google Custom Search API 키 또는 검색 엔진 ID가 설정되지 않았습니다.')
     if (!apiKey) {
-      console.warn('   GOOGLE_CUSTOM_SEARCH_API_KEY 또는 GOOGLE_API_KEY를 설정해주세요.')
+      console.error('   GOOGLE_CUSTOM_SEARCH_API_KEY 또는 GOOGLE_API_KEY를 설정해주세요.')
     }
     if (!searchEngineId) {
-      console.warn('   GOOGLE_CUSTOM_SEARCH_ENGINE_ID를 설정해주세요.')
+      console.error('   GOOGLE_CUSTOM_SEARCH_ENGINE_ID를 설정해주세요.')
     }
     return {
       success: false,

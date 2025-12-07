@@ -76,9 +76,12 @@ export async function POST(request: NextRequest) {
     console.log(`관련 판례: ${relevantPrecedents.length}개 발견`)
     
     // 6. Google Custom Search로 최신 정보 검색
-    console.log('Google Custom Search 시작...')
+    console.log('🔍 Google Custom Search 시작:', { topic, keywords })
     const searchResults = await searchInsuranceTopics(topic, keywords, 3)
-    console.log(`검색 결과: ${searchResults.length}개 발견`)
+    console.log('✅ Google Custom Search 완료:', { 
+      resultCount: searchResults.length,
+      success: searchResults.length > 0 
+    })
     
     // 검색 결과를 프롬프트 형식으로 변환
     const searchResultsText = formatSearchResultsForPrompt(searchResults)

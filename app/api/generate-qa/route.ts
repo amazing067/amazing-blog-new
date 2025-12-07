@@ -26,9 +26,24 @@ export async function POST(request: NextRequest) {
     }
 
     console.log('Q&A 생성 시작:', { productName, targetPersona, worryPoint, sellingPoint })
+    
+    // 환경 변수 확인 (디버깅용)
+    const apiKey = process.env.GEMINI_API_KEY
+    if (!apiKey) {
+      console.error('GEMINI_API_KEY가 설정되지 않았습니다!')
+      return NextResponse.json(
+        { error: 'API 키가 설정되지 않았습니다. 서버 설정을 확인해주세요.' },
+        { status: 500 }
+      )
+    }
+    
+    // API 키 일부만 로그 (보안)
+    const apiKeyPreview = apiKey.substring(0, 10) + '...' + apiKey.substring(apiKey.length - 4)
+    console.log('Gemini API 키 확인:', apiKeyPreview, '(길이:', apiKey.length, ')')
+    console.log('환경:', process.env.NODE_ENV || 'unknown')
 
     // Gemini API 초기화
-    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!)
+    const genAI = new GoogleGenerativeAI(apiKey)
     
     // API 호출 헬퍼 함수 (재시도 및 폴백 로직 포함, 이미지 지원)
     const generateContentWithFallback = async (prompt: string, imageBase64?: string | null) => {
@@ -83,7 +98,14 @@ export async function POST(request: NextRequest) {
                               errorMessage.includes('quota') || 
                               errorMessage.includes('rate limit')
           
-          console.warn(`${modelName} 모델 호출 실패:`, errorMessage)
+          const errorCode = error?.code || error?.status || 'unknown'
+          console.error(`${modelName} 모델 호출 실패:`, {
+            model: modelName,
+            error: errorMessage,
+            code: errorCode,
+            isQuotaError,
+            stack: error?.stack?.substring(0, 200) // 처음 200자만
+          })
           
           // 할당량 에러이고 마지막 모델이 아니면 다음 모델로 시도
           if (isQuotaError && attempt < models.length - 1) {
