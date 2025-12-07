@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { Shield, LogOut, Sparkles, Copy, Send, FileDown, Clock, BookOpen, TrendingUp, ArrowLeft, UserCheck, History, BarChart3, FileText, Save, MessageSquare } from 'lucide-react'
+import { Shield, LogOut, Sparkles, Copy, Send, FileDown, Clock, BookOpen, TrendingUp, ArrowLeft, UserCheck, History, BarChart3, FileText, Save, MessageSquare, Image as ImageIcon } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import type { BlogPost } from '@/types/blog.types'
 import { TEMPLATE_TOPICS } from '@/lib/template-topics'
@@ -233,10 +233,11 @@ const TEMPLATES = [
   },
 ]
 
-export default function BlogGenerator({ profile }: { profile: Profile | null }) {
+export default function BlogGenerator({ profile: initialProfile }: { profile: Profile | null }) {
   const router = useRouter()
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const [activeTab, setActiveTab] = useState<'write' | 'history' | 'stats' | 'approval' | 'qa'>('write')
+  const [activeTab, setActiveTab] = useState<'write' | 'history' | 'stats' | 'approval' | 'qa' | 'image-analysis'>('write')
+  const [profile, setProfile] = useState<Profile | null>(initialProfile)
   const [formData, setFormData] = useState({
     topic: '',
     keywords: '',
@@ -256,6 +257,32 @@ export default function BlogGenerator({ profile }: { profile: Profile | null }) 
   const [isLoadingPosts, setIsLoadingPosts] = useState(false)
   const [isEditMode, setIsEditMode] = useState(false)
   const [editableHTML, setEditableHTML] = useState('')
+
+  // 현재 로그인한 사용자의 프로필 정보 다시 가져오기 (세션 업데이트 대응)
+  useEffect(() => {
+    const loadCurrentProfile = async () => {
+      try {
+        const supabase = createClient()
+        const { data: { user } } = await supabase.auth.getUser()
+        
+        if (user) {
+          const { data: profileData, error } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', user.id)
+            .single()
+          
+          if (!error && profileData) {
+            setProfile(profileData)
+          }
+        }
+      } catch (error) {
+        console.error('프로필 로드 오류:', error)
+      }
+    }
+    
+    loadCurrentProfile()
+  }, [])
 
   // 블로그 글 목록 불러오기
   useEffect(() => {
@@ -529,9 +556,9 @@ export default function BlogGenerator({ profile }: { profile: Profile | null }) 
         }
       }
       
-      // 심의필 이미지 자동 추가 (localStorage에서 가져오기)
-      if (typeof window !== 'undefined') {
-        const approvalImage = localStorage.getItem('approval_certificate_image')
+      // 심의필 이미지 자동 추가 (localStorage에서 가져오기, 사용자별)
+      if (typeof window !== 'undefined' && profile?.id) {
+        const approvalImage = localStorage.getItem(`approval_certificate_image_${profile.id}`)
         if (approvalImage) {
           // HTML 하단에 심의필 이미지 추가
           const approvalSection = `
@@ -1006,12 +1033,37 @@ h2 {
       {isEditMode && (
         <style dangerouslySetInnerHTML={{
           __html: `
+            /* 블로그 생성기 컨테이너 격리 */
+            .blog-generator-container {
+              isolation: isolate !important;
+              contain: layout style paint !important;
+              position: relative !important;
+              z-index: 1 !important;
+            }
+            
             /* 블로그 편집 영역 격리 - CSS Containment */
             .blog-editor {
-              isolation: isolate;
-              contain: layout style paint;
-              position: relative;
-              z-index: 1;
+              isolation: isolate !important;
+              contain: layout style paint !important;
+              position: relative !important;
+              z-index: 1 !important;
+            }
+            
+            /* Q&A 생성기 컨테이너 격리 */
+            .qa-generator-wrapper,
+            .qa-generator-container {
+              isolation: isolate !important;
+              contain: layout style paint !important;
+              position: relative !important;
+              z-index: 1 !important;
+            }
+            
+            .qa-question-container,
+            .qa-answer-container {
+              isolation: isolate !important;
+              contain: layout style paint !important;
+              position: relative !important;
+              z-index: 1 !important;
             }
             
             /* ★★★ 앱 헤더 완전 격리 - 비편집 모드 크기 유지 (최우선 적용) */
@@ -1647,15 +1699,33 @@ h2 {
               <FileText className="w-4 h-4" />
               📋 심의필 만들기
             </button>
+            <button
+              onClick={() => setActiveTab('image-analysis')}
+              className={`flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-semibold transition-all ${
+                activeTab === 'image-analysis'
+                  ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md'
+                  : 'text-gray-600 hover:bg-gray-100'
+              }`}
+            >
+              <ImageIcon className="w-4 h-4" />
+              🏥 전문 이미지 분석기
+            </button>
           </div>
         </div>
 
         {/* 탭 콘텐츠 */}
         {activeTab === 'write' && (
-        <div className="grid lg:grid-cols-5 gap-6 h-[calc(100vh-200px)] min-h-0" style={{ height: isEditMode ? 'calc(100vh - 120px)' : 'calc(100vh - 200px)' }}>
+        <div className="blog-generator-container grid lg:grid-cols-5 gap-6" style={{ 
+          contain: 'layout style paint',
+          isolation: 'isolate',
+          position: 'relative',
+          zIndex: 1,
+          alignItems: 'stretch',
+          alignItems: 'stretch'
+        }}>
           
           {/* 왼쪽 패널 - 입력 폼 (40%) */}
-          <div className="lg:col-span-2 space-y-4 overflow-y-auto">
+          <div className="lg:col-span-2 space-y-4 flex flex-col">
             
             {/* 템플릿 선택 */}
             <div className="bg-white rounded-xl shadow-lg p-4">
@@ -1872,7 +1942,14 @@ h2 {
           </div>
 
           {/* 오른쪽 패널 - 결과 미리보기 (60%) */}
-          <div className="lg:col-span-3 bg-white rounded-xl shadow-lg overflow-hidden flex flex-col h-full min-h-0" style={{ height: '100%', minHeight: 0 }}>
+          <div className="lg:col-span-3 bg-white rounded-xl shadow-lg flex flex-col" style={{ 
+            contain: 'layout style paint',
+            isolation: 'isolate',
+            position: 'relative',
+            zIndex: 1,
+            minHeight: 0,
+            maxHeight: '100%'
+          }}>
             {/* 액션 버튼 바 */}
             <div className="bg-gradient-to-r from-gray-50 to-gray-100 px-4 py-2 border-b flex justify-between items-center flex-shrink-0">
               <h3 className="text-base font-bold text-gray-800">결과 미리보기</h3>
@@ -1924,7 +2001,13 @@ h2 {
             </div>
 
             {/* 미리보기 영역 */}
-            <div className="flex-1 overflow-hidden flex flex-col min-h-0" style={{ height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', flex: '1 1 0%' }}>
+            <div className="flex flex-col min-h-0 flex-1" style={{ 
+              contain: 'layout style paint',
+              isolation: 'isolate',
+              position: 'relative',
+              zIndex: 1,
+              overflow: 'hidden'
+            }}>
               {!generatedHTML ? (
                 <div className="flex-1 flex flex-col items-center justify-center text-center p-6">
                   <div className="text-8xl mb-6">📝</div>
@@ -1944,11 +2027,24 @@ h2 {
                   </div>
                 </div>
               ) : (
-                <div className="flex-1 flex flex-col overflow-hidden min-h-0" style={{ height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', flex: '1 1 0%' }}>
+                <div className="flex-1 flex flex-col min-h-0" style={{ 
+                  contain: 'layout style paint',
+                  isolation: 'isolate',
+                  position: 'relative',
+                  zIndex: 1
+                }}>
                   {isEditMode ? (
-                    <div className="flex-1 overflow-hidden min-h-0 p-4 flex flex-col" style={{ height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', flex: '1 1 0%' }}>
+                    <div className="p-4 flex-1 min-h-0" style={{ 
+                      contain: 'layout style paint',
+                      isolation: 'isolate',
+                      position: 'relative',
+                      zIndex: 1,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      overflow: 'hidden'
+                    }}>
                       {/* 편집 도구 바 */}
-                      <div className="bg-white rounded-lg p-1.5 border-2 border-purple-300 shadow-md mb-1.5" style={{ flexShrink: 0 }}>
+                      <div className="bg-white rounded-lg p-1.5 border-2 border-purple-300 shadow-md mb-1.5 flex-shrink-0">
                         <div className="space-y-1">
                           {/* 첫 번째 줄: 텍스트 스타일 + 글씨 크기 */}
                           <div className="flex flex-wrap gap-1.5 items-center">
@@ -2148,10 +2244,22 @@ h2 {
                           </div>
                         </div>
                       </div>
-                      {/* 편집 가능한 미리보기 */}
-                      <div className="flex-1 overflow-hidden min-h-0" style={{ flex: '1 1 0%', minHeight: 0, height: '100%', display: 'flex', flexDirection: 'column' }}>
+                      {/* 편집 가능한 미리보기 - 비편집모드 iframe과 완전히 동일한 구조 */}
+                      <div 
+                        className="w-full border-0 rounded-lg bg-white flex-1"
+                        style={{ 
+                          contain: 'layout style paint',
+                          isolation: 'isolate',
+                          position: 'relative',
+                          zIndex: 1,
+                          width: '100%',
+                          minHeight: 0,
+                          flex: '1 1 0',
+                          overflow: 'auto'
+                        }}
+                      >
                         <div
-                          className="blog-editor bg-white rounded-lg p-6 w-full h-full overflow-y-auto border-2 border-purple-300 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                          className="blog-editor bg-white rounded-lg p-6 w-full border-2 border-purple-300 focus:outline-none focus:ring-2 focus:ring-purple-500"
                           contentEditable
                           spellCheck={false}
                           suppressContentEditableWarning={true}
@@ -2164,6 +2272,8 @@ h2 {
                                 el.style.contain = 'layout style paint'
                                 el.style.position = 'relative'
                                 el.style.zIndex = '1'
+                                el.style.height = 'auto'
+                                el.style.maxHeight = 'none'
                                 // 블로그 편집 영역의 스타일이 헤더에 영향을 주지 않도록
                                 const style = document.createElement('style')
                                 style.textContent = `
@@ -2189,10 +2299,11 @@ h2 {
                             outline: 'none',
                             wordBreak: 'break-word',
                             minHeight: 0,
-                            height: '100%',
+                            height: 'auto',
+                            maxHeight: 'none',
                             display: 'block',
-                            isolation: 'isolate', /* 편집 영역 격리 */
-                            contain: 'layout style paint', /* CSS containment으로 완전 격리 */
+                            isolation: 'isolate',
+                            contain: 'layout style paint',
                             position: 'relative',
                             zIndex: 1
                           }}
@@ -2200,12 +2311,20 @@ h2 {
                       </div>
                     </div>
                   ) : (
-                    <div className="flex-1 overflow-hidden min-h-0 p-4">
+                    <div className="p-4 flex-1 min-h-0" style={{ 
+                      contain: 'layout style paint',
+                      isolation: 'isolate',
+                      position: 'relative',
+                      zIndex: 1,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      overflow: 'hidden'
+                    }}>
                       <iframe
                         srcDoc={generatedHTML}
-                        className="w-full h-full border-0 rounded-lg bg-white"
+                        className="w-full border-0 rounded-lg bg-white flex-1"
                         title="미리보기"
-                        style={{ height: '100%', width: '100%', minHeight: 0 }}
+                        style={{ width: '100%', minHeight: 0, flex: '1 1 0', overflow: 'auto' }}
                       />
                     </div>
                   )}
@@ -2378,9 +2497,391 @@ h2 {
 
         {/* Q&A 생성기 탭 */}
         {activeTab === 'qa' && (
+        <div className="qa-generator-wrapper" style={{ 
+          contain: 'layout style paint',
+          isolation: 'isolate',
+          position: 'relative',
+          zIndex: 1
+        }}>
           <QAGenerator profile={profile} />
+        </div>
+        )}
+
+        {/* 전문 이미지 분석기 탭 */}
+        {activeTab === 'image-analysis' && (
+        <div className="max-w-5xl mx-auto">
+          <ImageAnalyzer profile={profile} />
+        </div>
         )}
       </main>
+    </div>
+  )
+}
+
+// 전문 이미지 분석기 컴포넌트
+function ImageAnalyzer({ profile }: { profile: Profile | null }) {
+  const [selectedImage, setSelectedImage] = useState<string | null>(null)
+  const [isAnalyzing, setIsAnalyzing] = useState(false)
+  const [analysisResult, setAnalysisResult] = useState<any>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [isDragging, setIsDragging] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const handleImageSelect = () => {
+    fileInputRef.current?.click()
+  }
+
+  const processImageFile = async (file: File) => {
+    // 이미지 파일만 허용
+    if (!file.type.startsWith('image/')) {
+      alert('이미지 파일만 업로드 가능합니다.')
+      return
+    }
+
+    const reader = new FileReader()
+    reader.onloadend = async () => {
+      const base64String = reader.result as string
+      setSelectedImage(base64String)
+      setAnalysisResult(null)
+      setError(null)
+      
+      // 자동으로 분석 시작
+      await handleAnalyze(base64String)
+    }
+    reader.readAsDataURL(file)
+  }
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    await processImageFile(file)
+  }
+
+  // 드래그 앤 드롭 핸들러
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragging(true)
+  }
+
+  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragging(false)
+  }
+
+  const handleDrop = async (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragging(false)
+
+    const files = e.dataTransfer.files
+    if (files && files.length > 0) {
+      const file = files[0]
+      await processImageFile(file)
+    }
+  }
+
+  const handleAnalyze = async (imageBase64?: string) => {
+    const imageToAnalyze = imageBase64 || selectedImage
+    if (!imageToAnalyze) {
+      alert('이미지를 먼저 업로드해주세요.')
+      return
+    }
+
+    setIsAnalyzing(true)
+    setError(null)
+
+    try {
+      const response = await fetch('/api/analyze-medical-image', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ imageBase64: imageToAnalyze }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || '이미지 분석 중 오류가 발생했습니다.')
+      }
+
+      if (data.success) {
+        setAnalysisResult(data.data)
+      } else {
+        throw new Error('분석 결과를 받아오지 못했습니다.')
+      }
+    } catch (error: any) {
+      console.error('이미지 분석 오류:', error)
+      setError(error.message || '이미지 분석 중 오류가 발생했습니다.')
+    } finally {
+      setIsAnalyzing(false)
+    }
+  }
+
+  const handleCopy = (text: string) => {
+    navigator.clipboard.writeText(text)
+    alert('복사되었습니다!')
+  }
+
+  return (
+    <div className="bg-white rounded-xl shadow-lg p-8">
+      <h2 className="text-2xl font-bold text-gray-800 mb-6 flex items-center gap-3">
+        <ImageIcon className="w-7 h-7 text-blue-600" />
+        전문 이미지 분석기
+      </h2>
+
+      <div className="mb-6">
+        <p className="text-gray-600 mb-4">
+          의료 영수증(진료비 세부산정내역서) 또는 병리 검사 보고서 이미지를 업로드하면, 
+          질병명, 보험금 계산, 고객 설명 가이드를 자동으로 생성해드립니다.
+        </p>
+
+        {/* 이미지 업로드 영역 */}
+        <div 
+          className={`border-2 border-dashed rounded-lg p-8 text-center transition-all ${
+            isDragging 
+              ? 'border-blue-500 bg-blue-50 scale-[1.02]' 
+              : 'border-gray-300 hover:border-blue-400 bg-white'
+          }`}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+        >
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            onChange={handleImageUpload}
+            className="hidden"
+          />
+          
+          {!selectedImage ? (
+            <div>
+              <ImageIcon className={`w-16 h-16 mx-auto mb-4 transition-colors ${
+                isDragging ? 'text-blue-500' : 'text-gray-400'
+              }`} />
+              <p className={`mb-2 transition-colors ${
+                isDragging ? 'text-blue-700 font-semibold' : 'text-gray-600'
+              }`}>
+                {isDragging ? '📎 여기에 이미지를 놓아주세요' : '이미지를 드래그 앤 드롭하거나 선택하세요'}
+              </p>
+              <button
+                onClick={handleImageSelect}
+                className="px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-semibold rounded-lg hover:shadow-lg transition-all"
+              >
+                📁 이미지 선택
+              </button>
+            </div>
+          ) : (
+            <div>
+              <img
+                src={selectedImage}
+                alt="업로드된 이미지"
+                className="max-w-full max-h-96 mx-auto mb-4 rounded-lg shadow-md"
+              />
+              <div className="flex gap-3 justify-center">
+                <button
+                  onClick={handleImageSelect}
+                  className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
+                >
+                  🔄 다른 이미지 선택
+                </button>
+                {!isAnalyzing && (
+                  <button
+                    onClick={() => handleAnalyze()}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                  >
+                    🔍 다시 분석
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* 분석 중 */}
+      {isAnalyzing && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-6 text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-blue-700 font-semibold">이미지를 분석하고 있습니다...</p>
+          <p className="text-blue-600 text-sm mt-2">잠시만 기다려주세요.</p>
+        </div>
+      )}
+
+      {/* 오류 메시지 */}
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
+          <p className="text-red-700 font-semibold">오류 발생</p>
+          <p className="text-red-600 text-sm mt-1">{error}</p>
+        </div>
+      )}
+
+      {/* 분석 결과 */}
+      {analysisResult && !isAnalyzing && (
+        <div className="space-y-6">
+          {/* 문서 정보 */}
+          <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-lg p-6">
+            <h3 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+              📄 문서 정보
+            </h3>
+            <div className="grid md:grid-cols-2 gap-4">
+              <div>
+                <p className="text-sm text-gray-600 mb-1">문서 종류</p>
+                <p className="font-semibold text-gray-800">{analysisResult.documentType || '미확인'}</p>
+              </div>
+              {analysisResult.patientInfo?.name && (
+                <div>
+                  <p className="text-sm text-gray-600 mb-1">환자명</p>
+                  <p className="font-semibold text-gray-800">{analysisResult.patientInfo.name}</p>
+                </div>
+              )}
+              {analysisResult.medicalInfo?.hospitalName && (
+                <div>
+                  <p className="text-sm text-gray-600 mb-1">병원명</p>
+                  <p className="font-semibold text-gray-800">{analysisResult.medicalInfo.hospitalName}</p>
+                </div>
+              )}
+              {analysisResult.medicalInfo?.diagnosis && analysisResult.medicalInfo.diagnosis.length > 0 && (
+                <div>
+                  <p className="text-sm text-gray-600 mb-1">진단명</p>
+                  <p className="font-semibold text-gray-800">
+                    {analysisResult.medicalInfo.diagnosis.join(', ')}
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* 진료비 정보 */}
+          {analysisResult.expenses && Object.keys(analysisResult.expenses).length > 0 && (
+            <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-lg p-6">
+              <h3 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+                💰 진료비 정보
+              </h3>
+              <div className="grid md:grid-cols-3 gap-4">
+                {analysisResult.expenses.totalAmount && (
+                  <div>
+                    <p className="text-sm text-gray-600 mb-1">총 진료비</p>
+                    <p className="text-2xl font-bold text-gray-800">
+                      {parseInt(analysisResult.expenses.totalAmount).toLocaleString()}원
+                    </p>
+                  </div>
+                )}
+                {analysisResult.expenses.patientShare && (
+                  <div>
+                    <p className="text-sm text-gray-600 mb-1">본인부담금</p>
+                    <p className="text-2xl font-bold text-red-600">
+                      {parseInt(analysisResult.expenses.patientShare).toLocaleString()}원
+                    </p>
+                  </div>
+                )}
+                {analysisResult.expenses.coveredAmount && (
+                  <div>
+                    <p className="text-sm text-gray-600 mb-1">급여 총액 (공단 부담)</p>
+                    <p className="text-2xl font-bold text-blue-600">
+                      {parseInt(analysisResult.expenses.coveredAmount).toLocaleString()}원
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* 보험금 분석 */}
+          {analysisResult.insuranceAnalysis && Object.keys(analysisResult.insuranceAnalysis).length > 0 && (
+            <div className="bg-gradient-to-br from-purple-50 to-pink-50 rounded-lg p-6">
+              <h3 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+                🏥 보험금 분석
+              </h3>
+              {analysisResult.insuranceAnalysis.applicableInsurance && (
+                <div className="mb-4">
+                  <p className="text-sm text-gray-600 mb-2">적용 가능한 보험</p>
+                  <div className="flex flex-wrap gap-2">
+                    {analysisResult.insuranceAnalysis.applicableInsurance.map((insurance: string, idx: number) => (
+                      <span
+                        key={idx}
+                        className="px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-sm font-semibold"
+                      >
+                        {insurance}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {analysisResult.insuranceAnalysis.estimatedInsuranceAmount && (
+                <div className="mb-4">
+                  <p className="text-sm text-gray-600 mb-1">예상 보험금</p>
+                  <p className="text-3xl font-bold text-purple-700">
+                    {typeof analysisResult.insuranceAnalysis.estimatedInsuranceAmount === 'string' 
+                      ? analysisResult.insuranceAnalysis.estimatedInsuranceAmount
+                      : parseInt(analysisResult.insuranceAnalysis.estimatedInsuranceAmount).toLocaleString() + '원'}
+                  </p>
+                </div>
+              )}
+              {analysisResult.insuranceAnalysis.calculationBasis && (
+                <div className="mb-4">
+                  <p className="text-sm text-gray-600 mb-1">계산 근거</p>
+                  <p className="text-gray-800">{analysisResult.insuranceAnalysis.calculationBasis}</p>
+                </div>
+              )}
+              {analysisResult.insuranceAnalysis.notes && (
+                <div>
+                  <p className="text-sm text-gray-600 mb-1">특이사항</p>
+                  <p className="text-gray-800">{analysisResult.insuranceAnalysis.notes}</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 고객 설명 가이드 */}
+          {analysisResult.customerGuidance && Object.keys(analysisResult.customerGuidance).length > 0 && (
+            <div className="bg-gradient-to-br from-yellow-50 to-orange-50 rounded-lg p-6">
+              <h3 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+                💬 고객 설명 가이드
+              </h3>
+              {analysisResult.customerGuidance.explanation && (
+                <div className="mb-4">
+                  <p className="text-sm text-gray-600 mb-2">설명 내용</p>
+                  <div className="bg-white rounded-lg p-4 border border-yellow-200">
+                    <p className="text-gray-800 whitespace-pre-wrap leading-relaxed">
+                      {analysisResult.customerGuidance.explanation}
+                    </p>
+                    <button
+                      onClick={() => handleCopy(analysisResult.customerGuidance.explanation)}
+                      className="mt-3 px-3 py-1 bg-yellow-100 text-yellow-700 rounded text-sm hover:bg-yellow-200 transition-colors"
+                    >
+                      📋 복사
+                    </button>
+                  </div>
+                </div>
+              )}
+              {analysisResult.customerGuidance.nextSteps && analysisResult.customerGuidance.nextSteps.length > 0 && (
+                <div className="mb-4">
+                  <p className="text-sm text-gray-600 mb-2">다음 단계</p>
+                  <ul className="list-disc list-inside space-y-1 text-gray-800">
+                    {analysisResult.customerGuidance.nextSteps.map((step: string, idx: number) => (
+                      <li key={idx}>{step}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {analysisResult.customerGuidance.importantNotes && analysisResult.customerGuidance.importantNotes.length > 0 && (
+                <div>
+                  <p className="text-sm text-gray-600 mb-2">주의사항</p>
+                  <ul className="list-disc list-inside space-y-1 text-gray-800">
+                    {analysisResult.customerGuidance.importantNotes.map((note: string, idx: number) => (
+                      <li key={idx} className="text-orange-700">{note}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -3024,9 +3525,19 @@ function QAGenerator({ profile }: { profile: Profile | null }) {
 
       {/* 결과 미리보기 */}
       {(generatedQuestion || generatedAnswer) && (
-        <div className="grid md:grid-cols-2 gap-6">
+        <div className="qa-generator-container grid md:grid-cols-2 gap-6" style={{ 
+          contain: 'layout style paint',
+          isolation: 'isolate',
+          position: 'relative',
+          zIndex: 1
+        }}>
           {/* 질문 영역 */}
-          <div className="bg-gray-50 rounded-xl shadow-lg p-6">
+          <div className="qa-question-container bg-gray-50 rounded-xl shadow-lg p-6" style={{ 
+            contain: 'layout style paint',
+            isolation: 'isolate',
+            position: 'relative',
+            zIndex: 1
+          }}>
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
                 <MessageSquare className="w-5 h-5 text-blue-600" />
@@ -3065,7 +3576,12 @@ function QAGenerator({ profile }: { profile: Profile | null }) {
           </div>
 
           {/* 답변 영역 */}
-          <div className="bg-blue-50 rounded-xl shadow-lg p-6">
+          <div className="qa-answer-container bg-white rounded-xl shadow-lg p-6" style={{ 
+            contain: 'layout style paint',
+            isolation: 'isolate',
+            position: 'relative',
+            zIndex: 1
+          }}>
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
                 <UserCheck className="w-5 h-5 text-indigo-600" />
@@ -3090,9 +3606,23 @@ function QAGenerator({ profile }: { profile: Profile | null }) {
               </div>
             </div>
             {generatedAnswer ? (
-              <div className="text-gray-700 leading-relaxed">
+              <div className="text-gray-800">
                 {generatedAnswer.split(/\n\n+/).filter(p => p.trim()).map((paragraph, idx) => (
-                  <p key={idx} className="mb-4 last:mb-0">
+                  <p
+                    key={idx}
+                    className="mb-5 last:mb-0"
+                    style={{
+                      whiteSpace: 'pre-wrap',
+                      wordBreak: 'break-word',
+                      overflowWrap: 'break-word',
+                      lineHeight: '1.95',
+                      fontSize: '15px',
+                      color: '#374151',
+                      maxWidth: '100%',
+                      letterSpacing: '0.01em',
+                      paddingBottom: '0'
+                    }}
+                  >
                     {paragraph.trim()}
                   </p>
                 ))}
@@ -3111,32 +3641,68 @@ function QAGenerator({ profile }: { profile: Profile | null }) {
 
 // 심의필 생성 컴포넌트
 function ApprovalGenerator({ profile }: { profile: Profile | null }) {
-  // 로컬스토리지에서 저장된 등록번호 불러오기
+  // 사용자별 localStorage 키 생성
+  const getStorageKey = (key: string): string => {
+    if (!profile?.id) return key
+    return `${key}_${profile.id}`
+  }
+
+  // 로컬스토리지에서 저장된 등록번호 불러오기 (사용자별)
   const getStoredRegistrationNumber = (): string => {
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem('insurance_registration_number') || ''
+    if (typeof window !== 'undefined' && profile?.id) {
+      return localStorage.getItem(getStorageKey('insurance_registration_number')) || ''
     }
     return ''
   }
 
-  // 로컬스토리지에서 저장된 지점명 불러오기
+  // 로컬스토리지에서 저장된 지점명 불러오기 (사용자별)
   const getStoredBranchName = (): string => {
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem('insurance_branch_name') || ''
+    if (typeof window !== 'undefined' && profile?.id) {
+      return localStorage.getItem(getStorageKey('insurance_branch_name')) || ''
     }
     return ''
   }
 
   const [formData, setFormData] = useState({
     companyName: '프라임에셋', // 고정
-    branchName: getStoredBranchName(),
+    branchName: '',
     designerName: profile?.full_name || '',
-    registrationNumber: getStoredRegistrationNumber(),
+    registrationNumber: '',
     approvalNumber: '',
     approvalStartDate: '2026.00.00',
     approvalEndDate: '2027.00.00',
     includeWarning: true,
   })
+
+  // 사용자 변경 시 또는 초기 로드 시 저장된 데이터 불러오기
+  useEffect(() => {
+    if (profile?.id) {
+      const storedBranchName = getStoredBranchName()
+      const storedRegistrationNumber = getStoredRegistrationNumber()
+      
+      setFormData(prev => ({
+        ...prev,
+        branchName: storedBranchName,
+        designerName: profile.full_name || '',
+        registrationNumber: storedRegistrationNumber,
+        // 처음 들어올 때는 초기값으로 설정 (저장된 값이 없으면 빈 값)
+        approvalNumber: '',
+        approvalStartDate: '2026.00.00',
+        approvalEndDate: '2027.00.00',
+      }))
+    } else {
+      // 프로필이 없으면 초기화
+      setFormData(prev => ({
+        ...prev,
+        branchName: '',
+        designerName: '',
+        registrationNumber: '',
+        approvalNumber: '',
+        approvalStartDate: '2026.00.00',
+        approvalEndDate: '2027.00.00',
+      }))
+    }
+  }, [profile?.id, profile?.full_name])
 
   const [previewImage, setPreviewImage] = useState<string | null>(null)
   const [logoImage, setLogoImage] = useState<HTMLImageElement | null>(null)
@@ -3163,14 +3729,14 @@ function ApprovalGenerator({ profile }: { profile: Profile | null }) {
     setFormData((prev) => {
       const newData = { ...prev, [field]: value }
       
-      // 등록번호가 변경되면 로컬스토리지에 저장
-      if (field === 'registrationNumber' && typeof window !== 'undefined') {
-        localStorage.setItem('insurance_registration_number', value as string)
+      // 등록번호가 변경되면 로컬스토리지에 저장 (사용자별)
+      if (field === 'registrationNumber' && typeof window !== 'undefined' && profile?.id) {
+        localStorage.setItem(getStorageKey('insurance_registration_number'), value as string)
       }
       
-      // 지점명이 변경되면 로컬스토리지에 저장
-      if (field === 'branchName' && typeof window !== 'undefined') {
-        localStorage.setItem('insurance_branch_name', value as string)
+      // 지점명이 변경되면 로컬스토리지에 저장 (사용자별)
+      if (field === 'branchName' && typeof window !== 'undefined' && profile?.id) {
+        localStorage.setItem(getStorageKey('insurance_branch_name'), value as string)
       }
       
       return newData
@@ -3179,8 +3745,8 @@ function ApprovalGenerator({ profile }: { profile: Profile | null }) {
   }
 
   const handleSaveRegistrationNumber = () => {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('insurance_registration_number', formData.registrationNumber)
+    if (typeof window !== 'undefined' && profile?.id) {
+      localStorage.setItem(getStorageKey('insurance_registration_number'), formData.registrationNumber)
       setIsEditingRegistration(false)
       alert('협회등록번호가 저장되었습니다.')
     }
@@ -3191,8 +3757,8 @@ function ApprovalGenerator({ profile }: { profile: Profile | null }) {
   }
 
   const handleSaveBranchName = () => {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('insurance_branch_name', formData.branchName)
+    if (typeof window !== 'undefined' && profile?.id) {
+      localStorage.setItem(getStorageKey('insurance_branch_name'), formData.branchName)
       setIsEditingBranch(false)
       alert('지점명이 저장되었습니다.')
     }
@@ -3381,9 +3947,9 @@ function ApprovalGenerator({ profile }: { profile: Profile | null }) {
     const imageData = canvas.toDataURL('image/png')
     setPreviewImage(imageData)
     
-    // localStorage에 심의필 이미지 저장
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('approval_certificate_image', imageData)
+    // localStorage에 심의필 이미지 저장 (사용자별)
+    if (typeof window !== 'undefined' && profile?.id) {
+      localStorage.setItem(getStorageKey('approval_certificate_image'), imageData)
     }
   }
 
@@ -3435,7 +4001,7 @@ function ApprovalGenerator({ profile }: { profile: Profile | null }) {
                       value={formData.branchName}
                       onChange={(e) => handleInputChange('branchName', e.target.value)}
                       className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent mb-1.5"
-                      placeholder="예: 강남지점"
+                      placeholder="예: 광진2지점"
                     />
                     <div className="flex gap-1.5">
                       <button

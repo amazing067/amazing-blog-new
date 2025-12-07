@@ -111,10 +111,11 @@ export async function POST(request: NextRequest) {
 
     console.log('프롬프트 생성 완료, Gemini 호출 중...')
     console.log('Google Custom Search 결과:', searchResults.length, '개')
-    console.log('Google Grounding: 비활성화 (타입 오류로 인해 제거, Custom Search 사용)')
+    console.log('Google Grounding: 비활성화 (현재 SDK 버전에서 지원하지 않음, Custom Search만 사용)')
 
     // 7. 콘텐츠 생성
     // Google Custom Search 결과를 프롬프트에 포함하여 최신 정보 반영
+    // 현재 SDK 버전에서는 Grounding API를 직접 지원하지 않으므로 Custom Search만 사용
     
     const result = await model.generateContent(prompt)
     const response = await result.response
@@ -128,7 +129,7 @@ export async function POST(request: NextRequest) {
       console.warn('⚠️ DOCTYPE 없음. HTML 형식 아닐 수 있음')
     }
 
-    // 8. 출처 추출 (기존 출처 + Google Custom Search 출처)
+    // 8. 출처 추출 (기존 출처 + Google Custom Search 출처 + Grounding 출처)
     const extractedSources = extractSources(htmlContent)
     
     // 모든 출처 통합 (중복 제거)

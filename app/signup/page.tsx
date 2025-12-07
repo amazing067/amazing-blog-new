@@ -25,8 +25,34 @@ export default function SignupPage() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState('')
 
+  // 전화번호 포맷팅 함수 (010-0000-0000 형식)
+  const formatPhoneNumber = (value: string): string => {
+    // 숫자만 추출
+    const numbers = value.replace(/[^\d]/g, '')
+    
+    // 최대 11자리까지만 허용
+    const limitedNumbers = numbers.slice(0, 11)
+    
+    // 포맷팅 적용
+    if (limitedNumbers.length <= 3) {
+      return limitedNumbers
+    } else if (limitedNumbers.length <= 7) {
+      return `${limitedNumbers.slice(0, 3)}-${limitedNumbers.slice(3)}`
+    } else {
+      return `${limitedNumbers.slice(0, 3)}-${limitedNumbers.slice(3, 7)}-${limitedNumbers.slice(7)}`
+    }
+  }
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target
+    
+    // 전화번호인 경우 자동 포맷팅 적용
+    if (name === 'phone') {
+      const formatted = formatPhoneNumber(value)
+      setFormData((prev) => ({ ...prev, [name]: formatted }))
+      return
+    }
+    
     setFormData((prev) => ({ ...prev, [name]: value }))
     
     // 아이디가 변경되면 중복확인 초기화
@@ -174,7 +200,23 @@ export default function SignupPage() {
       console.log('Auth 회원가입 성공:', authData.user?.id)
 
       if (authData.user) {
-        // 2. profiles 테이블에 추가 정보 저장
+        // 2. 프로필이 이미 존재하는지 먼저 확인
+        const { data: existingProfile, error: checkError } = await supabase
+          .from('profiles')
+          .select('id, username, email, is_approved')
+          .eq('id', authData.user.id)
+          .single()
+        
+        // 프로필이 이미 존재하는 경우 성공으로 처리 (이전 회원가입 시도 중 이미 생성되었을 수 있음)
+        if (existingProfile && !checkError) {
+          console.log('프로필이 이미 존재합니다. 회원가입 성공으로 처리:', existingProfile)
+          // 성공 알림 및 로그인 페이지로 이동
+          alert('회원가입이 완료되었습니다. 관리자 승인 대기 중입니다.')
+          router.push('/login')
+          return
+        }
+        
+        // 3. profiles 테이블에 추가 정보 저장
         const { error: profileError } = await supabase.from('profiles').insert({
           id: authData.user.id,
           username: formData.username,
@@ -193,14 +235,28 @@ export default function SignupPage() {
             hint: profileError.hint,
           })
           
-          // 에러 메시지를 한글로 변환
-          let koreanMessage = '프로필 생성 중 오류가 발생했습니다'
-          
+          // 중복 키 오류(23505)인 경우 - username이나 email이 다른 사용자와 중복
           if (profileError.code === '23505') {
-            koreanMessage = '이미 사용 중인 아이디입니다'
+            // 프로필이 존재하는지 다시 한 번 확인 (동시성 문제 대비)
+            const { data: retryProfile, error: retryError } = await supabase
+              .from('profiles')
+              .select('id, username, email')
+              .eq('id', authData.user.id)
+              .single()
+            
+            if (retryProfile && !retryError) {
+              console.log('프로필이 이미 존재합니다. 회원가입 성공으로 처리:', retryProfile)
+              alert('회원가입이 완료되었습니다. 관리자 승인 대기 중입니다.')
+              router.push('/login')
+              return
+            }
+            
+            // 다른 사용자의 username이나 email이 중복된 경우
+            throw new Error('이미 사용 중인 아이디 또는 이메일입니다')
           }
           
-          throw new Error(koreanMessage)
+          // 다른 오류인 경우
+          throw new Error('프로필 생성 중 오류가 발생했습니다')
         }
 
         console.log('프로필 생성 성공')
@@ -331,7 +387,8 @@ export default function SignupPage() {
                 value={formData.phone}
                 onChange={handleChange}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1e293b]"
-                placeholder="010-1234-5678"
+                placeholder="010-0000-0000"
+                maxLength={13}
                 required
               />
             </div>
