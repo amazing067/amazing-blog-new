@@ -94,22 +94,31 @@ export async function POST(request: NextRequest) {
           return response.text().trim()
         } catch (error: any) {
           const errorMessage = error?.message || ''
-          const isQuotaError = errorMessage.includes('429') || 
-                              errorMessage.includes('quota') || 
-                              errorMessage.includes('rate limit')
+          const errorString = JSON.stringify(error || {})
+          
+          // 429 에러 또는 할당량 관련 에러 감지 (더 포괄적으로)
+          const isQuotaError = 
+            errorMessage.includes('429') || 
+            errorMessage.includes('quota') || 
+            errorMessage.includes('rate limit') ||
+            errorMessage.includes('Too Many Requests') ||
+            errorMessage.includes('exceeded') ||
+            errorString.includes('free_tier') ||
+            errorString.includes('QuotaFailure')
           
           const errorCode = error?.code || error?.status || 'unknown'
           console.error(`${modelName} 모델 호출 실패:`, {
             model: modelName,
-            error: errorMessage,
+            error: errorMessage.substring(0, 500), // 처음 500자만
             code: errorCode,
             isQuotaError,
-            stack: error?.stack?.substring(0, 200) // 처음 200자만
+            hasFreeTier: errorString.includes('free_tier')
           })
           
           // 할당량 에러이고 마지막 모델이 아니면 다음 모델로 시도
           if (isQuotaError && attempt < models.length - 1) {
-            console.log(`할당량 초과로 인해 ${models[attempt + 1]} 모델로 폴백 시도...`)
+            const nextModel = models[attempt + 1]
+            console.log(`⚠️ ${modelName} 할당량 초과 → ${nextModel} 모델로 폴백 시도...`)
             // 짧은 대기 후 재시도
             await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)))
             continue

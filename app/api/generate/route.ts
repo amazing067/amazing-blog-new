@@ -89,11 +89,62 @@ export async function POST(request: NextRequest) {
     // 검색 결과에서 출처 추출 (나중에 출처 섹션에 추가)
     const searchSources = extractSourcesFromSearchResults(searchResults)
 
-    // 6. Gemini API 호출
+    // 6. Gemini API 호출 (폴백 로직 포함)
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!)
-    const model = genAI.getGenerativeModel({ 
-      model: 'gemini-2.5-pro'  // 최고 품질 모델
-    })
+    
+    // API 호출 헬퍼 함수 (재시도 및 폴백 로직 포함)
+    const generateContentWithFallback = async (prompt: string) => {
+      const models = ['gemini-2.5-pro', 'gemini-1.5-pro', 'gemini-1.5-flash']
+      
+      for (let attempt = 0; attempt < models.length; attempt++) {
+        const modelName = models[attempt]
+        const model = genAI.getGenerativeModel({ model: modelName })
+        
+        try {
+          console.log(`모델 시도: ${modelName} (시도 ${attempt + 1}/${models.length})`)
+          const result = await model.generateContent(prompt)
+          const response = await result.response
+          return response.text().trim()
+        } catch (error: any) {
+          const errorMessage = error?.message || ''
+          const errorString = JSON.stringify(error || {})
+          
+          // 429 에러 또는 할당량 관련 에러 감지 (더 포괄적으로)
+          const isQuotaError = 
+            errorMessage.includes('429') || 
+            errorMessage.includes('quota') || 
+            errorMessage.includes('rate limit') ||
+            errorMessage.includes('Too Many Requests') ||
+            errorMessage.includes('exceeded') ||
+            errorString.includes('free_tier') ||
+            errorString.includes('QuotaFailure')
+          
+          const errorCode = error?.code || error?.status || 'unknown'
+          console.error(`${modelName} 모델 호출 실패:`, {
+            model: modelName,
+            error: errorMessage.substring(0, 500),
+            code: errorCode,
+            isQuotaError,
+            hasFreeTier: errorString.includes('free_tier')
+          })
+          
+          // 할당량 에러이고 마지막 모델이 아니면 다음 모델로 시도
+          if (isQuotaError && attempt < models.length - 1) {
+            const nextModel = models[attempt + 1]
+            console.log(`⚠️ ${modelName} 할당량 초과 → ${nextModel} 모델로 폴백 시도...`)
+            await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)))
+            continue
+          }
+          
+          // 마지막 모델이거나 할당량 에러가 아니면 에러 던지기
+          if (attempt === models.length - 1) {
+            throw error
+          }
+        }
+      }
+      
+      throw new Error('모든 모델에서 실패했습니다')
+    }
 
     // 7. 프롬프트 생성 (Google Custom Search 결과 + 판례 포함)
     const prompt = generateInsuranceBlogPrompt({
@@ -116,13 +167,11 @@ export async function POST(request: NextRequest) {
     console.log('Google Custom Search 결과:', searchResults.length, '개')
     console.log('Google Grounding: 비활성화 (현재 SDK 버전에서 지원하지 않음, Custom Search만 사용)')
 
-    // 7. 콘텐츠 생성
+    // 7. 콘텐츠 생성 (폴백 로직 사용)
     // Google Custom Search 결과를 프롬프트에 포함하여 최신 정보 반영
     // 현재 SDK 버전에서는 Grounding API를 직접 지원하지 않으므로 Custom Search만 사용
     
-    const result = await model.generateContent(prompt)
-    const response = await result.response
-    let htmlContent = response.text()
+    let htmlContent = await generateContentWithFallback(prompt)
 
     // 코드 블록 제거
     htmlContent = htmlContent.replace(/```html\n?/g, '').replace(/```\n?/g, '').trim()
