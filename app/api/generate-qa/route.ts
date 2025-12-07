@@ -29,9 +29,79 @@ export async function POST(request: NextRequest) {
 
     // Gemini API 초기화
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!)
-    const model = genAI.getGenerativeModel({ 
-      model: 'gemini-2.5-pro'
-    })
+    
+    // API 호출 헬퍼 함수 (재시도 및 폴백 로직 포함, 이미지 지원)
+    const generateContentWithFallback = async (prompt: string, imageBase64?: string | null) => {
+      const models = ['gemini-2.5-pro', 'gemini-1.5-pro', 'gemini-1.5-flash']
+      
+      // 이미지가 있으면 MIME 타입 감지
+      let mimeType = 'image/png'
+      let base64Data = ''
+      if (imageBase64) {
+        base64Data = imageBase64.includes(',') 
+          ? imageBase64.split(',')[1] 
+          : imageBase64
+        
+        if (imageBase64.includes('data:image/jpeg') || imageBase64.includes('data:image/jpg')) {
+          mimeType = 'image/jpeg'
+        } else if (imageBase64.includes('data:image/png')) {
+          mimeType = 'image/png'
+        } else if (imageBase64.includes('data:image/webp')) {
+          mimeType = 'image/webp'
+        }
+      }
+      
+      for (let attempt = 0; attempt < models.length; attempt++) {
+        const modelName = models[attempt]
+        const model = genAI.getGenerativeModel({ model: modelName })
+        
+        try {
+          console.log(`모델 시도: ${modelName} (시도 ${attempt + 1}/${models.length})`)
+          
+          // 이미지가 있으면 이미지와 텍스트를 함께 전송
+          let result
+          if (imageBase64 && base64Data) {
+            result = await model.generateContent([
+              {
+                inlineData: {
+                  data: base64Data,
+                  mimeType: mimeType
+                }
+              },
+              prompt
+            ])
+          } else {
+            // 이미지가 없으면 텍스트만 전송
+            result = await model.generateContent(prompt)
+          }
+          
+          const response = await result.response
+          return response.text().trim()
+        } catch (error: any) {
+          const errorMessage = error?.message || ''
+          const isQuotaError = errorMessage.includes('429') || 
+                              errorMessage.includes('quota') || 
+                              errorMessage.includes('rate limit')
+          
+          console.warn(`${modelName} 모델 호출 실패:`, errorMessage)
+          
+          // 할당량 에러이고 마지막 모델이 아니면 다음 모델로 시도
+          if (isQuotaError && attempt < models.length - 1) {
+            console.log(`할당량 초과로 인해 ${models[attempt + 1]} 모델로 폴백 시도...`)
+            // 짧은 대기 후 재시도
+            await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)))
+            continue
+          }
+          
+          // 마지막 모델이거나 할당량 에러가 아니면 에러 던지기
+          if (attempt === models.length - 1) {
+            throw error
+          }
+        }
+      }
+      
+      throw new Error('모든 모델 시도 실패')
+    }
 
     let finalQuestionTitle = questionTitle
     let finalQuestionContent = questionContent
@@ -50,9 +120,7 @@ export async function POST(request: NextRequest) {
         designSheetAnalysis
       })
 
-      const questionResult = await model.generateContent(questionPrompt)
-      const questionResponse = await questionResult.response
-      let questionText = questionResponse.text().trim()
+      let questionText = await generateContentWithFallback(questionPrompt, designSheetImage)
 
       // 제어 문자 제거 (<ctrl63>, <ctrl*> 등)
       questionText = questionText.replace(/<ctrl\d+>/gi, '')
@@ -92,9 +160,7 @@ export async function POST(request: NextRequest) {
       finalQuestionContent
     )
 
-    const answerResult = await model.generateContent(answerPrompt)
-    const answerResponse = await answerResult.response
-    let answerContent = answerResponse.text().trim()
+    let answerContent = await generateContentWithFallback(answerPrompt, designSheetImage)
 
     // 제어 문자 제거 (<ctrl63>, <ctrl*> 등) - 이모티콘 보존
     answerContent = answerContent.replace(/<ctrl\d+>/gi, '')
@@ -211,9 +277,28 @@ export async function POST(request: NextRequest) {
     })
   } catch (error: any) {
     console.error('Q&A 생성 오류:', error)
+    console.error('오류 상세:', {
+      message: error?.message,
+      stack: error?.stack,
+      name: error?.name,
+      cause: error?.cause
+    })
+    
+    // 더 자세한 에러 메시지 제공
+    let errorMessage = 'Q&A 생성 중 오류가 발생했습니다'
+    if (error?.message) {
+      errorMessage = error.message
+      // 할당량 에러인 경우 더 친절한 메시지
+      if (error.message.includes('429') || error.message.includes('quota')) {
+        errorMessage = 'API 할당량이 초과되었습니다. 잠시 후 다시 시도해주세요.'
+      }
+    }
     
     return NextResponse.json(
-      { error: error.message || 'Q&A 생성 중 오류가 발생했습니다' },
+      { 
+        error: errorMessage,
+        details: process.env.NODE_ENV === 'development' ? error?.stack : undefined
+      },
       { status: 500 }
     )
   }
