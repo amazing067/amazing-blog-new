@@ -1720,7 +1720,6 @@ h2 {
           isolation: 'isolate',
           position: 'relative',
           zIndex: 1,
-          alignItems: 'stretch',
           alignItems: 'stretch'
         }}>
           
