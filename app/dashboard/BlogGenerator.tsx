@@ -2899,6 +2899,7 @@ function QAGenerator({ profile }: { profile: Profile | null }) {
     sellingPoint: '',
     feelingTone: '고민',
     answerTone: 'friendly',
+    customerStyle: 'curious', // 고객 스타일: 'friendly' | 'cold' | 'brief' | 'curious'
     designSheetImage: '' as string | null
   })
   
@@ -2907,6 +2908,11 @@ function QAGenerator({ profile }: { profile: Profile | null }) {
   const [progress, setProgress] = useState(0)
   const [generatedQuestion, setGeneratedQuestion] = useState<{ title: string; content: string } | null>(null)
   const [generatedAnswer, setGeneratedAnswer] = useState<string | null>(null)
+  const [conversationThread, setConversationThread] = useState<Array<{ role: 'customer' | 'agent'; content: string; step: number }>>([])
+  const [conversationMode, setConversationMode] = useState(false)
+  const [conversationLength, setConversationLength] = useState(8)
+  // ⚠️ 테스트용: 토큰 사용량 추적 (실제 운영 시 제거 필요)
+  const [tokenUsage, setTokenUsage] = useState<{ promptTokens: number; candidatesTokens: number; totalTokens: number; breakdown?: Array<{ promptTokens: number; candidatesTokens: number; totalTokens: number }> } | null>(null)
   const [currentStep, setCurrentStep] = useState<'question' | 'answer' | 'complete'>('question')
 
   const handleQAChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
@@ -2992,7 +2998,11 @@ function QAGenerator({ profile }: { profile: Profile | null }) {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(updatedFormData),
+        body: JSON.stringify({
+          ...updatedFormData,
+          conversationMode: conversationMode,
+          conversationLength: conversationMode ? conversationLength : undefined
+        }),
       })
 
       const qaData = await qaResponse.json()
@@ -3008,6 +3018,9 @@ function QAGenerator({ profile }: { profile: Profile | null }) {
         content: qaData.question.content
       })
       setGeneratedAnswer(qaData.answer.content)
+      setConversationThread(qaData.conversation || [])
+      // ⚠️ 테스트용: 실제 운영 시 제거 필요
+      setTokenUsage(qaData.tokenUsage || null)
       setCurrentStep('complete')
       
       alert('설계서 분석 및 Q&A 생성이 완료되었습니다!')
@@ -3183,6 +3196,9 @@ function QAGenerator({ profile }: { profile: Profile | null }) {
     setProgress(0)
     setGeneratedQuestion(null)
     setGeneratedAnswer(null)
+    setConversationThread([])
+    // ⚠️ 테스트용: 실제 운영 시 제거 필요
+    setTokenUsage(null)
     setCurrentStep('question')
 
     // 진행률 애니메이션
@@ -3202,7 +3218,11 @@ function QAGenerator({ profile }: { profile: Profile | null }) {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(qaFormData),
+        body: JSON.stringify({
+          ...qaFormData,
+          conversationMode: conversationMode,
+          conversationLength: conversationMode ? conversationLength : undefined
+        }),
       })
 
       const data = await response.json()
@@ -3219,6 +3239,9 @@ function QAGenerator({ profile }: { profile: Profile | null }) {
         content: data.question.content
       })
       setGeneratedAnswer(data.answer.content)
+      setConversationThread(data.conversation || [])
+      // ⚠️ 테스트용: 실제 운영 시 제거 필요
+      setTokenUsage(data.tokenUsage || null)
       setCurrentStep('complete')
     } catch (error: any) {
       console.error('Q&A 생성 오류:', error)
@@ -3247,6 +3270,8 @@ function QAGenerator({ profile }: { profile: Profile | null }) {
     
     setIsGenerating(true)
     setProgress(0)
+    // ⚠️ 테스트용: 실제 운영 시 제거 필요
+    setTokenUsage(null)
     setCurrentStep('question')
 
     const progressInterval = setInterval(() => {
@@ -3265,7 +3290,11 @@ function QAGenerator({ profile }: { profile: Profile | null }) {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(qaFormData),
+        body: JSON.stringify({
+          ...qaFormData,
+          conversationMode: conversationMode,
+          conversationLength: conversationMode ? conversationLength : undefined
+        }),
       })
 
       const data = await response.json()
@@ -3284,6 +3313,9 @@ function QAGenerator({ profile }: { profile: Profile | null }) {
       
       // 답변도 함께 업데이트
       setGeneratedAnswer(data.answer.content)
+      setConversationThread(data.conversation || [])
+      // ⚠️ 테스트용: 실제 운영 시 제거 필요
+      setTokenUsage(data.tokenUsage || null)
       setCurrentStep('complete')
     } catch (error: any) {
       console.error('질문 재생성 오류:', error)
@@ -3299,6 +3331,8 @@ function QAGenerator({ profile }: { profile: Profile | null }) {
     
     setIsGenerating(true)
     setProgress(50)
+    // ⚠️ 테스트용: 실제 운영 시 제거 필요
+    setTokenUsage(null)
     setCurrentStep('answer')
 
     const progressInterval = setInterval(() => {
@@ -3321,7 +3355,9 @@ function QAGenerator({ profile }: { profile: Profile | null }) {
         body: JSON.stringify({
           ...qaFormData,
           questionTitle: generatedQuestion.title,
-          questionContent: generatedQuestion.content
+          questionContent: generatedQuestion.content,
+          conversationMode: conversationMode,
+          conversationLength: conversationMode ? conversationLength : undefined
         }),
       })
 
@@ -3335,6 +3371,9 @@ function QAGenerator({ profile }: { profile: Profile | null }) {
       setProgress(100)
       
       setGeneratedAnswer(data.answer.content)
+      setConversationThread(data.conversation || [])
+      // ⚠️ 테스트용: 실제 운영 시 제거 필요
+      setTokenUsage(data.tokenUsage || null)
       setCurrentStep('complete')
     } catch (error: any) {
       console.error('답변 재생성 오류:', error)
@@ -3456,6 +3495,73 @@ function QAGenerator({ profile }: { profile: Profile | null }) {
 
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-2">
+                고객 스타일
+              </label>
+              <select
+                name="customerStyle"
+                value={qaFormData.customerStyle}
+                onChange={handleQAChange}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="curious">궁금해서 물어보는 (추천)</option>
+                <option value="cold">차갑고 거리감 있는</option>
+                <option value="brief">간결하고 직설적인</option>
+                <option value="friendly">정중하지만 거리감 있는</option>
+              </select>
+              <p className="text-xs text-gray-500 mt-1">
+                {qaFormData.customerStyle === 'curious' && '정말 모르는 게 있어서 궁금해서 물어보는 자연스러운 톤'}
+                {qaFormData.customerStyle === 'cold' && '설계사에게 거리감을 두고 차갑게 질문하는 톤'}
+                {qaFormData.customerStyle === 'brief' && '불필요한 말 없이 핵심만 간결하게 물어보는 톤'}
+                {qaFormData.customerStyle === 'friendly' && '정중하지만 친근하지 않고 거리감을 두는 톤'}
+              </p>
+            </div>
+
+            {/* 대화형 모드 옵션 */}
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <input
+                  type="checkbox"
+                  id="conversationMode"
+                  checked={conversationMode}
+                  onChange={(e) => setConversationMode(e.target.checked)}
+                  disabled={isGenerating || isAnalyzing}
+                  className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                />
+                <label htmlFor="conversationMode" className="text-sm font-semibold text-gray-700 cursor-pointer">
+                  💬 대화형 Q&A 생성 (댓글 형식)
+                </label>
+              </div>
+              {conversationMode && (
+                <div className="mt-3">
+                  <label className="block text-xs font-semibold text-gray-600 mb-2">
+                    대화 횟수: {conversationLength}개
+                  </label>
+                  <div className="flex gap-2">
+                    {[6, 8, 10, 12].map((length) => (
+                      <button
+                        key={length}
+                        type="button"
+                        onClick={() => setConversationLength(length)}
+                        disabled={isGenerating || isAnalyzing}
+                        className={`flex-1 px-3 py-2 text-sm rounded-lg transition-colors ${
+                          conversationLength === length
+                            ? 'bg-blue-600 text-white font-semibold'
+                            : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'
+                        } disabled:opacity-50 disabled:cursor-not-allowed`}
+                      >
+                        {length}개
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-xs text-gray-500 mt-2">
+                    첫 답변 이후 {conversationLength - 2}개의 추가 댓글이 생성됩니다 (고객 질문 + 설계사 답변). 항상 설계사가 마무리합니다.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-2">
                 설계서 이미지 (선택)
               </label>
               <div className="flex gap-2">
@@ -3529,12 +3635,74 @@ function QAGenerator({ profile }: { profile: Profile | null }) {
 
       {/* 결과 미리보기 */}
       {(generatedQuestion || generatedAnswer) && (
-        <div className="qa-generator-container grid md:grid-cols-2 gap-6" style={{ 
-          contain: 'layout style paint',
-          isolation: 'isolate',
-          position: 'relative',
-          zIndex: 1
-        }}>
+        <div className="space-y-6">
+          {/* ⚠️ 테스트용: 토큰 사용량 표시 (실제 운영 시 이 전체 블록 제거 필요) */}
+          {tokenUsage && (
+            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="text-lg">📊</span>
+                  <h3 className="text-sm font-bold text-gray-800">토큰 사용량</h3>
+                </div>
+                <div className="text-right">
+                  <div className="text-2xl font-bold text-blue-600">
+                    {tokenUsage.totalTokens.toLocaleString()}
+                  </div>
+                  <div className="text-xs text-gray-600">총 토큰</div>
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-4 mt-4 pt-4 border-t border-blue-200">
+                <div>
+                  <div className="text-xs text-gray-600 mb-1">입력 토큰</div>
+                  <div className="text-lg font-semibold text-gray-800">
+                    {tokenUsage.promptTokens.toLocaleString()}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs text-gray-600 mb-1">출력 토큰</div>
+                  <div className="text-lg font-semibold text-gray-800">
+                    {tokenUsage.candidatesTokens.toLocaleString()}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs text-gray-600 mb-1">총 토큰</div>
+                  <div className="text-lg font-semibold text-blue-600">
+                    {tokenUsage.totalTokens.toLocaleString()}
+                  </div>
+                </div>
+              </div>
+              {tokenUsage.breakdown && tokenUsage.breakdown.length > 0 && (
+                <details className="mt-3">
+                  <summary className="text-xs text-gray-600 cursor-pointer hover:text-gray-800">
+                    단계별 상세 보기 ({tokenUsage.breakdown.length}단계)
+                  </summary>
+                  <div className="mt-2 space-y-2">
+                    {tokenUsage.breakdown.map((usage, idx) => (
+                      <div key={idx} className="text-xs bg-white rounded p-2 border border-gray-200">
+                        <div className="flex justify-between">
+                          <span className="text-gray-600">단계 {idx + 1}:</span>
+                          <span className="font-semibold text-gray-800">
+                            {usage.totalTokens.toLocaleString()} 토큰
+                          </span>
+                        </div>
+                        <div className="flex justify-between text-gray-500 mt-1">
+                          <span>입력: {usage.promptTokens.toLocaleString()}</span>
+                          <span>출력: {usage.candidatesTokens.toLocaleString()}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              )}
+            </div>
+          )}
+          
+          <div className="qa-generator-container grid md:grid-cols-2 gap-6" style={{ 
+            contain: 'layout style paint',
+            isolation: 'isolate',
+            position: 'relative',
+            zIndex: 1
+          }}>
           {/* 질문 영역 */}
           <div className="qa-question-container bg-gray-50 rounded-xl shadow-lg p-6" style={{ 
             contain: 'layout style paint',
@@ -3638,6 +3806,78 @@ function QAGenerator({ profile }: { profile: Profile | null }) {
             )}
           </div>
         </div>
+
+        {/* 대화형 스레드 (댓글 형식) */}
+        {conversationThread.length > 0 && (
+          <div className="bg-white rounded-xl shadow-lg p-6">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                <MessageSquare className="w-5 h-5 text-purple-600" />
+                💬 대화형 댓글 스레드 ({conversationThread.length}개)
+              </h3>
+              <button
+                onClick={() => {
+                  const allThreads = conversationThread.map(msg => 
+                    `${msg.role === 'customer' ? '👤 고객' : '👨‍💼 설계사'}: ${msg.content}`
+                  ).join('\n\n')
+                  navigator.clipboard.writeText(allThreads)
+                  alert('전체 대화가 클립보드에 복사되었습니다!')
+                }}
+                className="px-3 py-1.5 bg-purple-600 text-white text-xs rounded-md hover:bg-purple-700 transition-colors flex items-center gap-1"
+              >
+                <Copy className="w-3 h-3" />
+                전체 복사
+              </button>
+            </div>
+            
+            <div className="space-y-4">
+              {conversationThread.map((message, idx) => (
+                <div
+                  key={idx}
+                  className={`p-4 rounded-lg ${
+                    message.role === 'customer'
+                      ? 'bg-blue-50 border-l-4 border-blue-500'
+                      : 'bg-indigo-50 border-l-4 border-indigo-500'
+                  }`}
+                >
+                  <div className="flex items-start gap-3">
+                    <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm ${
+                      message.role === 'customer'
+                        ? 'bg-blue-500 text-white'
+                        : 'bg-indigo-500 text-white'
+                    }`}>
+                      {message.role === 'customer' ? '👤' : '👨‍💼'}
+                    </div>
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="font-semibold text-gray-800">
+                          {message.role === 'customer' ? '고객' : '설계사'}
+                        </span>
+                        <span className="text-xs text-gray-500">
+                          댓글 #{Math.ceil((message.step + 1) / 2)}
+                        </span>
+                      </div>
+                      <p className="text-gray-700 whitespace-pre-wrap leading-relaxed">
+                        {message.content}
+                      </p>
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(message.content)
+                          alert('댓글이 클립보드에 복사되었습니다!')
+                        }}
+                        className="mt-2 text-xs text-gray-500 hover:text-gray-700 flex items-center gap-1"
+                      >
+                        <Copy className="w-3 h-3" />
+                        복사
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
       )}
     </div>
   )

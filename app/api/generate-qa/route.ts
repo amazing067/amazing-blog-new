@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { GoogleGenerativeAI } from '@google/generative-ai'
-import { generateQuestionPrompt, generateAnswerPrompt } from '@/lib/prompts/qa-prompt'
+import { generateQuestionPrompt, generateAnswerPrompt, generateConversationThreadPrompt, ConversationMessage } from '@/lib/prompts/qa-prompt'
 
 export async function POST(request: NextRequest) {
   try {
+    const requestBody = await request.json()
     const { 
       productName, 
       targetPersona, 
@@ -11,11 +12,14 @@ export async function POST(request: NextRequest) {
       sellingPoint, 
       feelingTone, 
       answerTone,
+      customerStyle, // 고객 스타일: 'friendly' | 'cold' | 'brief' | 'curious'
       designSheetImage,
       designSheetAnalysis, // 설계서 분석 결과 (보험료, 담보, 특약 등)
       questionTitle, // 답변 재생성 시 사용
-      questionContent // 답변 재생성 시 사용
-    } = await request.json()
+      questionContent, // 답변 재생성 시 사용
+      conversationMode, // 대화형 모드 활성화 여부
+      conversationLength // 대화 횟수 (6, 8, 10, 12 - 짝수만 허용, 항상 설계사가 마무리)
+    } = requestBody
 
     // 필수 입력 검증
     if (!productName || !targetPersona || !worryPoint || !sellingPoint) {
@@ -45,8 +49,20 @@ export async function POST(request: NextRequest) {
     // Gemini API 초기화
     const genAI = new GoogleGenerativeAI(apiKey)
     
+    // ============================================
+    // ⚠️ 테스트용: 토큰 사용량 추적
+    // 실제 운영 시에는 이 부분을 제거해야 합니다
+    // ============================================
+    interface TokenUsage {
+      promptTokens: number
+      candidatesTokens: number
+      totalTokens: number
+    }
+    
+    const tokenUsage: TokenUsage[] = []
+    
     // API 호출 헬퍼 함수 (재시도 및 폴백 로직 포함, 이미지 지원)
-    const generateContentWithFallback = async (prompt: string, imageBase64?: string | null) => {
+    const generateContentWithFallback = async (prompt: string, imageBase64?: string | null): Promise<{ text: string; usage?: TokenUsage }> => {
       const models = ['gemini-2.5-pro', 'gemini-1.5-pro', 'gemini-1.5-flash']
       
       // 이미지가 있으면 MIME 타입 감지
@@ -91,7 +107,22 @@ export async function POST(request: NextRequest) {
           }
           
           const response = await result.response
-          return response.text().trim()
+          const text = response.text().trim()
+          
+          // 토큰 사용량 추출
+          const usageMetadata = response.usageMetadata
+          const usage: TokenUsage = {
+            promptTokens: usageMetadata?.promptTokenCount || 0,
+            candidatesTokens: usageMetadata?.candidatesTokenCount || 0,
+            totalTokens: usageMetadata?.totalTokenCount || 0
+          }
+          
+          if (usage.totalTokens > 0) {
+            console.log(`토큰 사용량 (${modelName}):`, usage)
+            tokenUsage.push(usage)
+          }
+          
+          return { text, usage }
         } catch (error: any) {
           const errorMessage = error?.message || ''
           const errorString = JSON.stringify(error || {})
@@ -133,6 +164,15 @@ export async function POST(request: NextRequest) {
       
       throw new Error('모든 모델 시도 실패')
     }
+    
+    // 토큰 사용량 합계 계산
+    const calculateTotalUsage = (): TokenUsage => {
+      return tokenUsage.reduce((acc, usage) => ({
+        promptTokens: acc.promptTokens + usage.promptTokens,
+        candidatesTokens: acc.candidatesTokens + usage.candidatesTokens,
+        totalTokens: acc.totalTokens + usage.totalTokens
+      }), { promptTokens: 0, candidatesTokens: 0, totalTokens: 0 })
+    }
 
     let finalQuestionTitle = questionTitle
     let finalQuestionContent = questionContent
@@ -147,11 +187,13 @@ export async function POST(request: NextRequest) {
         sellingPoint,
         feelingTone: feelingTone || '고민',
         answerTone: answerTone || 'friendly',
+        customerStyle: customerStyle || 'curious',
         designSheetImage,
         designSheetAnalysis
       })
 
-      let questionText = await generateContentWithFallback(questionPrompt, designSheetImage)
+      const questionResult = await generateContentWithFallback(questionPrompt, designSheetImage)
+      let questionText = questionResult.text
 
       // 제어 문자 제거 (<ctrl63>, <ctrl*> 등)
       questionText = questionText.replace(/<ctrl\d+>/gi, '')
@@ -184,6 +226,7 @@ export async function POST(request: NextRequest) {
         sellingPoint,
         feelingTone: feelingTone || '고민',
         answerTone: answerTone || 'friendly',
+        customerStyle: customerStyle || 'curious',
         designSheetImage,
         designSheetAnalysis
       },
@@ -191,7 +234,8 @@ export async function POST(request: NextRequest) {
       finalQuestionContent
     )
 
-    let answerContent = await generateContentWithFallback(answerPrompt, designSheetImage)
+    const answerResult = await generateContentWithFallback(answerPrompt, designSheetImage)
+    let answerContent = answerResult.text
 
     // 제어 문자 제거 (<ctrl63>, <ctrl*> 등) - 이모티콘 보존
     answerContent = answerContent.replace(/<ctrl\d+>/gi, '')
@@ -286,6 +330,92 @@ export async function POST(request: NextRequest) {
 
     console.log('Step 2 완료:', { answerContentLength: answerContent.length })
 
+    // Step 3: 대화형 모드일 경우 추가 댓글 생성
+    let conversationThread: ConversationMessage[] = []
+    
+    if (conversationMode && conversationLength) {
+      console.log('Step 3: 대화형 스레드 생성 중...', { conversationLength })
+
+      // 짝수만 허용 (6, 8, 10, 12) - 항상 설계사가 마무리하도록
+      const validLengths = [6, 8, 10, 12]
+      const totalSteps = validLengths.includes(conversationLength) 
+        ? conversationLength 
+        : 8 // 기본값: 8개
+      const conversationHistory: ConversationMessage[] = []
+      
+      // 첫 질문과 답변을 히스토리에 추가
+      conversationHistory.push({
+        role: 'customer',
+        content: `${finalQuestionTitle}\n\n${finalQuestionContent}`,
+        step: 0
+      })
+      conversationHistory.push({
+        role: 'agent',
+        content: answerContent,
+        step: 1
+      })
+      
+      // 나머지 댓글들 생성 (3번째부터 시작)
+      for (let step = 3; step <= totalSteps; step++) {
+        const isCustomerTurn = step % 2 === 1 // 홀수: 고객, 짝수: 설계사
+        
+        const conversationPrompt = generateConversationThreadPrompt(
+          {
+            productName,
+            targetPersona,
+            worryPoint,
+            sellingPoint,
+            feelingTone: feelingTone || '고민',
+            answerTone: answerTone || 'friendly',
+            customerStyle: customerStyle || 'curious',
+            designSheetImage,
+            designSheetAnalysis
+          },
+          {
+            initialQuestion: {
+              title: finalQuestionTitle,
+              content: finalQuestionContent
+            },
+            firstAnswer: answerContent,
+            conversationHistory: conversationHistory,
+            totalSteps: totalSteps,
+            currentStep: step
+          }
+        )
+        
+        const threadResult = await generateContentWithFallback(conversationPrompt, designSheetImage)
+        let threadContent = threadResult.text
+        
+        // 제어 문자 제거
+        threadContent = threadContent.replace(/<ctrl\d+>/gi, '')
+        threadContent = threadContent.replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]/g, '')
+        threadContent = threadContent.replace(/```[\s\S]*?```/g, '').trim()
+        threadContent = threadContent.replace(/\[생성된 댓글\]/g, '').trim()
+        threadContent = threadContent.trim()
+        
+        // 히스토리에 추가
+        const newMessage: ConversationMessage = {
+          role: isCustomerTurn ? 'customer' : 'agent',
+          content: threadContent,
+          step: step
+        }
+        
+        conversationHistory.push(newMessage)
+        conversationThread.push(newMessage)
+        
+        console.log(`Step 3-${step} 완료:`, { role: newMessage.role, contentLength: threadContent.length })
+      }
+      
+      console.log('Step 3 완료:', { totalThreads: conversationThread.length })
+    }
+
+    // ============================================
+    // ⚠️ 테스트용: 토큰 사용량 계산 및 반환
+    // 실제 운영 시에는 tokenUsage 필드를 제거해야 합니다
+    // ============================================
+    const totalUsage = calculateTotalUsage()
+    console.log('📊 총 토큰 사용량:', totalUsage)
+
     return NextResponse.json({
       success: true,
       question: {
@@ -297,13 +427,23 @@ export async function POST(request: NextRequest) {
         content: answerContent,
         generatedAt: new Date().toISOString()
       },
+      conversation: conversationThread.length > 0 ? conversationThread : undefined,
+      // ⚠️ 테스트용: 실제 운영 시 이 필드 제거 필요
+      tokenUsage: {
+        promptTokens: totalUsage.promptTokens,
+        candidatesTokens: totalUsage.candidatesTokens,
+        totalTokens: totalUsage.totalTokens,
+        breakdown: tokenUsage // 각 단계별 토큰 사용량
+      },
       metadata: {
         productName,
         targetPersona,
         worryPoint,
         sellingPoint,
         feelingTone: feelingTone || '고민',
-        answerTone: answerTone || 'friendly'
+        answerTone: answerTone || 'friendly',
+        conversationMode: conversationMode || false,
+        conversationLength: conversationLength || 0
       }
     })
   } catch (error: any) {
