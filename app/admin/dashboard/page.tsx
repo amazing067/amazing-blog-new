@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
-import { Shield, LogOut, UserCheck, UserX, Sparkles } from 'lucide-react'
+import { Shield, LogOut, UserCheck, UserX, Sparkles, BarChart3 } from 'lucide-react'
 import Link from 'next/link'
 import ApprovalButton from './ApprovalButton'
 
@@ -56,6 +56,13 @@ export default async function AdminDashboardPage() {
             >
               <UserCheck className="w-4 h-4" />
               회원관리
+            </Link>
+            <Link
+              href="/admin/stats"
+              className="flex items-center gap-2 px-4 py-2 bg-amber-500 text-white font-semibold rounded-lg hover:bg-amber-600 transition-colors"
+            >
+              <BarChart3 className="w-4 h-4" />
+              통계
             </Link>
             <form action="/api/auth/signout" method="post">
               <button

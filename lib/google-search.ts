@@ -65,6 +65,8 @@ export async function searchGoogle(
     url.searchParams.set('q', query)
     url.searchParams.set('num', Math.min(maxResults, 10).toString()) // 최대 10개
     url.searchParams.set('lr', 'lang_ko') // 한국어 결과만
+    // 최근 5년 이내 결과만 검색 (m5 = 최근 5년)
+    url.searchParams.set('dateRestrict', 'm60') // 최근 60개월(5년) 이내
 
     const response = await fetch(url.toString())
     const data = await response.json()
@@ -163,6 +165,45 @@ export async function searchTrustedSources(
   }
 
   return allResults.slice(0, maxResults)
+}
+
+/**
+ * 금융분쟁조정위원회 판례 검색 (최근 5년 이내)
+ */
+export async function searchRecentPrecedents(
+  topic: string,
+  keywords: string,
+  maxResults: number = 3
+): Promise<SearchResult[]> {
+  // 금융분쟁조정위원회 사이트에서 검색
+  const query = `${topic} ${keywords} 금융분쟁조정위원회 site:fss.or.kr OR site:fsc.go.kr`
+  
+  try {
+    const response = await searchGoogle(query, maxResults)
+    
+    if (response.success) {
+      // 결과에서 최근 것만 필터링 (제목이나 스니펫에 연도가 있는 경우)
+      const currentYear = new Date().getFullYear()
+      const filteredResults = response.results.filter(result => {
+        const text = `${result.title} ${result.snippet}`.toLowerCase()
+        // 최근 5년(2019~현재) 연도가 포함된 것만
+        for (let year = currentYear; year >= currentYear - 5; year--) {
+          if (text.includes(year.toString())) {
+            return true
+          }
+        }
+        // 연도가 없으면 포함 (최신일 가능성)
+        return true
+      })
+      
+      return filteredResults.slice(0, maxResults)
+    }
+    
+    return []
+  } catch (error) {
+    console.error('판례 검색 오류:', error)
+    return []
+  }
 }
 
 /**

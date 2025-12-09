@@ -10,7 +10,7 @@ export default function ApprovalButton({ userId }: { userId: string }) {
   const [isLoading, setIsLoading] = useState(false)
 
   const handleApprove = async () => {
-    if (!confirm('이 사용자를 승인하시겠습니까?')) {
+    if (!confirm('이 사용자를 승인하시겠습니까?\n승인일 기준으로 1개월 후까지 사용 가능합니다.')) {
       return
     }
 
@@ -19,14 +19,23 @@ export default function ApprovalButton({ userId }: { userId: string }) {
     try {
       const supabase = createClient()
 
+      // 승인일 기준으로 1개월 후 만료일 계산
+      const paidUntil = new Date()
+      paidUntil.setMonth(paidUntil.getMonth() + 1)
+
       const { error } = await supabase
         .from('profiles')
-        .update({ is_approved: true })
+        .update({ 
+          is_approved: true,
+          membership_status: 'active',
+          paid_until: paidUntil.toISOString(),
+          last_payment_at: new Date().toISOString()
+        })
         .eq('id', userId)
 
       if (error) throw error
 
-      alert('사용자가 승인되었습니다.')
+      alert(`사용자가 승인되었습니다.\n결제 만료일: ${paidUntil.toLocaleDateString('ko-KR')}`)
       router.refresh()
     } catch (err) {
       console.error('Approval error:', err)

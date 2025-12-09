@@ -1,6 +1,10 @@
--- ⭐ 실행 방법: Supabase SQL Editor에서 + 버튼으로 새로 만들기
+-- ⭐ 2단계: blog_posts 테이블 생성
+-- 실행 방법: Supabase SQL Editor에서 + New query → 전체 복사 → RUN
+-- 
+-- ⚠️ 중요: 이 파일은 supabase-schema-profiles.sql 실행 후에 실행해야 합니다!
+-- blog_posts 테이블이 profiles 테이블을 참조합니다.
 
--- blog_posts 테이블 생성
+-- blog_posts 테이블 생성 (블로그 글 저장)
 CREATE TABLE IF NOT EXISTS blog_posts (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID REFERENCES profiles(id) ON DELETE CASCADE,
@@ -38,6 +42,13 @@ CREATE INDEX IF NOT EXISTS blog_posts_status_idx ON blog_posts(status);
 -- RLS (Row Level Security) 활성화
 ALTER TABLE blog_posts ENABLE ROW LEVEL SECURITY;
 
+-- 기존 정책이 있으면 삭제 (중복 방지)
+DROP POLICY IF EXISTS "Users can view own posts" ON blog_posts;
+DROP POLICY IF EXISTS "Users can insert own posts" ON blog_posts;
+DROP POLICY IF EXISTS "Users can update own posts" ON blog_posts;
+DROP POLICY IF EXISTS "Users can delete own posts" ON blog_posts;
+DROP POLICY IF EXISTS "Admins can view all posts" ON blog_posts;
+
 -- 정책: 사용자는 자신의 글만 볼 수 있음
 CREATE POLICY "Users can view own posts"
   ON blog_posts FOR SELECT
@@ -57,6 +68,17 @@ CREATE POLICY "Users can update own posts"
 CREATE POLICY "Users can delete own posts"
   ON blog_posts FOR DELETE
   USING (auth.uid() = user_id);
+
+-- 정책: 관리자는 모든 글을 볼 수 있음 (필요시 활성화)
+-- CREATE POLICY "Admins can view all posts"
+--   ON blog_posts FOR SELECT
+--   USING (
+--     EXISTS (
+--       SELECT 1 FROM profiles p
+--       WHERE p.id = auth.uid()
+--       AND p.role = 'admin'
+--     )
+--   );
 
 -- updated_at 자동 업데이트 함수
 CREATE OR REPLACE FUNCTION update_updated_at_column()

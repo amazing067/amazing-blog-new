@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { Shield, LogOut, Sparkles, Copy, Send, FileDown, Clock, BookOpen, TrendingUp, ArrowLeft, UserCheck, History, BarChart3, FileText, Save, MessageSquare, Image as ImageIcon } from 'lucide-react'
+import MembershipStatusBanner from './MembershipStatusBanner'
 import { createClient } from '@/lib/supabase/client'
 import type { BlogPost } from '@/types/blog.types'
 import { TEMPLATE_TOPICS } from '@/lib/template-topics'
@@ -100,13 +101,216 @@ const scopeHTMLForEditor = (html: string) => {
   return scoped
 }
 
-// 저장할 때는 다시 원래대로 복구하는 함수 (선택 사항)
+// 저장할 때는 다시 원래대로 복구하는 함수
 const unscopeHTMLForSave = (html: string) => {
   if (!html) return ''
-  let unscoped = html.replace(/\.blog-content\s*{/g, 'main {')
-  unscoped = unscoped.replace(/<div class="blog-content">/g, '<main>')
-  unscoped = unscoped.replace(/<\/div>/g, '</main>')
-  return unscoped
+
+  // 서버 사이드거나 DOMParser가 없으면 정규식 사용 (최후의 수단)
+  if (typeof window === 'undefined' || !window.DOMParser) {
+    let unscoped = html
+    // 이미지 래퍼 제거
+    unscoped = unscoped.replace(
+      /<div[^>]*class="editable-image-wrapper"[^>]*>[\s\S]*?<img([^>]*)>[\s\S]*?<\/div>/gi,
+      '<img$1>'
+    )
+    // 편집용 요소 제거
+    unscoped = unscoped.replace(/<div[^>]*class="image-selection-border"[^>]*>[\s\S]*?<\/div>/gi, '')
+    unscoped = unscoped.replace(/<div[^>]*class="image-resize-handle"[^>]*>[\s\S]*?<\/div>/gi, '')
+    // CSS에서 .blog-editor 접두사 제거
+    unscoped = unscoped.replace(/\.blog-editor\s+/g, '')
+    // 태그 복원
+    unscoped = unscoped.replace(/<div[^>]*class="blog-content"[^>]*>/gi, '<main>')
+    unscoped = unscoped.replace(/<\/div>\s*<!-- blog-content -->/gi, '</main>')
+    unscoped = unscoped.replace(/<div[^>]*class="blog-body"[^>]*>/gi, '<body>')
+    unscoped = unscoped.replace(/<\/div>\s*<!-- blog-body -->/gi, '</body>')
+    unscoped = unscoped.replace(/<div[^>]*class="blog-header"[^>]*>/gi, '<header>')
+    unscoped = unscoped.replace(/<\/div>\s*<!-- blog-header -->/gi, '</header>')
+    // blog-editor 래퍼 제거
+    unscoped = unscoped.replace(/<div[^>]*class="blog-editor"[^>]*>/gi, '')
+    unscoped = unscoped.replace(/<\/div>$/, '') // 마지막 닫는 div 제거 (대략적)
+    return unscoped
+  }
+
+  try {
+    const parser = new DOMParser()
+    // 전체를 감싸는 body로 파싱
+    const doc = parser.parseFromString(`<body>${html}</body>`, 'text/html')
+    const body = doc.body
+
+    // 1. 편집용 요소들 제거 (선택 테두리, 리사이즈 핸들, 래퍼)
+    const borders = body.querySelectorAll('.image-selection-border')
+    borders.forEach(border => border.remove())
+    const handles = body.querySelectorAll('.image-resize-handle')
+    handles.forEach(handle => handle.remove())
+    
+    // 2. 모든 editable-image-wrapper를 찾아서 내부의 img로 교체
+    const wrappers = body.querySelectorAll('.editable-image-wrapper')
+    wrappers.forEach(wrapper => {
+      const img = wrapper.querySelector('img')
+      if (img && img.src) {
+        // 이미지의 모든 속성과 스타일 보존
+        const cleanImg = document.createElement('img')
+        cleanImg.src = img.src
+        if (img.alt) cleanImg.alt = img.alt
+        
+        // 이미지의 모든 속성 복사
+        Array.from(img.attributes).forEach(attr => {
+          if (attr.name !== 'draggable') {
+            try {
+              cleanImg.setAttribute(attr.name, attr.value)
+            } catch (e) {
+              // 속성 설정 실패 시 무시
+            }
+          }
+        })
+        
+        // 래퍼를 이미지로 교체
+        wrapper.replaceWith(cleanImg)
+      } else {
+        // 이미지가 없으면 래퍼 삭제
+        wrapper.remove()
+      }
+    })
+
+    // 3. CSS 스타일에서 .blog-editor 접두사 제거 및 태그 복원
+    const styleTags = body.querySelectorAll('style')
+    styleTags.forEach(styleTag => {
+      if (styleTag.textContent) {
+        let cssContent = styleTag.textContent
+        
+        // @media 쿼리 내부도 처리하기 위해 재귀적으로 처리
+        // 먼저 @media 쿼리를 찾아서 내부를 처리
+        cssContent = cssContent.replace(/@media[^{]*\{([\s\S]*?)\}/g, (mediaMatch, mediaContent) => {
+          let processedMedia = mediaContent
+          
+          // .blog-editor 접두사 제거
+          processedMedia = processedMedia.replace(/\.blog-editor\s+([a-zA-Z0-9_-]+)/g, '$1')
+          processedMedia = processedMedia.replace(/\.blog-editor\s+\.([a-zA-Z0-9_-]+)/g, '.$1')
+          processedMedia = processedMedia.replace(/\.blog-editor\s+#([a-zA-Z0-9_-]+)/g, '#$1')
+          processedMedia = processedMedia.replace(/\.blog-editor\s+\[([^\]]+)\]/g, '[$1]')
+          processedMedia = processedMedia.replace(/\.blog-editor\s+(::?[a-zA-Z-]+)/g, '$1')
+          processedMedia = processedMedia.replace(/\.blog-editor\s*>\s*/g, '> ')
+          processedMedia = processedMedia.replace(/\.blog-editor\s*\+\s*/g, '+ ')
+          processedMedia = processedMedia.replace(/\.blog-editor\s*~\s*/g, '~ ')
+          processedMedia = processedMedia.replace(/\.blog-editor\s*,/g, ',')
+          processedMedia = processedMedia.replace(/\.blog-editor\s*\{/g, '{')
+          
+          // 태그 복원
+          processedMedia = processedMedia.replace(/\.blog-content\s+/g, 'main ')
+          processedMedia = processedMedia.replace(/\.blog-body\s+/g, 'body ')
+          processedMedia = processedMedia.replace(/\.blog-header\s+/g, 'header ')
+          
+          return mediaMatch.replace(mediaContent, processedMedia)
+        })
+        
+        // .blog-editor 접두사 제거 (다양한 패턴 처리)
+        // 패턴 1: .blog-editor 태그명
+        cssContent = cssContent.replace(/\.blog-editor\s+([a-zA-Z0-9_-]+)/g, '$1')
+        // 패턴 2: .blog-editor .클래스명
+        cssContent = cssContent.replace(/\.blog-editor\s+\.([a-zA-Z0-9_-]+)/g, '.$1')
+        // 패턴 3: .blog-editor #아이디
+        cssContent = cssContent.replace(/\.blog-editor\s+#([a-zA-Z0-9_-]+)/g, '#$1')
+        // 패턴 4: .blog-editor [속성]
+        cssContent = cssContent.replace(/\.blog-editor\s+\[([^\]]+)\]/g, '[$1]')
+        // 패턴 5: .blog-editor::가상요소
+        cssContent = cssContent.replace(/\.blog-editor\s+(::?[a-zA-Z-]+)/g, '$1')
+        // 패턴 6: .blog-editor > (자식 선택자)
+        cssContent = cssContent.replace(/\.blog-editor\s*>\s*/g, '> ')
+        // 패턴 7: .blog-editor + (인접 형제 선택자)
+        cssContent = cssContent.replace(/\.blog-editor\s*\+\s*/g, '+ ')
+        // 패턴 8: .blog-editor ~ (일반 형제 선택자)
+        cssContent = cssContent.replace(/\.blog-editor\s*~\s*/g, '~ ')
+        // 패턴 9: .blog-editor, (그룹 선택자)
+        cssContent = cssContent.replace(/\.blog-editor\s*,/g, ',')
+        // 패턴 10: .blog-editor { (단독 선택자)
+        cssContent = cssContent.replace(/\.blog-editor\s*\{/g, '{')
+        
+        // .blog-content → main
+        cssContent = cssContent.replace(/\.blog-content\s+/g, 'main ')
+        cssContent = cssContent.replace(/\.blog-content\s*\{/g, 'main {')
+        cssContent = cssContent.replace(/\.blog-content\s*>/g, 'main >')
+        cssContent = cssContent.replace(/\.blog-content\s*\+/g, 'main +')
+        cssContent = cssContent.replace(/\.blog-content\s*~/g, 'main ~')
+        cssContent = cssContent.replace(/\.blog-content\s*,/g, 'main,')
+        
+        // .blog-body → body
+        cssContent = cssContent.replace(/\.blog-body\s+/g, 'body ')
+        cssContent = cssContent.replace(/\.blog-body\s*\{/g, 'body {')
+        cssContent = cssContent.replace(/\.blog-body\s*>/g, 'body >')
+        cssContent = cssContent.replace(/\.blog-body\s*\+/g, 'body +')
+        cssContent = cssContent.replace(/\.blog-body\s*~/g, 'body ~')
+        cssContent = cssContent.replace(/\.blog-body\s*,/g, 'body,')
+        
+        // .blog-header → header
+        cssContent = cssContent.replace(/\.blog-header\s+/g, 'header ')
+        cssContent = cssContent.replace(/\.blog-header\s*\{/g, 'header {')
+        cssContent = cssContent.replace(/\.blog-header\s*>/g, 'header >')
+        cssContent = cssContent.replace(/\.blog-header\s*\+/g, 'header +')
+        cssContent = cssContent.replace(/\.blog-header\s*~/g, 'header ~')
+        cssContent = cssContent.replace(/\.blog-header\s*,/g, 'header,')
+        
+        // scoped 속성 제거
+        styleTag.removeAttribute('scoped')
+        
+        styleTag.textContent = cssContent
+      }
+    })
+
+    // 4. 태그 복원: div class="blog-content" → main
+    const blogContentDivs = body.querySelectorAll('.blog-content')
+    blogContentDivs.forEach(div => {
+      const main = doc.createElement('main')
+      main.innerHTML = div.innerHTML
+      // div의 모든 속성 복사 (class 제외)
+      Array.from(div.attributes).forEach(attr => {
+        if (attr.name !== 'class') {
+          main.setAttribute(attr.name, attr.value)
+        }
+      })
+      div.parentNode?.replaceChild(main, div)
+    })
+
+    // 5. 태그 복원: div class="blog-body" → body
+    const blogBodyDivs = body.querySelectorAll('.blog-body')
+    blogBodyDivs.forEach(div => {
+      const bodyEl = doc.createElement('body')
+      bodyEl.innerHTML = div.innerHTML
+      // div의 모든 속성 복사 (class 제외)
+      Array.from(div.attributes).forEach(attr => {
+        if (attr.name !== 'class') {
+          bodyEl.setAttribute(attr.name, attr.value)
+        }
+      })
+      div.parentNode?.replaceChild(bodyEl, div)
+    })
+
+    // 6. 태그 복원: div class="blog-header" → header
+    const blogHeaderDivs = body.querySelectorAll('.blog-header')
+    blogHeaderDivs.forEach(div => {
+      const header = doc.createElement('header')
+      header.innerHTML = div.innerHTML
+      // div의 모든 속성 복사 (class 제외)
+      Array.from(div.attributes).forEach(attr => {
+        if (attr.name !== 'class') {
+          header.setAttribute(attr.name, attr.value)
+        }
+      })
+      div.parentNode?.replaceChild(header, div)
+    })
+
+    // 7. blog-editor 클래스 제거 및 내부 내용만 추출
+    const editor = body.querySelector('.blog-editor')
+    if (editor) {
+      // editor의 모든 자식 요소를 그대로 반환 (스타일과 속성 모두 보존)
+      return editor.innerHTML
+    }
+
+    // blog-editor가 없으면 body의 내용 반환
+    return body.innerHTML
+  } catch (error) {
+    console.error('unscopeHTMLForSave 오류:', error)
+    return html
+  }
 }
 
 interface Profile {
@@ -116,6 +320,9 @@ interface Profile {
   email: string
   phone: string
   role?: string
+  membership_status?: 'active' | 'pending' | 'suspended' | 'deleted' | null
+  paid_until?: string | null
+  grace_period_until?: string | null
 }
 
 const TEMPLATES = [
@@ -236,7 +443,7 @@ const TEMPLATES = [
 export default function BlogGenerator({ profile: initialProfile }: { profile: Profile | null }) {
   const router = useRouter()
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const [activeTab, setActiveTab] = useState<'write' | 'history' | 'stats' | 'approval' | 'qa' | 'image-analysis'>('write')
+  const [activeTab, setActiveTab] = useState<'write' | 'history' | 'stats' | 'approval' | 'qa' | 'qa-history' | 'image-analysis'>('write')
   const [profile, setProfile] = useState<Profile | null>(initialProfile)
   const [formData, setFormData] = useState({
     topic: '',
@@ -257,6 +464,307 @@ export default function BlogGenerator({ profile: initialProfile }: { profile: Pr
   const [isLoadingPosts, setIsLoadingPosts] = useState(false)
   const [isEditMode, setIsEditMode] = useState(false)
   const [editableHTML, setEditableHTML] = useState('')
+  const [isDraggingOver, setIsDraggingOver] = useState(false)
+
+  // 이미지 편집 기능을 위한 유틸리티 함수 (이벤트 리스너 없이 구조만 생성)
+
+  // 이미지 드래그 앤 드롭 핸들러
+  const handleEditorDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDraggingOver(true)
+  }
+
+  const handleEditorDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDraggingOver(false)
+  }
+
+  const handleEditorDrop = async (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDraggingOver(false)
+
+    const files = Array.from(e.dataTransfer.files)
+    const imageFiles = files.filter(file => file.type.startsWith('image/'))
+
+    if (imageFiles.length === 0) {
+      alert('이미지 파일만 업로드할 수 있습니다.')
+      return
+    }
+
+    // 편집 영역 찾기 (이벤트가 발생한 요소가 .blog-editor일 수도 있고, 부모일 수도 있음)
+    let editor: HTMLElement | null = null
+    
+    // 현재 타겟이 .blog-editor인지 확인
+    if (e.currentTarget.classList.contains('blog-editor')) {
+      editor = e.currentTarget as HTMLElement
+    } else {
+      // 부모 요소에서 .blog-editor 찾기
+      editor = e.currentTarget.querySelector('.blog-editor') as HTMLElement
+    }
+    
+    // 그래도 없으면 document에서 찾기
+    if (!editor) {
+      editor = document.querySelector('.blog-editor') as HTMLElement
+    }
+    
+    if (!editor) {
+      console.error('편집 영역을 찾을 수 없습니다.')
+      alert('편집 영역을 찾을 수 없습니다. 편집 모드를 활성화해주세요.')
+      return
+    }
+
+    // 드롭 위치에 맞는 커서 위치 찾기
+    const dropX = e.clientX
+    const dropY = e.clientY
+    const editorRect = editor.getBoundingClientRect()
+    
+    // 드롭 위치를 기준으로 가장 가까운 텍스트 노드 찾기
+    let range: Range | null = null
+    const selection = window.getSelection()
+    
+    // 브라우저 API 사용 시도
+    if (document.caretRangeFromPoint) {
+      // Chrome, Safari
+      try {
+        range = document.caretRangeFromPoint(dropX, dropY)
+        // range가 editor 외부에 있으면 null로 설정
+        if (range && !editor.contains(range.commonAncestorContainer)) {
+          range = null
+        }
+      } catch (err) {
+        // 에러 발생 시 무시
+      }
+    } else if ((document as any).caretPositionFromPoint) {
+      // Firefox
+      try {
+        const caretPos = (document as any).caretPositionFromPoint(dropX, dropY)
+        if (caretPos && editor.contains(caretPos.offsetNode)) {
+          range = document.createRange()
+          range.setStart(caretPos.offsetNode, caretPos.offset)
+          range.collapse(true)
+        }
+      } catch (err) {
+        // 에러 발생 시 무시
+      }
+    }
+    
+    // range를 찾지 못한 경우 수동으로 찾기
+    if (!range) {
+      // 에디터 내부의 모든 요소를 찾아서 가장 가까운 위치 찾기
+      const allElements = editor.querySelectorAll('*')
+      let closestElement: Element | null = null
+      let closestDistance = Infinity
+      
+      allElements.forEach((el) => {
+        const rect = el.getBoundingClientRect()
+        if (rect) {
+          // 드롭 위치와 요소의 중심점 사이의 거리 계산
+          const centerY = rect.top + rect.height / 2
+          const centerX = rect.left + rect.width / 2
+          const distance = Math.sqrt(
+            Math.pow(centerX - dropX, 2) + Math.pow(centerY - dropY, 2)
+          )
+          
+          // 드롭 위치가 요소 위에 있고, 더 가까운 경우
+          if (dropY >= rect.top && dropY <= rect.bottom && distance < closestDistance) {
+            closestDistance = distance
+            closestElement = el
+          }
+        }
+      })
+      
+      if (closestElement) {
+        range = document.createRange()
+        // 요소 앞에 삽입
+        range.setStartBefore(closestElement)
+        range.collapse(true)
+      } else {
+        // 그래도 없으면 드롭 Y 위치를 기준으로 찾기
+        const textNodes: Node[] = []
+        const walker = document.createTreeWalker(
+          editor,
+          NodeFilter.SHOW_TEXT,
+          null
+        )
+        
+        let node: Node | null
+        while (node = walker.nextNode()) {
+          const rect = node.parentElement?.getBoundingClientRect()
+          if (rect && dropY >= rect.top && dropY <= rect.bottom) {
+            textNodes.push(node)
+          }
+        }
+        
+        if (textNodes.length > 0) {
+          // 가장 가까운 텍스트 노드 찾기
+          let closestTextNode = textNodes[0]
+          let minDistance = Infinity
+          
+          textNodes.forEach((textNode) => {
+            const rect = textNode.parentElement?.getBoundingClientRect()
+            if (rect) {
+              const distance = Math.abs(rect.top + rect.height / 2 - dropY)
+              if (distance < minDistance) {
+                minDistance = distance
+                closestTextNode = textNode
+              }
+            }
+          })
+          
+          range = document.createRange()
+          range.setStart(closestTextNode, 0)
+          range.collapse(true)
+        } else {
+          // 그래도 없으면 끝에 추가
+          range = document.createRange()
+          range.selectNodeContents(editor)
+          range.collapse(false)
+        }
+      }
+    }
+
+    for (const file of imageFiles) {
+      const reader = new FileReader()
+      
+      reader.onload = (event) => {
+        const base64String = event.target?.result as string
+        
+        // 이미지 요소 생성
+        const img = document.createElement('img')
+        img.src = base64String
+        img.style.maxWidth = '100%'
+        img.style.height = 'auto'
+        img.style.display = 'block'
+        img.style.margin = '16px auto'
+        img.style.borderRadius = '8px'
+        img.alt = file.name
+
+        // 커서 위치에 이미지 삽입
+        try {
+          if (range) {
+            range.deleteContents()
+            range.insertNode(img)
+            // 줄바꿈 추가
+            const br = document.createElement('br')
+            range.setStartAfter(img)
+            range.insertNode(br)
+            // 커서를 줄바꿈 뒤로 이동
+            range.setStartAfter(br)
+            range.collapse(true)
+            if (selection) {
+              selection.removeAllRanges()
+              selection.addRange(range)
+            }
+          } else {
+            // 커서가 없으면 끝에 추가
+            editor.appendChild(img)
+            const br = document.createElement('br')
+            editor.appendChild(br)
+          }
+        } catch (error) {
+          // 에러 발생 시 끝에 추가
+          console.error('이미지 삽입 오류:', error)
+          editor.appendChild(img)
+          const br = document.createElement('br')
+          editor.appendChild(br)
+        }
+
+        // HTML 업데이트
+        const newHTML = editor.innerHTML
+        setEditableHTML(newHTML)
+        // 편집 모드에서는 generatedHTML도 업데이트하지 않음 (편집 완료 시에만 업데이트)
+      }
+
+      reader.onerror = () => {
+        alert('이미지 파일을 읽는 중 오류가 발생했습니다.')
+      }
+
+      reader.readAsDataURL(file)
+    }
+  }
+
+  // 이미지 첨부 버튼 핸들러
+  const handleImageAttach = () => {
+    const input = document.createElement('input')
+    input.type = 'file'
+    input.accept = 'image/*'
+    input.multiple = true
+    
+    input.onchange = (e) => {
+      const files = (e.target as HTMLInputElement).files
+      if (!files || files.length === 0) return
+
+      const editor = document.querySelector('.blog-editor') as HTMLElement
+      if (!editor) {
+        alert('편집 영역을 찾을 수 없습니다. 편집 모드를 활성화해주세요.')
+        return
+      }
+
+      const selection = window.getSelection()
+      let range: Range | null = null
+      
+      if (selection && selection.rangeCount > 0) {
+        range = selection.getRangeAt(0).cloneRange()
+      } else {
+        range = document.createRange()
+        range.selectNodeContents(editor)
+        range.collapse(false)
+      }
+
+      Array.from(files).forEach((file) => {
+        if (!file.type.startsWith('image/')) return
+
+        const reader = new FileReader()
+        
+        reader.onload = (event) => {
+          const base64String = event.target?.result as string
+          
+          const img = document.createElement('img')
+          img.src = base64String
+          img.style.maxWidth = '100%'
+          img.style.height = 'auto'
+          img.style.display = 'block'
+          img.style.margin = '16px auto'
+          img.style.borderRadius = '8px'
+          img.alt = file.name
+
+          try {
+            if (range) {
+              range.deleteContents()
+              range.insertNode(img)
+              const br = document.createElement('br')
+              range.setStartAfter(img)
+              range.insertNode(br)
+              range.setStartAfter(br)
+              range.collapse(true)
+              selection?.removeAllRanges()
+              selection?.addRange(range)
+            } else {
+              editor.appendChild(img)
+              const br = document.createElement('br')
+              editor.appendChild(br)
+            }
+          } catch (error) {
+            console.error('이미지 삽입 오류:', error)
+            editor.appendChild(img)
+            const br = document.createElement('br')
+            editor.appendChild(br)
+          }
+
+          const newHTML = editor.innerHTML
+          setEditableHTML(newHTML)
+          setGeneratedHTML(newHTML)
+        }
+
+        reader.readAsDataURL(file)
+      })
+    }
+    
+    input.click()
+  }
 
   // 현재 로그인한 사용자의 프로필 정보 다시 가져오기 (세션 업데이트 대응)
   useEffect(() => {
@@ -290,6 +798,7 @@ export default function BlogGenerator({ profile: initialProfile }: { profile: Pr
       loadBlogPosts()
     }
   }, [activeTab, profile])
+
 
   const loadBlogPosts = async () => {
     if (!profile?.id) return
@@ -923,20 +1432,28 @@ h2 {
   }
 
   const handleSave = async () => {
-    if (!generatedHTML || !profile?.id) {
+    // 편집 모드에서 저장할 때는 현재 편집 중인 HTML 사용
+    let htmlToSave = isEditMode && editableHTML ? editableHTML : generatedHTML
+    
+    if (!htmlToSave || !profile?.id) {
       alert('저장할 콘텐츠가 없습니다')
       return
     }
 
     try {
+      // 편집 모드에서 저장할 때는 스코핑 제거 (원본으로 복구)
+      if (isEditMode) {
+        htmlToSave = unscopeHTMLForSave(htmlToSave)
+      }
+
       const supabase = createClient()
       
       // 제목 추출 (HTML에서)
-      const titleMatch = generatedHTML.match(/<title>(.*?)<\/title>/)
+      const titleMatch = htmlToSave.match(/<title>(.*?)<\/title>/)
       const title = titleMatch ? titleMatch[1] : formData.topic
 
       // 텍스트 추출 (대략적)
-      const plainText = generatedHTML.replace(/<[^>]*>/g, '').slice(0, 500)
+      const plainText = htmlToSave.replace(/<[^>]*>/g, '').slice(0, 500)
       const wordCount = plainText.length
 
       const { error } = await supabase.from('blog_posts').insert({
@@ -946,7 +1463,7 @@ h2 {
         product: formData.product,
         tone: formData.tone,
         template: formData.template,
-        html_content: generatedHTML,
+        html_content: htmlToSave, // 스코핑 제거된 원본 HTML 저장
         plain_text: plainText,
         title: title,
         word_count: wordCount,
@@ -954,6 +1471,11 @@ h2 {
       })
 
       if (error) throw error
+
+      // 저장 후 편집 모드 종료 및 HTML 업데이트
+      setGeneratedHTML(htmlToSave)
+      setEditableHTML('')
+      setIsEditMode(false)
 
       alert('✅ 글이 저장되었습니다!')
       // 히스토리 탭으로 이동
@@ -1581,28 +2103,52 @@ h2 {
             } : {}}
           >
             {profile?.role === 'admin' && (
-              <button
-                onClick={() => router.push('/admin/users')}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 bg-purple-600 text-white text-sm font-semibold rounded-md hover:bg-purple-700 transition-colors"
-                style={isEditMode ? {
-                  padding: '0.375rem 0.625rem',
-                  fontSize: '0.875rem',
-                  fontWeight: 600,
-                  margin: 0,
-                  height: 'auto',
-                  minHeight: 'auto',
-                  maxHeight: 'none',
-                  lineHeight: 'normal',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.375rem',
-                  whiteSpace: 'nowrap',
-                  boxSizing: 'border-box'
-                } : {}}
-              >
-                <UserCheck className="w-3.5 h-3.5" style={isEditMode ? { width: '0.875rem', height: '0.875rem', margin: 0, padding: 0 } : {}} />
-                회원관리
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => router.push('/admin/users')}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 bg-purple-600 text-white text-sm font-semibold rounded-md hover:bg-purple-700 transition-colors"
+                  style={isEditMode ? {
+                    padding: '0.375rem 0.625rem',
+                    fontSize: '0.875rem',
+                    fontWeight: 600,
+                    margin: 0,
+                    height: 'auto',
+                    minHeight: 'auto',
+                    maxHeight: 'none',
+                    lineHeight: 'normal',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.375rem',
+                    whiteSpace: 'nowrap',
+                    boxSizing: 'border-box'
+                  } : {}}
+                >
+                  <UserCheck className="w-3.5 h-3.5" style={isEditMode ? { width: '0.875rem', height: '0.875rem', margin: 0, padding: 0 } : {}} />
+                  회원관리
+                </button>
+                <button
+                  onClick={() => router.push('/admin/stats')}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 bg-amber-500 text-white text-sm font-semibold rounded-md hover:bg-amber-600 transition-colors"
+                  style={isEditMode ? {
+                    padding: '0.375rem 0.625rem',
+                    fontSize: '0.875rem',
+                    fontWeight: 600,
+                    margin: 0,
+                    height: 'auto',
+                    minHeight: 'auto',
+                    maxHeight: 'none',
+                    lineHeight: 'normal',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.375rem',
+                    whiteSpace: 'nowrap',
+                    boxSizing: 'border-box'
+                  } : {}}
+                >
+                  <BarChart3 className="w-3.5 h-3.5" />
+                  통계
+                </button>
+              </div>
             )}
             <form 
               action="/api/auth/signout" 
@@ -1644,6 +2190,17 @@ h2 {
         </div>
       </header>
 
+      {/* 회원 상태 배너 (관리자/슈퍼계정 제외) */}
+      {profile && profile.role !== 'admin' && profile.username !== 'amazing' && (
+        <div className="container mx-auto px-4 py-2">
+          <MembershipStatusBanner
+            status={profile.membership_status ?? null}
+            paidUntil={profile.paid_until ?? null}
+            gracePeriodUntil={profile.grace_period_until ?? null}
+          />
+        </div>
+      )}
+
       {/* Main Content */}
       <main className="container mx-auto px-4 py-2">
         {/* 탭 네비게이션 */}
@@ -1681,6 +2238,17 @@ h2 {
             >
               <MessageSquare className="w-4 h-4" />
               💬 Q&A 생성기
+            </button>
+            <button
+              onClick={() => setActiveTab('qa-history')}
+              className={`flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-semibold transition-all ${
+                activeTab === 'qa-history'
+                  ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md'
+                  : 'text-gray-600 hover:bg-gray-100'
+              }`}
+            >
+              <History className="w-4 h-4" />
+              📝 저장된 Q&A
             </button>
             <button
               onClick={() => setActiveTab('stats')}
@@ -1960,7 +2528,31 @@ h2 {
               {generatedHTML && (
                 <div className="flex gap-1.5 flex-wrap">
                   <button
-                    onClick={() => setIsEditMode(!isEditMode)}
+                    onClick={() => {
+                      if (isEditMode) {
+                        // 편집 모드 종료 시: 스코핑 제거하여 원본 HTML로 복구
+                        const editor = document.querySelector('.blog-editor') as HTMLElement
+                        if (editor) {
+                          const currentHTML = editor.innerHTML
+                          const unscopedHTML = unscopeHTMLForSave(currentHTML)
+                          // HTML이 비어있지 않은 경우에만 업데이트
+                          if (unscopedHTML && unscopedHTML.trim().length > 0) {
+                            setGeneratedHTML(unscopedHTML)
+                            setEditableHTML('')
+                          } else {
+                            // HTML이 비어있으면 경고
+                            alert('편집 내용이 비어있습니다. 편집을 계속하시겠습니까?')
+                            return
+                          }
+                        }
+                      } else {
+                        // 편집 모드 시작 시: 스코핑 적용
+                        if (generatedHTML) {
+                          setEditableHTML(scopeHTMLForEditor(generatedHTML))
+                        }
+                      }
+                      setIsEditMode(!isEditMode)
+                    }}
                     className={`flex items-center gap-1 px-2.5 py-1.5 rounded-md transition-colors text-xs font-semibold ${
                       isEditMode 
                         ? 'bg-purple-600 text-white hover:bg-purple-700' 
@@ -2245,12 +2837,41 @@ h2 {
                             >
                               ↷
                             </button>
+                            <div className="w-px h-4 bg-gray-300 mx-0.5"></div>
+                            <button
+                              onClick={handleImageAttach}
+                              className="px-2 py-1 bg-gray-100 text-gray-700 rounded text-xs hover:bg-gray-200 flex items-center gap-1"
+                              title="이미지 첨부"
+                            >
+                              <ImageIcon className="w-3 h-3" />
+                              이미지
+                            </button>
                           </div>
                         </div>
                       </div>
                       {/* 편집 가능한 미리보기 - 비편집모드 iframe과 완전히 동일한 구조 */}
                       <div 
                         className="w-full border-0 rounded-lg bg-white flex-1"
+                        onDragOver={(e) => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          setIsDraggingOver(true)
+                        }}
+                        onDragLeave={(e) => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          // 자식 요소로 이동한 경우는 제외
+                          if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                            setIsDraggingOver(false)
+                          }
+                        }}
+                        onDrop={(e) => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          setIsDraggingOver(false)
+                          // 외부 div에서도 드롭 처리 (blog-editor로 전달)
+                          handleEditorDrop(e as any)
+                        }}
                         style={{ 
                           contain: 'layout style paint',
                           isolation: 'isolate',
@@ -2263,10 +2884,27 @@ h2 {
                         }}
                       >
                         <div
-                          className="blog-editor bg-white rounded-lg p-6 w-full border-2 border-purple-300 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                          className={`blog-editor bg-white rounded-lg p-6 w-full border-2 ${
+                            isDraggingOver 
+                              ? 'border-blue-500 bg-blue-50' 
+                              : 'border-purple-300'
+                          } focus:outline-none focus:ring-2 focus:ring-purple-500 transition-colors`}
                           contentEditable
                           spellCheck={false}
                           suppressContentEditableWarning={true}
+                          onDragOver={(e) => {
+                            e.preventDefault()
+                            e.stopPropagation()
+                            setIsDraggingOver(true)
+                          }}
+                          onDragLeave={(e) => {
+                            e.preventDefault()
+                            e.stopPropagation()
+                            if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                              setIsDraggingOver(false)
+                            }
+                          }}
+                          onDrop={handleEditorDrop}
                           ref={(el) => {
                             if (el && isEditMode) {
                               el.focus()
@@ -2293,8 +2931,9 @@ h2 {
                             }
                           }}
                           dangerouslySetInnerHTML={{ __html: editableHTML || (generatedHTML ? scopeHTMLForEditor(generatedHTML) : '') }}
-                          onBlur={(e) => {
-                            const newHTML = e.currentTarget.innerHTML
+                          onBlur={(e: React.FocusEvent<HTMLDivElement>) => {
+                            const editor = e.currentTarget
+                            const newHTML = editor.innerHTML
                             setEditableHTML(newHTML)
                             // 저장용에는 원본을 유지 (스코핑된 HTML을 그대로 저장해도 무방)
                             setGeneratedHTML(newHTML)
@@ -2507,7 +3146,19 @@ h2 {
           position: 'relative',
           zIndex: 1
         }}>
-          <QAGenerator profile={profile} />
+          <QAGenerator profile={profile} showListOnly={false} onTabChange={setActiveTab} />
+        </div>
+        )}
+
+        {/* 저장된 Q&A 목록 탭 */}
+        {activeTab === 'qa-history' && (
+        <div className="qa-generator-wrapper" style={{ 
+          contain: 'layout style paint',
+          isolation: 'isolate',
+          position: 'relative',
+          zIndex: 1
+        }}>
+          <QAGenerator profile={profile} showListOnly={true} onTabChange={setActiveTab} />
         </div>
         )}
 
@@ -2891,7 +3542,15 @@ function ImageAnalyzer({ profile }: { profile: Profile | null }) {
 }
 
 // Q&A 생성기 컴포넌트
-function QAGenerator({ profile }: { profile: Profile | null }) {
+function QAGenerator({ 
+  profile, 
+  showListOnly = false,
+  onTabChange
+}: { 
+  profile: Profile | null
+  showListOnly?: boolean
+  onTabChange?: (tab: 'write' | 'history' | 'stats' | 'approval' | 'qa' | 'qa-history' | 'image-analysis') => void
+}) {
   const [qaFormData, setQAFormData] = useState({
     productName: '',
     targetPersona: '30대 직장인 남성',
@@ -2909,11 +3568,242 @@ function QAGenerator({ profile }: { profile: Profile | null }) {
   const [generatedQuestion, setGeneratedQuestion] = useState<{ title: string; content: string } | null>(null)
   const [generatedAnswer, setGeneratedAnswer] = useState<string | null>(null)
   const [conversationThread, setConversationThread] = useState<Array<{ role: 'customer' | 'agent'; content: string; step: number }>>([])
-  const [conversationMode, setConversationMode] = useState(false)
+  const [conversationMode, setConversationMode] = useState(true)
   const [conversationLength, setConversationLength] = useState(8)
+  // Q&A 3개 세트 기능 제거 - 단일 Q&A만 생성
+  // const [qaCount, setQaCount] = useState<1 | 3>(3) // 제거됨
+  // const [generatedQAs, setGeneratedQAs] = useState<Array<...>>([]) // 제거됨
+  // const [selectedQANumber, setSelectedQANumber] = useState<1 | 2 | 3>(1) // 제거됨
   // ⚠️ 테스트용: 토큰 사용량 추적 (실제 운영 시 제거 필요)
   const [tokenUsage, setTokenUsage] = useState<{ promptTokens: number; candidatesTokens: number; totalTokens: number; breakdown?: Array<{ promptTokens: number; candidatesTokens: number; totalTokens: number }> } | null>(null)
-  const [currentStep, setCurrentStep] = useState<'question' | 'answer' | 'complete'>('question')
+  const [currentStep, setCurrentStep] = useState<'question' | 'answer' | 'conversation' | 'complete'>('question')
+  
+  // Q&A 세트 타입 정의
+  type QASet = {
+    id: string
+    createdAt: string
+    title: string
+    productName: string
+    qas: Array<{
+      question: { title: string; content: string }
+      answer: string
+      conversation?: Array<{ role: 'customer' | 'agent'; content: string; step: number }>
+      tokenUsage?: { promptTokens: number; candidatesTokens: number; totalTokens: number }
+    }>
+    formData: typeof qaFormData
+  }
+  
+  const [qaSets, setQaSets] = useState<QASet[]>([])
+  const [selectedQASetId, setSelectedQASetId] = useState<string | null>(null)
+  const [showQAList, setShowQAList] = useState(false)
+  
+  // 사용자별 localStorage 키 생성
+  const getQAStorageKey = (): string => {
+    if (!profile?.id) {
+      console.error('getQAStorageKey: profile.id가 없습니다. profile:', profile)
+      throw new Error('프로필 정보가 없습니다')
+    }
+    return `qa_sets_${profile.id}`
+  }
+  
+  // 로컬스토리지에서 Q&A 세트 불러오기 (사용자별)
+  const loadQASets = () => {
+    if (typeof window === 'undefined') return
+    
+    if (!profile?.id) {
+      console.warn('Q&A 세트 불러오기 실패: 프로필 정보가 없습니다')
+      setQaSets([])
+      return
+    }
+    
+    try {
+      const storageKey = getQAStorageKey()
+      const stored = localStorage.getItem(storageKey)
+      if (stored) {
+        const sets = JSON.parse(stored) as QASet[]
+        setQaSets(sets.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()))
+        console.log('Q&A 세트 불러오기 완료:', sets.length, '개', 'storageKey:', storageKey, 'profile.id:', profile.id)
+      } else {
+        setQaSets([])
+        console.log('Q&A 세트 없음, storageKey:', storageKey)
+      }
+    } catch (e) {
+      console.error('Q&A 세트 불러오기 오류:', e)
+      setQaSets([])
+    }
+  }
+  
+  // Q&A 세트 저장 (사용자별 - localStorage + 서버 저장)
+  const saveQASet = async (qas: Array<{
+    question: { title: string; content: string }
+    answer: string
+    conversation?: Array<{ role: 'customer' | 'agent'; content: string; step: number }>
+    tokenUsage?: { promptTokens: number; candidatesTokens: number; totalTokens: number }
+  }>) => {
+    if (qas.length === 0) {
+      console.warn('Q&A 저장 실패: qas 배열이 비어있습니다')
+      return
+    }
+    
+    if (!profile?.id) {
+      console.error('Q&A 저장 실패: 프로필 정보가 없습니다. profile:', profile)
+      alert('Q&A 저장 실패: 사용자 정보를 찾을 수 없습니다. 다시 로그인해주세요.')
+      return
+    }
+    
+    if (typeof window === 'undefined') {
+      console.warn('Q&A 저장 실패: window가 정의되지 않았습니다')
+      return
+    }
+    
+    const title = `${qaFormData.productName || 'Q&A'} - ${new Date().toLocaleDateString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`
+    const productName = qaFormData.productName || ''
+    
+    const newSet: QASet = {
+      id: Date.now().toString(),
+      createdAt: new Date().toISOString(),
+      title,
+      productName,
+      qas: qas,
+      formData: { ...qaFormData }
+    }
+    
+    // 토큰 사용량 합계 계산
+    const tokenTotal = qas.reduce((sum, qa) => {
+      return sum + (qa.tokenUsage?.totalTokens || 0)
+    }, 0)
+    
+    // 1. localStorage 저장 (항상 수행)
+    try {
+      const storageKey = getQAStorageKey()
+      const existing = localStorage.getItem(storageKey)
+      const sets: QASet[] = existing ? JSON.parse(existing) : []
+      sets.unshift(newSet) // 최신 것을 앞에 추가
+      
+      // 최대 50개까지만 저장
+      const limitedSets = sets.slice(0, 50)
+      localStorage.setItem(storageKey, JSON.stringify(limitedSets))
+      
+      console.log('Q&A localStorage 저장 완료:', newSet.title, '저장된 세트 수:', limitedSets.length)
+    } catch (error) {
+      console.error('Q&A localStorage 저장 오류:', error)
+      // localStorage 저장 실패는 경고만 하고 계속 진행
+    }
+    
+    // 2. 서버 저장 (비동기, 실패해도 localStorage는 유지)
+    try {
+      const response = await fetch('/api/qa/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title,
+          productName,
+          tokenTotal,
+          data: {
+            qas: qas,
+            formData: qaFormData
+          }
+        })
+      })
+      
+      const result = await response.json()
+      
+      if (!response.ok) {
+        throw new Error(result.error || '서버 저장 실패')
+      }
+      
+      console.log('Q&A 서버 저장 완료:', result.id)
+      
+      // 서버에서 받은 ID를 localStorage에도 반영 (선택사항)
+      // 나중에 서버에서 불러올 때 동기화에 사용 가능
+    } catch (error) {
+      console.error('Q&A 서버 저장 오류:', error)
+      // 서버 저장 실패는 로그만 남기고 사용자에게는 알리지 않음
+      // localStorage에 이미 저장되어 있으므로 문제없음
+    }
+    
+    // Q&A 목록 새로고침
+    loadQASets()
+  }
+  
+  // Q&A 세트 삭제 (사용자별)
+  const deleteQASet = (id: string) => {
+    if (typeof window !== 'undefined' && profile?.id) {
+      const storageKey = getQAStorageKey()
+      const existing = localStorage.getItem(storageKey)
+      if (existing) {
+        const sets: QASet[] = JSON.parse(existing)
+        const filtered = sets.filter(s => s.id !== id)
+        localStorage.setItem(storageKey, JSON.stringify(filtered))
+        loadQASets()
+        if (selectedQASetId === id) {
+          setSelectedQASetId(null)
+          setGeneratedQuestion(null)
+          setGeneratedAnswer(null)
+          setConversationThread([])
+        }
+      }
+    }
+  }
+  
+  // Q&A 세트 선택 (단일 Q&A만 사용)
+  const selectQASet = (set: QASet) => {
+    setSelectedQASetId(set.id)
+    setShowQAList(false)
+    // 첫 번째 Q&A를 표시 (하위 호환성: 저장된 Q&A 세트는 배열 형태)
+    if (set.qas.length > 0) {
+      const firstQA = set.qas[0]
+      setGeneratedQuestion(firstQA.question)
+      setGeneratedAnswer(firstQA.answer)
+      setConversationThread(firstQA.conversation || [])
+      setTokenUsage(firstQA.tokenUsage || null)
+    }
+    // localStorage에 선택된 Q&A 세트 ID 저장 (다른 탭에서도 접근 가능하도록)
+    if (typeof window !== 'undefined' && profile?.id) {
+      const storageKey = getQAStorageKey()
+      const stored = localStorage.getItem(storageKey)
+      if (stored) {
+        try {
+          const qaSets: QASet[] = JSON.parse(stored)
+          const selectedSet = qaSets.find(s => s.id === set.id)
+          if (selectedSet) {
+            localStorage.setItem(`${storageKey}_selected`, JSON.stringify(selectedSet))
+          }
+        } catch (e) {
+          console.error('Q&A 세트 저장 오류:', e)
+        }
+      }
+    }
+  }
+  
+  // 컴포넌트 마운트 시 및 프로필 변경 시 저장된 세트 불러오기
+  useEffect(() => {
+    if (profile?.id) {
+      loadQASets()
+      // 선택된 Q&A 세트가 있으면 로드 (다른 탭에서 선택한 경우)
+      const storageKey = getQAStorageKey()
+      const selectedSetStr = localStorage.getItem(`${storageKey}_selected`)
+      if (selectedSetStr) {
+        try {
+          const selectedSet: QASet = JSON.parse(selectedSetStr)
+          setSelectedQASetId(selectedSet.id)
+          if (selectedSet.qas.length > 0) {
+            const firstQA = selectedSet.qas[0]
+            setGeneratedQuestion(firstQA.question)
+            setGeneratedAnswer(firstQA.answer)
+            setConversationThread(firstQA.conversation || [])
+            setTokenUsage(firstQA.tokenUsage || null)
+          }
+          // 사용 후 삭제 (한 번만 로드)
+          localStorage.removeItem(`${storageKey}_selected`)
+        } catch (e) {
+          console.error('선택된 Q&A 세트 로드 오류:', e)
+        }
+      }
+    }
+  }, [profile?.id])
+
+  // 제거됨: generatedQAs 관련 useEffect 제거 (단일 Q&A만 사용)
 
   const handleQAChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target
@@ -2935,108 +3825,19 @@ function QAGenerator({ profile }: { profile: Profile | null }) {
       const base64String = reader.result as string
       setQAFormData(prev => ({ ...prev, designSheetImage: base64String }))
       
-      // 설계서 이미지 업로드 시 자동으로 분석 및 Q&A 생성
+      // 설계서 이미지 업로드 시 자동으로 분석만 수행 (Q&A 생성은 하지 않음)
       setTimeout(async () => {
-        await handleAnalyzeAndGenerate(base64String)
+        await handleAnalyzeDesignSheetOnly(base64String)
       }, 500)
     }
     reader.readAsDataURL(file)
   }
 
-  const handleAnalyzeAndGenerate = async (imageBase64?: string) => {
+  // 설계서 이미지 업로드 시 자동으로 분석만 수행하는 함수
+  const handleAnalyzeDesignSheetOnly = async (imageBase64?: string) => {
     const imageToAnalyze = imageBase64 || qaFormData.designSheetImage
     
     if (!imageToAnalyze) {
-      alert('설계서 이미지를 먼저 업로드해주세요!')
-      return
-    }
-
-    setIsAnalyzing(true)
-    setIsGenerating(true)
-    setProgress(0)
-    setCurrentStep('question')
-
-    try {
-      // Step 1: 설계서 분석
-      const analyzeResponse = await fetch('/api/analyze-design-sheet', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          imageBase64: imageToAnalyze
-        }),
-      })
-
-      const analyzeData = await analyzeResponse.json()
-
-      if (!analyzeResponse.ok) {
-        throw new Error(analyzeData.error || '분석 오류')
-      }
-
-      // 분석 결과로 폼 자동 채우기
-      const updatedFormData = {
-        ...qaFormData,
-        productName: analyzeData.data.productName,
-        targetPersona: analyzeData.data.targetPersona,
-        worryPoint: analyzeData.data.worryPoint,
-        sellingPoint: analyzeData.data.sellingPoint,
-        designSheetImage: imageToAnalyze,
-        designSheetAnalysis: {
-          premium: analyzeData.data.premium || '',
-          coverages: analyzeData.data.coverages || [],
-          specialClauses: analyzeData.data.specialClauses || []
-        }
-      }
-      
-      setQAFormData(updatedFormData)
-      setProgress(30)
-
-      // Step 2: Q&A 자동 생성
-      const qaResponse = await fetch('/api/generate-qa', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          ...updatedFormData,
-          conversationMode: conversationMode,
-          conversationLength: conversationMode ? conversationLength : undefined
-        }),
-      })
-
-      const qaData = await qaResponse.json()
-
-      if (!qaResponse.ok) {
-        throw new Error(qaData.error || 'Q&A 생성 오류')
-      }
-
-      setProgress(100)
-      
-      setGeneratedQuestion({
-        title: qaData.question.title,
-        content: qaData.question.content
-      })
-      setGeneratedAnswer(qaData.answer.content)
-      setConversationThread(qaData.conversation || [])
-      // ⚠️ 테스트용: 실제 운영 시 제거 필요
-      setTokenUsage(qaData.tokenUsage || null)
-      setCurrentStep('complete')
-      
-      alert('설계서 분석 및 Q&A 생성이 완료되었습니다!')
-    } catch (error: any) {
-      console.error('설계서 분석/생성 오류:', error)
-      alert('처리 중 오류가 발생했습니다: ' + error.message)
-    } finally {
-      setIsAnalyzing(false)
-      setIsGenerating(false)
-      setProgress(0)
-    }
-  }
-
-  const handleAnalyzeDesignSheet = async () => {
-    // 설계서만 분석하고 Q&A 생성은 하지 않음
-    if (!qaFormData.designSheetImage) {
       alert('설계서 이미지를 먼저 업로드해주세요!')
       return
     }
@@ -3049,7 +3850,7 @@ function QAGenerator({ profile }: { profile: Profile | null }) {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          imageBase64: qaFormData.designSheetImage
+          imageBase64: imageToAnalyze
         }),
       })
 
@@ -3062,19 +3863,35 @@ function QAGenerator({ profile }: { profile: Profile | null }) {
       // 분석 결과로 폼 자동 채우기
       setQAFormData(prev => ({
         ...prev,
-        productName: data.data.productName,
-        targetPersona: data.data.targetPersona,
-        worryPoint: data.data.worryPoint,
-        sellingPoint: data.data.sellingPoint
+        productName: data.data.productName || prev.productName,
+        targetPersona: data.data.targetPersona || prev.targetPersona,
+        worryPoint: data.data.worryPoint || prev.worryPoint,
+        sellingPoint: data.data.sellingPoint || prev.sellingPoint,
+        designSheetImage: imageToAnalyze,
+        designSheetAnalysis: {
+          premium: data.data.premium || '',
+          coverages: data.data.coverages || [],
+          specialClauses: data.data.specialClauses || []
+        }
       }))
 
-      alert('설계서 분석이 완료되었습니다! 폼이 자동으로 채워졌습니다.')
+      alert('설계서 분석이 완료되었습니다! 폼이 자동으로 채워졌습니다. 필요시 수정 후 "Q&A 생성하기" 버튼을 눌러주세요.')
     } catch (error: any) {
       console.error('설계서 분석 오류:', error)
       alert('설계서 분석 중 오류가 발생했습니다: ' + error.message)
     } finally {
       setIsAnalyzing(false)
     }
+  }
+
+  const handleAnalyzeDesignSheet = async () => {
+    // 설계서만 분석하고 Q&A 생성은 하지 않음
+    if (!qaFormData.designSheetImage) {
+      alert('설계서 이미지를 먼저 업로드해주세요!')
+      return
+    }
+
+    await handleAnalyzeDesignSheetOnly()
   }
 
   const handleRandomGenerate = async () => {
@@ -3186,6 +4003,9 @@ function QAGenerator({ profile }: { profile: Profile | null }) {
     setGeneratedAnswer(null)
   }
 
+  // 제거됨: Q&A 3개 세트 기능 제거로 인해 handleGenerateQAByNumber 함수 제거
+
+  // 단일 Q&A 생성 (3개 세트 기능 제거)
   const handleGenerateQA = async () => {
     if (!qaFormData.productName || !qaFormData.worryPoint || !qaFormData.sellingPoint) {
       alert('필수 입력 항목을 모두 입력해주세요!')
@@ -3197,22 +4017,13 @@ function QAGenerator({ profile }: { profile: Profile | null }) {
     setGeneratedQuestion(null)
     setGeneratedAnswer(null)
     setConversationThread([])
-    // ⚠️ 테스트용: 실제 운영 시 제거 필요
     setTokenUsage(null)
     setCurrentStep('question')
 
-    // 진행률 애니메이션
-    const progressInterval = setInterval(() => {
-      setProgress((prev) => {
-        if (prev >= 90) {
-          clearInterval(progressInterval)
-          return 90
-        }
-        return prev + 10
-      })
-    }, 300)
-
     try {
+      setProgress(30)
+      setCurrentStep('question')
+
       const response = await fetch('/api/generate-qa', {
         method: 'POST',
         headers: {
@@ -3221,34 +4032,62 @@ function QAGenerator({ profile }: { profile: Profile | null }) {
         body: JSON.stringify({
           ...qaFormData,
           conversationMode: conversationMode,
-          conversationLength: conversationMode ? conversationLength : undefined
+          conversationLength: conversationMode ? conversationLength : undefined,
+          generateStep: 'all' // 전체 생성 (질문+답변+대화스레드)
         }),
       })
 
       const data = await response.json()
 
       if (!response.ok) {
-        throw new Error(data.error || 'API 오류')
+        console.error('Q&A 생성 API 오류:', {
+          status: response.status,
+          statusText: response.statusText,
+          error: data.error,
+          details: data.details,
+          fullData: data
+        })
+        throw new Error(data.error || `Q&A 생성 오류 (${response.status})`)
       }
 
-      clearInterval(progressInterval)
-      setProgress(100)
-      
+      // 단일 Q&A 결과 저장
       setGeneratedQuestion({
         title: data.question.title,
         content: data.question.content
       })
       setGeneratedAnswer(data.answer.content)
       setConversationThread(data.conversation || [])
-      // ⚠️ 테스트용: 실제 운영 시 제거 필요
       setTokenUsage(data.tokenUsage || null)
+
+      setProgress(100)
       setCurrentStep('complete')
+      
+      // 저장된 Q&A 목록에 추가 (하위 호환성: 배열 형태로 저장)
+      const qaResult = [{
+        question: {
+          title: data.question.title,
+          content: data.question.content
+        },
+        answer: data.answer.content,
+        conversation: data.conversation || [],
+        tokenUsage: data.tokenUsage || undefined
+      }]
+      
+      // Q&A 자동 저장 (localStorage + 서버)
+      try {
+        await saveQASet(qaResult)
+        console.log('Q&A 자동 저장 완료')
+      } catch (saveError) {
+        console.error('Q&A 자동 저장 오류:', saveError)
+        // 저장 실패해도 생성은 완료되었으므로 계속 진행
+      }
+      
+      alert('Q&A 생성이 완료되었습니다!')
     } catch (error: any) {
       console.error('Q&A 생성 오류:', error)
       alert('Q&A 생성 중 오류가 발생했습니다: ' + error.message)
     } finally {
       setIsGenerating(false)
-      setProgress(0)
     }
   }
 
@@ -3384,19 +4223,187 @@ function QAGenerator({ profile }: { profile: Profile | null }) {
     }
   }
 
+  // 목록만 보기 모드
+  if (showListOnly) {
+    return (
+      <div className="max-w-7xl mx-auto">
+        <div className="bg-white rounded-xl shadow-lg p-6">
+          <div className="flex justify-between items-center mb-6">
+            <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
+              <History className="w-6 h-6 text-indigo-600" />
+              📝 저장된 Q&A 목록 ({qaSets.length})
+            </h2>
+            <button
+              onClick={() => {
+                onTabChange?.('qa')
+              }}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-semibold"
+            >
+              <MessageSquare className="w-4 h-4" />
+              새 Q&A 생성
+            </button>
+          </div>
+          
+          <div className="overflow-y-auto">
+            {qaSets.length === 0 ? (
+              <div className="text-center py-16 text-gray-400">
+                <History className="w-16 h-16 mx-auto mb-4 opacity-50" />
+                <p className="text-lg mb-2">저장된 Q&A가 없습니다.</p>
+                <p className="text-sm">Q&A를 생성하면 자동으로 저장됩니다.</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                {qaSets.map((set) => (
+                  <div
+                    key={set.id}
+                    className={`border rounded-lg p-4 cursor-pointer transition-all hover:shadow-md ${
+                      selectedQASetId === set.id
+                        ? 'border-indigo-500 bg-indigo-50 shadow-md'
+                        : 'border-gray-200 hover:border-indigo-300 hover:bg-gray-50'
+                    }`}
+                    onClick={() => {
+                      selectQASet(set)
+                      // Q&A 생성기 탭으로 이동하여 선택된 Q&A 표시
+                      // 약간의 지연을 두어 state 업데이트가 완료된 후 탭 전환
+                      setTimeout(() => {
+                        onTabChange?.('qa')
+                      }, 100)
+                    }}
+                  >
+                    <div className="flex justify-between items-start mb-2">
+                      <div className="flex-1 min-w-0">
+                        <h4 className="font-semibold text-gray-800 mb-1 truncate">{set.title}</h4>
+                        <p className="text-sm text-gray-600 mb-2 truncate">{set.productName}</p>
+                      </div>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          if (confirm('이 Q&A 세트를 삭제하시겠습니까?')) {
+                            deleteQASet(set.id)
+                          }
+                        }}
+                        className="text-red-500 hover:text-red-700 ml-2 p-1 flex-shrink-0"
+                        title="삭제"
+                      >
+                        🗑️
+                      </button>
+                    </div>
+                    <div className="flex items-center gap-3 text-xs text-gray-500">
+                      <span className="flex items-center gap-1">
+                        <Clock className="w-3 h-3" />
+                        {new Date(set.createdAt).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <MessageSquare className="w-3 h-3" />
+                        {set.qas.length}개
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="max-w-7xl mx-auto">
       <div className="bg-white rounded-xl shadow-lg p-6 mb-6">
-        <h2 className="text-xl font-bold text-gray-800 mb-6 flex items-center gap-2">
-          <MessageSquare className="w-6 h-6 text-blue-600" />
-          💬 보험카페 Q&A 생성기
-        </h2>
+        <div className="flex justify-between items-center mb-6">
+          <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
+            <MessageSquare className="w-6 h-6 text-blue-600" />
+            💬 보험카페 Q&A 생성기
+          </h2>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                onTabChange?.('qa-history')
+              }}
+              className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors text-sm font-semibold"
+            >
+              <History className="w-4 h-4" />
+              저장된 Q&A 목록 ({qaSets.length})
+            </button>
+          </div>
+        </div>
+        
+        {/* Q&A 목록 모달 - 상단에 고정 (기존 기능 유지) */}
+        {showQAList && (
+          <div className="fixed top-0 left-0 right-0 bg-white border-b border-gray-200 shadow-lg z-50 max-h-[60vh] flex flex-col">
+            <div className="flex justify-between items-center p-4 border-b bg-indigo-50">
+              <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                <History className="w-5 h-5 text-indigo-600" />
+                저장된 Q&A 목록 ({qaSets.length})
+              </h3>
+              <button
+                onClick={() => setShowQAList(false)}
+                className="text-gray-500 hover:text-gray-700 text-2xl font-bold px-2"
+              >
+                ×
+              </button>
+            </div>
+            <div className="overflow-y-auto p-4 flex-1 bg-white">
+              {qaSets.length === 0 ? (
+                <div className="text-center py-8 text-gray-400">
+                  <History className="w-10 h-10 mx-auto mb-3 opacity-50" />
+                  <p>저장된 Q&A가 없습니다.</p>
+                  <p className="text-sm mt-1">Q&A를 생성하면 자동으로 저장됩니다.</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {qaSets.map((set) => (
+                    <div
+                      key={set.id}
+                      className={`border rounded-lg p-3 cursor-pointer transition-all ${
+                        selectedQASetId === set.id
+                          ? 'border-indigo-500 bg-indigo-50 shadow-md'
+                          : 'border-gray-200 hover:border-indigo-300 hover:bg-gray-50'
+                      }`}
+                      onClick={() => selectQASet(set)}
+                    >
+                      <div className="flex justify-between items-start">
+                        <div className="flex-1 min-w-0">
+                          <h4 className="font-semibold text-gray-800 mb-1 truncate">{set.title}</h4>
+                          <p className="text-sm text-gray-600 mb-2 truncate">{set.productName}</p>
+                          <div className="flex items-center gap-3 text-xs text-gray-500">
+                            <span className="flex items-center gap-1">
+                              <Clock className="w-3 h-3" />
+                              {new Date(set.createdAt).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                            <span className="flex items-center gap-1">
+                              <MessageSquare className="w-3 h-3" />
+                              {set.qas.length}개
+                            </span>
+                          </div>
+                        </div>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            if (confirm('이 Q&A 세트를 삭제하시겠습니까?')) {
+                              deleteQASet(set.id)
+                            }
+                          }}
+                          className="text-red-500 hover:text-red-700 ml-2 p-1 flex-shrink-0"
+                          title="삭제"
+                        >
+                          🗑️
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* 입력 폼 */}
         <div className="grid md:grid-cols-2 gap-6 mb-6">
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
+              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">
                 상품명 *
               </label>
               <input
@@ -3404,20 +4411,20 @@ function QAGenerator({ profile }: { profile: Profile | null }) {
                 name="productName"
                 value={qaFormData.productName}
                 onChange={handleQAChange}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500"
                 placeholder="예: 삼성생명 실손보험"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
+              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">
                 타겟 고객 *
               </label>
               <select
                 name="targetPersona"
                 value={qaFormData.targetPersona}
                 onChange={handleQAChange}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-800 text-black dark:text-white"
               >
                 <option value="30대 직장인 남성">30대 직장인 남성</option>
                 <option value="30대 직장인 여성">30대 직장인 여성</option>
@@ -3430,14 +4437,14 @@ function QAGenerator({ profile }: { profile: Profile | null }) {
             </div>
 
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
+              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">
                 핵심 고민 *
               </label>
               <textarea
                 name="worryPoint"
                 value={qaFormData.worryPoint}
                 onChange={handleQAChange}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500"
                 rows={3}
                 placeholder="예: 보험료가 적당한지, 보장 범위가 충분한지 궁금합니다"
               />
@@ -3446,28 +4453,28 @@ function QAGenerator({ profile }: { profile: Profile | null }) {
 
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
+              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">
                 답변 강조 포인트 *
               </label>
               <textarea
                 name="sellingPoint"
                 value={qaFormData.sellingPoint}
                 onChange={handleQAChange}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500"
                 rows={3}
                 placeholder="예: 보장 범위가 넓고, 보험료 대비 합리적이며, 특약 구성이 탄탄함"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
+              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">
                 질문 감정 톤
               </label>
               <select
                 name="feelingTone"
                 value={qaFormData.feelingTone}
                 onChange={handleQAChange}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-800 text-black dark:text-white"
               >
                 <option value="고민">고민</option>
                 <option value="급함">급함</option>
@@ -3477,14 +4484,14 @@ function QAGenerator({ profile }: { profile: Profile | null }) {
             </div>
 
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
+              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">
                 답변 톤
               </label>
               <select
                 name="answerTone"
                 value={qaFormData.answerTone}
                 onChange={handleQAChange}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-800 text-black dark:text-white"
               >
                 <option value="friendly">친절한</option>
                 <option value="expert">전문적인</option>
@@ -3494,21 +4501,21 @@ function QAGenerator({ profile }: { profile: Profile | null }) {
             </div>
 
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
+              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">
                 고객 스타일
               </label>
               <select
                 name="customerStyle"
                 value={qaFormData.customerStyle}
                 onChange={handleQAChange}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-800 text-black dark:text-white"
               >
                 <option value="curious">궁금해서 물어보는 (추천)</option>
                 <option value="cold">차갑고 거리감 있는</option>
                 <option value="brief">간결하고 직설적인</option>
                 <option value="friendly">정중하지만 거리감 있는</option>
               </select>
-              <p className="text-xs text-gray-500 mt-1">
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                 {qaFormData.customerStyle === 'curious' && '정말 모르는 게 있어서 궁금해서 물어보는 자연스러운 톤'}
                 {qaFormData.customerStyle === 'cold' && '설계사에게 거리감을 두고 차갑게 질문하는 톤'}
                 {qaFormData.customerStyle === 'brief' && '불필요한 말 없이 핵심만 간결하게 물어보는 톤'}
@@ -3517,7 +4524,7 @@ function QAGenerator({ profile }: { profile: Profile | null }) {
             </div>
 
             {/* 대화형 모드 옵션 */}
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+            <div className="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
               <div className="flex items-center gap-2 mb-3">
                 <input
                   type="checkbox"
@@ -3525,15 +4532,15 @@ function QAGenerator({ profile }: { profile: Profile | null }) {
                   checked={conversationMode}
                   onChange={(e) => setConversationMode(e.target.checked)}
                   disabled={isGenerating || isAnalyzing}
-                  className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                  className="w-4 h-4 text-blue-600 border-gray-300 dark:border-gray-600 rounded focus:ring-blue-500 dark:bg-gray-700"
                 />
-                <label htmlFor="conversationMode" className="text-sm font-semibold text-gray-700 cursor-pointer">
+                <label htmlFor="conversationMode" className="text-sm font-semibold text-gray-700 dark:text-gray-200 cursor-pointer">
                   💬 대화형 Q&A 생성 (댓글 형식)
                 </label>
               </div>
               {conversationMode && (
                 <div className="mt-3">
-                  <label className="block text-xs font-semibold text-gray-600 mb-2">
+                  <label className="block text-xs font-semibold text-gray-600 dark:text-gray-300 mb-2">
                     대화 횟수: {conversationLength}개
                   </label>
                   <div className="flex gap-2">
@@ -3546,14 +4553,14 @@ function QAGenerator({ profile }: { profile: Profile | null }) {
                         className={`flex-1 px-3 py-2 text-sm rounded-lg transition-colors ${
                           conversationLength === length
                             ? 'bg-blue-600 text-white font-semibold'
-                            : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'
+                            : 'bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700'
                         } disabled:opacity-50 disabled:cursor-not-allowed`}
                       >
                         {length}개
                       </button>
                     ))}
                   </div>
-                  <p className="text-xs text-gray-500 mt-2">
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
                     첫 답변 이후 {conversationLength - 2}개의 추가 댓글이 생성됩니다 (고객 질문 + 설계사 답변). 항상 설계사가 마무리합니다.
                   </p>
                 </div>
@@ -3561,7 +4568,7 @@ function QAGenerator({ profile }: { profile: Profile | null }) {
             </div>
 
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
+              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">
                 설계서 이미지 (선택)
               </label>
               <div className="flex gap-2">
@@ -3570,7 +4577,7 @@ function QAGenerator({ profile }: { profile: Profile | null }) {
                   accept="image/*"
                   onChange={handleImageUpload}
                   disabled={isAnalyzing || isGenerating}
-                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                  className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white disabled:bg-gray-100 dark:disabled:bg-gray-700 disabled:cursor-not-allowed file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-50 dark:file:bg-blue-900/30 file:text-blue-700 dark:file:text-blue-300 hover:file:bg-blue-100 dark:hover:file:bg-blue-900/50"
                 />
                 {qaFormData.designSheetImage && (
                   <button
@@ -3603,31 +4610,33 @@ function QAGenerator({ profile }: { profile: Profile | null }) {
           </div>
         </div>
 
-        {/* 생성 버튼들 */}
+        {/* Q&A 생성 모드 선택 제거됨 - 단일 Q&A만 생성 */}
+
+        {/* 전체 생성 버튼 (하위 호환성) */}
         <div className="flex gap-3">
           <button
             onClick={handleGenerateQA}
             disabled={isGenerating || !qaFormData.productName || !qaFormData.worryPoint || !qaFormData.sellingPoint}
-            className="flex-1 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold rounded-xl hover:from-blue-700 hover:to-indigo-700 disabled:from-gray-300 disabled:to-gray-400 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-3 shadow-lg hover:shadow-xl"
+            className="flex-1 py-2 bg-gradient-to-r from-gray-600 to-gray-700 text-white font-semibold rounded-lg hover:from-gray-700 hover:to-gray-800 disabled:from-gray-300 disabled:to-gray-400 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2 text-sm"
           >
-            {isGenerating ? (
-              <>
-                <Clock className="w-5 h-5 animate-spin" />
-                {currentStep === 'question' ? '질문 생성 중...' : currentStep === 'answer' ? '답변 생성 중...' : '생성 중...'} ({progress}%)
-              </>
-            ) : (
-              <>
-                <Sparkles className="w-5 h-5" />
-                💬 Q&A 생성하기
-              </>
-            )}
+              {isGenerating ? (
+                <>
+                  <Clock className="w-4 h-4 animate-spin" />
+                  생성 중... ({progress}%)
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-4 h-4" />
+                  Q&A 생성하기
+                </>
+              )}
           </button>
           <button
             onClick={handleRandomGenerate}
             disabled={isGenerating || isAnalyzing}
-            className="px-6 py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white font-bold rounded-xl hover:from-purple-600 hover:to-pink-600 disabled:from-gray-300 disabled:to-gray-400 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2 shadow-lg hover:shadow-xl whitespace-nowrap"
+            className="px-6 py-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white font-bold rounded-lg hover:from-purple-600 hover:to-pink-600 disabled:from-gray-300 disabled:to-gray-400 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2 whitespace-nowrap text-sm"
           >
-            <Sparkles className="w-5 h-5" />
+            <Sparkles className="w-4 h-4" />
             🎲 정말 귀찮다
           </button>
         </div>
@@ -3636,8 +4645,8 @@ function QAGenerator({ profile }: { profile: Profile | null }) {
       {/* 결과 미리보기 */}
       {(generatedQuestion || generatedAnswer) && (
         <div className="space-y-6">
-          {/* ⚠️ 테스트용: 토큰 사용량 표시 (실제 운영 시 이 전체 블록 제거 필요) */}
-          {tokenUsage && (
+          {/* 토큰 사용량 표시 (관리자만 볼 수 있음) */}
+          {tokenUsage && profile?.role === 'admin' && (
             <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
@@ -3697,120 +4706,144 @@ function QAGenerator({ profile }: { profile: Profile | null }) {
             </div>
           )}
           
-          <div className="qa-generator-container grid md:grid-cols-2 gap-6" style={{ 
-            contain: 'layout style paint',
-            isolation: 'isolate',
-            position: 'relative',
-            zIndex: 1
-          }}>
-          {/* 질문 영역 */}
-          <div className="qa-question-container bg-gray-50 rounded-xl shadow-lg p-6" style={{ 
-            contain: 'layout style paint',
-            isolation: 'isolate',
-            position: 'relative',
-            zIndex: 1
-          }}>
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
-                <MessageSquare className="w-5 h-5 text-blue-600" />
-                질문글
-              </h3>
-              <div className="flex gap-2">
-                <button
-                  onClick={handleRegenerateQuestion}
-                  className="px-3 py-1.5 bg-gray-600 text-white text-xs rounded-md hover:bg-gray-700 transition-colors"
-                >
-                  🔄 재생성
-                </button>
-                <button
-                  onClick={handleCopyQuestion}
-                  className="px-3 py-1.5 bg-blue-600 text-white text-xs rounded-md hover:bg-blue-700 transition-colors flex items-center gap-1"
-                >
-                  <Copy className="w-3 h-3" />
-                  복사
-                </button>
+          {/* 단일 Q&A 표시 */}
+          {generatedQuestion && generatedAnswer && (
+            <div className="qa-generator-container grid md:grid-cols-2 gap-6" style={{ 
+              contain: 'layout style paint',
+              isolation: 'isolate',
+              position: 'relative',
+              zIndex: 1
+            }}>
+              {/* 질문 영역 */}
+              <div className="qa-question-container bg-white rounded-xl shadow-lg p-6 border border-gray-200" style={{ 
+                contain: 'layout style paint',
+                isolation: 'isolate',
+                position: 'relative',
+                zIndex: 1
+              }}>
+                <div className="flex justify-between items-center mb-6 pb-4 border-b border-gray-200">
+                  <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                    <MessageSquare className="w-5 h-5 text-blue-600" />
+                    질문글
+                  </h3>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={handleRegenerateQuestion}
+                      className="px-3 py-1.5 bg-gray-600 text-white text-xs rounded-md hover:bg-gray-700 transition-colors"
+                    >
+                      🔄 재생성
+                    </button>
+                    <button
+                      onClick={handleCopyQuestion}
+                      className="px-3 py-1.5 bg-blue-600 text-white text-xs rounded-md hover:bg-blue-700 transition-colors flex items-center gap-1"
+                    >
+                      <Copy className="w-3 h-3" />
+                      복사
+                    </button>
+                  </div>
+                </div>
+                {generatedQuestion ? (
+                  <div className="text-gray-800">
+                    {/* 제목 */}
+                    <h4 className="font-bold text-gray-900 text-xl mb-6 pb-3 border-b border-gray-200">
+                      {generatedQuestion.title}
+                    </h4>
+                    {/* 본문 - 문단별로 깔끔하게 표시 */}
+                    <div className="space-y-5">
+                      {generatedQuestion.content.split(/\n\n+/).filter(p => p.trim()).map((paragraph, idx) => (
+                        <p
+                          key={idx}
+                          className="mb-5 last:mb-0"
+                          style={{
+                            whiteSpace: 'pre-wrap',
+                            wordBreak: 'break-word',
+                            overflowWrap: 'break-word',
+                            lineHeight: '1.95',
+                            fontSize: '15px',
+                            color: '#374151',
+                            maxWidth: '100%',
+                            letterSpacing: '0.01em',
+                            paddingBottom: '0'
+                          }}
+                        >
+                          {paragraph.trim()}
+                        </p>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-center py-12 text-gray-400">
+                    질문 생성 중...
+                  </div>
+                )}
+              </div>
+
+              {/* 답변 영역 */}
+              <div className="qa-answer-container bg-white rounded-xl shadow-lg p-6 border border-gray-200" style={{ 
+                contain: 'layout style paint',
+                isolation: 'isolate',
+                position: 'relative',
+                zIndex: 1
+              }}>
+                <div className="flex justify-between items-center mb-6 pb-4 border-b border-gray-200">
+                  <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                    <UserCheck className="w-5 h-5 text-indigo-600" />
+                    전문가 답변
+                  </h3>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={handleRegenerateAnswer}
+                      disabled={!generatedQuestion}
+                      className="px-3 py-1.5 bg-gray-600 text-white text-xs rounded-md hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      🔄 재생성
+                    </button>
+                    <button
+                      onClick={handleCopyAnswer}
+                      disabled={!generatedAnswer}
+                      className="px-3 py-1.5 bg-indigo-600 text-white text-xs rounded-md hover:bg-indigo-700 transition-colors flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <Copy className="w-3 h-3" />
+                      복사
+                    </button>
+                  </div>
+                </div>
+                {generatedAnswer ? (
+                  <div className="text-gray-800">
+                    {generatedAnswer.split(/\n\n+/).filter(p => p.trim()).map((paragraph, idx) => (
+                      <p
+                        key={idx}
+                        className="mb-5 last:mb-0"
+                        style={{
+                          whiteSpace: 'pre-wrap',
+                          wordBreak: 'break-word',
+                          overflowWrap: 'break-word',
+                          lineHeight: '1.95',
+                          fontSize: '15px',
+                          color: '#374151',
+                          maxWidth: '100%',
+                          letterSpacing: '0.01em',
+                          paddingBottom: '0'
+                        }}
+                      >
+                        {paragraph.trim()}
+                      </p>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-12 text-gray-400">
+                    {generatedQuestion ? '답변 생성 중...' : '질문을 먼저 생성해주세요'}
+                  </div>
+                )}
               </div>
             </div>
-            {generatedQuestion ? (
-              <div className="space-y-3">
-                <h4 className="font-bold text-gray-900 text-lg border-b pb-2">
-                  {generatedQuestion.title}
-                </h4>
-                <p className="text-gray-700 whitespace-pre-wrap leading-relaxed">
-                  {generatedQuestion.content}
-                </p>
-              </div>
-            ) : (
-              <div className="text-center py-12 text-gray-400">
-                질문 생성 중...
-              </div>
-            )}
-          </div>
+          )}
 
-          {/* 답변 영역 */}
-          <div className="qa-answer-container bg-white rounded-xl shadow-lg p-6" style={{ 
-            contain: 'layout style paint',
-            isolation: 'isolate',
-            position: 'relative',
-            zIndex: 1
-          }}>
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
-                <UserCheck className="w-5 h-5 text-indigo-600" />
-                전문가 답변
-              </h3>
-              <div className="flex gap-2">
-                <button
-                  onClick={handleRegenerateAnswer}
-                  disabled={!generatedQuestion}
-                  className="px-3 py-1.5 bg-gray-600 text-white text-xs rounded-md hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  🔄 재생성
-                </button>
-                <button
-                  onClick={handleCopyAnswer}
-                  disabled={!generatedAnswer}
-                  className="px-3 py-1.5 bg-indigo-600 text-white text-xs rounded-md hover:bg-indigo-700 transition-colors flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <Copy className="w-3 h-3" />
-                  복사
-                </button>
-              </div>
-            </div>
-            {generatedAnswer ? (
-              <div className="text-gray-800">
-                {generatedAnswer.split(/\n\n+/).filter(p => p.trim()).map((paragraph, idx) => (
-                  <p
-                    key={idx}
-                    className="mb-5 last:mb-0"
-                    style={{
-                      whiteSpace: 'pre-wrap',
-                      wordBreak: 'break-word',
-                      overflowWrap: 'break-word',
-                      lineHeight: '1.95',
-                      fontSize: '15px',
-                      color: '#374151',
-                      maxWidth: '100%',
-                      letterSpacing: '0.01em',
-                      paddingBottom: '0'
-                    }}
-                  >
-                    {paragraph.trim()}
-                  </p>
-                ))}
-              </div>
-            ) : (
-              <div className="text-center py-12 text-gray-400">
-                {generatedQuestion ? '답변 생성 중...' : '질문을 먼저 생성해주세요'}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* 대화형 스레드 (댓글 형식) */}
+        
+        {/* 대화형 스레드 (개선된 타임라인 스타일) */}
         {conversationThread.length > 0 && (
-          <div className="bg-white rounded-xl shadow-lg p-6">
-            <div className="flex justify-between items-center mb-6">
+          <div className="bg-white rounded-xl shadow-lg p-6 mt-6 border border-gray-200">
+            <div className="flex justify-between items-center mb-6 pb-4 border-b border-gray-200">
               <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
                 <MessageSquare className="w-5 h-5 text-purple-600" />
                 💬 대화형 댓글 스레드 ({conversationThread.length}개)
@@ -3830,54 +4863,87 @@ function QAGenerator({ profile }: { profile: Profile | null }) {
               </button>
             </div>
             
-            <div className="space-y-4">
-              {conversationThread.map((message, idx) => (
-                <div
-                  key={idx}
-                  className={`p-4 rounded-lg ${
-                    message.role === 'customer'
-                      ? 'bg-blue-50 border-l-4 border-blue-500'
-                      : 'bg-indigo-50 border-l-4 border-indigo-500'
-                  }`}
-                >
-                  <div className="flex items-start gap-3">
-                    <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm ${
-                      message.role === 'customer'
-                        ? 'bg-blue-500 text-white'
-                        : 'bg-indigo-500 text-white'
-                    }`}>
-                      {message.role === 'customer' ? '👤' : '👨‍💼'}
-                    </div>
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-2">
-                        <span className="font-semibold text-gray-800">
-                          {message.role === 'customer' ? '고객' : '설계사'}
-                        </span>
-                        <span className="text-xs text-gray-500">
-                          댓글 #{Math.ceil((message.step + 1) / 2)}
-                        </span>
+            {/* 타임라인 스타일 컨테이너 */}
+            <div className="relative max-h-[700px] overflow-y-auto">
+              {/* 중앙 타임라인 */}
+              <div className="absolute left-1/2 transform -translate-x-1/2 w-0.5 h-full bg-gradient-to-b from-blue-200 via-purple-200 to-indigo-200"></div>
+              
+              <div className="space-y-6 py-4">
+                {conversationThread.map((message, idx) => {
+                  const isCustomer = message.role === 'customer'
+                  const isLast = idx === conversationThread.length - 1
+                  return (
+                    <div
+                      key={idx}
+                      className={`relative flex items-start ${isCustomer ? 'justify-start' : 'justify-end'}`}
+                    >
+                      {/* 타임라인 점 */}
+                      <div className={`absolute left-1/2 transform -translate-x-1/2 w-4 h-4 rounded-full border-2 border-white shadow-md z-10 ${
+                        isCustomer
+                          ? 'bg-blue-500'
+                          : 'bg-indigo-500'
+                      }`}></div>
+                      
+                      {/* 메시지 카드 */}
+                      <div className={`w-[48%] ${isCustomer ? 'pr-8' : 'pl-8'}`}>
+                        <div className={`group relative bg-white rounded-xl shadow-md hover:shadow-lg transition-all border-2 ${
+                          isCustomer
+                            ? 'border-blue-100 hover:border-blue-200'
+                            : 'border-indigo-100 hover:border-indigo-200'
+                        }`}>
+                          {/* 헤더 */}
+                          <div className={`flex items-center justify-between px-4 py-3 border-b ${
+                            isCustomer
+                              ? 'bg-blue-50 border-blue-100'
+                              : 'bg-indigo-50 border-indigo-100'
+                          }`}>
+                            <div className="flex items-center gap-2">
+                              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold shadow-sm ${
+                                isCustomer
+                                  ? 'bg-blue-500 text-white'
+                                  : 'bg-indigo-500 text-white'
+                              }`}>
+                                {isCustomer ? '👤' : '👨‍💼'}
+                              </div>
+                              <div>
+                                <div className={`text-sm font-semibold ${
+                                  isCustomer ? 'text-blue-700' : 'text-indigo-700'
+                                }`}>
+                                  {isCustomer ? '고객' : '설계사'}
+                                </div>
+                                <div className="text-xs text-gray-500">
+                                  댓글 #{Math.ceil((message.step + 1) / 2)}
+                                </div>
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => {
+                                navigator.clipboard.writeText(message.content)
+                                alert('댓글이 클립보드에 복사되었습니다!')
+                              }}
+                              className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 hover:bg-white rounded-md"
+                              title="복사"
+                            >
+                              <Copy className="w-4 h-4 text-gray-500" />
+                            </button>
+                          </div>
+                          
+                          {/* 내용 */}
+                          <div className="px-4 py-4">
+                            <p className="text-sm text-gray-800 whitespace-pre-wrap leading-relaxed">
+                              {message.content}
+                            </p>
+                          </div>
+                        </div>
                       </div>
-                      <p className="text-gray-700 whitespace-pre-wrap leading-relaxed">
-                        {message.content}
-                      </p>
-                      <button
-                        onClick={() => {
-                          navigator.clipboard.writeText(message.content)
-                          alert('댓글이 클립보드에 복사되었습니다!')
-                        }}
-                        className="mt-2 text-xs text-gray-500 hover:text-gray-700 flex items-center gap-1"
-                      >
-                        <Copy className="w-3 h-3" />
-                        복사
-                      </button>
                     </div>
-                  </div>
-                </div>
-              ))}
+                  )
+                })}
+              </div>
             </div>
           </div>
         )}
-      </div>
+        </div>
       )}
     </div>
   )

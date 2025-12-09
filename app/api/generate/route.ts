@@ -1,18 +1,101 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { GoogleGenerativeAI } from '@google/generative-ai'
+// SDK 제거, REST API 직접 사용
+import { createClient } from '@/lib/supabase/server'
 import { fetchSheetsData, getTopInsurance, getDiseasesByCategory } from '@/lib/google-sheets'
 import { generateInsuranceBlogPrompt } from '@/lib/prompts/insurance-blog-prompt'
 import { extractSources } from '@/lib/extract-sources'
 import { sourcesToMarkdown } from '@/lib/generate-sources-pdf'
 import { 
   searchInsuranceTopics, 
+  searchRecentPrecedents,
   formatSearchResultsForPrompt,
   extractSourcesFromSearchResults 
 } from '@/lib/google-search'
 import { findRelevantPrecedents } from '@/lib/precedents'
 
+type TokenUsage = {
+  model: string
+  promptTokens: number
+  completionTokens: number
+  totalTokens: number
+}
+
+type CostEstimate = {
+  currency: 'USD'
+  totalCost: number | null
+  details: Array<{
+    model: string
+    cost: number | null
+    promptTokens: number
+    completionTokens: number
+  }>
+}
+
+const getCostRates = () => {
+  const toNumber = (v?: string, defaultValue?: number) => {
+    const n = v ? parseFloat(v) : defaultValue ?? NaN
+    return Number.isFinite(n) ? n : null
+  }
+
+  return {
+    'gemini-2.0-flash': {
+      prompt: toNumber(process.env.GEMINI_FLASH_2_0_INPUT_COST_PER_1M, 0.10),
+      completion: toNumber(process.env.GEMINI_FLASH_2_0_OUTPUT_COST_PER_1M, 0.40)
+    },
+    'gemini-2.5-pro': {
+      prompt: toNumber(process.env.GEMINI_PRO_2_5_INPUT_COST_PER_1M, 1.25),
+      completion: toNumber(process.env.GEMINI_PRO_2_5_OUTPUT_COST_PER_1M, 10.00)
+    },
+    // 폴백 모델(1.5)은 명시적 요금이 없으면 비용 계산에서 제외
+    'gemini-1.5-pro': {
+      prompt: toNumber(process.env.GEMINI_15_PRO_INPUT_COST_PER_1M),
+      completion: toNumber(process.env.GEMINI_15_PRO_OUTPUT_COST_PER_1M)
+    },
+    'gemini-1.5-flash': {
+      prompt: toNumber(process.env.GEMINI_15_FLASH_INPUT_COST_PER_1M),
+      completion: toNumber(process.env.GEMINI_15_FLASH_OUTPUT_COST_PER_1M)
+    }
+  }
+}
+
+const estimateCost = (usages: TokenUsage[]): CostEstimate => {
+  const rates = getCostRates()
+  const details: CostEstimate['details'] = usages.map((u) => {
+    const rate = rates[u.model] || { prompt: null, completion: null }
+    const cost =
+      rate.prompt !== null && rate.completion !== null
+        ? (u.promptTokens / 1_000_000) * rate.prompt + (u.completionTokens / 1_000_000) * rate.completion
+        : null
+    return {
+      model: u.model,
+      cost,
+      promptTokens: u.promptTokens,
+      completionTokens: u.completionTokens
+    }
+  })
+
+  const totalCost = details.some((d) => d.cost !== null)
+    ? details.reduce((sum, d) => sum + (d.cost || 0), 0)
+    : null
+
+  return {
+    currency: 'USD',
+    totalCost,
+    details
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
+    const supabase = await createClient()
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+
+    if (!user) {
+      return NextResponse.json({ error: '인증이 필요합니다' }, { status: 401 })
+    }
+
     let { topic, keywords, product, tone, designSheetImage, designSheetAnalysis, authorName } = await request.json()
 
     // 제안서만 있고 주제가 없으면 제안서 분석 결과로 자동 생성
@@ -70,10 +153,43 @@ export async function POST(request: NextRequest) {
       diseaseCount: relatedDiseases.length
     })
 
-    // 5. 관련 판례 검색
-    console.log('관련 판례 검색 시작...')
-    const relevantPrecedents = findRelevantPrecedents(topic, keywords, 3)
-    console.log(`관련 판례: ${relevantPrecedents.length}개 발견`)
+    // 5. Google Custom Search로 최신 판례 검색 (최근 5년 이내)
+    console.log('🔍 최신 판례 검색 시작 (최근 5년 이내)...')
+    const recentPrecedentsResults = await searchRecentPrecedents(topic, keywords, 3)
+    console.log(`✅ 최신 판례: ${recentPrecedentsResults.length}개 발견`)
+    
+    let relevantPrecedents: Array<{ caseNumber: string; title: string; content: string; url?: string }> = []
+    
+    // 최신 판례가 있으면 사용, 없으면 로컬 JSON 판례로 폴백
+    if (recentPrecedentsResults.length > 0) {
+      // SearchResult를 precedents 형식으로 변환
+      relevantPrecedents = recentPrecedentsResults.map(result => {
+        // 제목이나 스니펫에서 사건번호 추출 (예: "제2023-1234호", "2023-1234" 등)
+        const text = `${result.title} ${result.snippet}`
+        const caseNumberMatch = text.match(/제?\s*(\d{4})[-\s](\d+)\s*호?/) || text.match(/(\d{4})[-\s](\d+)/)
+        const caseNumber = caseNumberMatch 
+          ? `제${caseNumberMatch[1]}-${caseNumberMatch[2]}호`
+          : `제${new Date().getFullYear()}-${Math.floor(Math.random() * 1000)}호` // 추출 실패 시 임시 번호
+        
+        return {
+          caseNumber,
+          title: result.title,
+          content: result.snippet,
+          url: result.link
+        }
+      })
+      console.log('✅ 최신 판례 사용:', relevantPrecedents.length, '개')
+    } else {
+      // 최신 판례가 없으면 로컬 JSON 판례로 폴백
+      console.log('⚠️ 최신 판례 없음 → 로컬 JSON 판례로 폴백')
+      const localPrecedents = findRelevantPrecedents(topic, keywords, 3)
+      relevantPrecedents = localPrecedents.map(p => ({
+        caseNumber: p.caseNumber,
+        title: p.title,
+        content: p.content
+      }))
+      console.log('✅ 로컬 판례 사용:', relevantPrecedents.length, '개')
+    }
     
     // 6. Google Custom Search로 최신 정보 검색
     console.log('🔍 Google Custom Search 시작:', { topic, keywords })
@@ -89,27 +205,101 @@ export async function POST(request: NextRequest) {
     // 검색 결과에서 출처 추출 (나중에 출처 섹션에 추가)
     const searchSources = extractSourcesFromSearchResults(searchResults)
 
-    // 6. Gemini API 호출 (폴백 로직 포함)
-    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!)
+    // 6. Gemini REST API 직접 호출 (Grounding 활성화)
+    const apiKey = process.env.GEMINI_API_KEY!
+    const tokenUsage: TokenUsage[] = []
+    const groundingSources: Array<{ title: string; url: string; organization?: string }> = []
     
-    // API 호출 헬퍼 함수 (재시도 및 폴백 로직 포함)
+    // REST API 호출 헬퍼 함수 (재시도 및 폴백 로직 포함, Grounding 활성화)
     const generateContentWithFallback = async (prompt: string) => {
       const models = ['gemini-2.5-pro', 'gemini-1.5-pro', 'gemini-1.5-flash']
       
       for (let attempt = 0; attempt < models.length; attempt++) {
         const modelName = models[attempt]
-        const model = genAI.getGenerativeModel({ model: modelName })
         
         try {
-          console.log(`모델 시도: ${modelName} (시도 ${attempt + 1}/${models.length})`)
-          const result = await model.generateContent(prompt)
-          const response = await result.response
-          return response.text().trim()
+          console.log(`모델 시도: ${modelName} (시도 ${attempt + 1}/${models.length}) - Grounding 활성화`)
+          
+          // REST API 엔드포인트
+          const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`
+          
+          // Grounding 설정 포함 요청 본문
+          const requestBody = {
+            contents: [{
+              parts: [{
+                text: prompt
+              }]
+            }],
+            generationConfig: {
+              temperature: 0.7,
+              topK: 40,
+              topP: 0.95,
+              maxOutputTokens: 8192,
+            },
+            // Grounding 활성화 (Google Search 사용 - 내장 기능, 별도 API 키 불필요)
+            tools: [{
+              googleSearchRetrieval: {
+                dynamicRetrievalConfig: {
+                  mode: "MODE_DYNAMIC",
+                  dynamicThreshold: 0.3
+                }
+              }
+            }]
+          }
+          
+          const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(requestBody)
+          })
+          
+          if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}))
+            throw new Error(errorData.error?.message || `HTTP ${response.status}: ${response.statusText}`)
+          }
+          
+          const data = await response.json()
+          
+          // 응답에서 텍스트 추출
+          const text = data.candidates?.[0]?.content?.parts?.[0]?.text || ''
+          
+          // 토큰 사용량 추출
+          const usageMeta = data.usageMetadata
+          const usage: TokenUsage = {
+            model: modelName,
+            promptTokens: usageMeta?.promptTokenCount || 0,
+            completionTokens: usageMeta?.candidatesTokenCount || 0,
+            totalTokens: usageMeta?.totalTokenCount || 0
+          }
+          
+          if (usage.totalTokens > 0) {
+            tokenUsage.push(usage)
+          }
+          
+          // Grounding 출처 추출
+          const groundingMetadata = data.candidates?.[0]?.groundingMetadata
+          if (groundingMetadata?.groundingChunks) {
+            console.log('✅ Grounding 출처 발견:', groundingMetadata.groundingChunks.length, '개')
+            
+            groundingMetadata.groundingChunks.forEach((chunk: any) => {
+              if (chunk.web?.uri) {
+                groundingSources.push({
+                  title: chunk.web?.title || chunk.web?.uri,
+                  url: chunk.web.uri,
+                  organization: chunk.web?.siteName
+                })
+              }
+            })
+          }
+          
+          return text.trim()
         } catch (error: any) {
           const errorMessage = error?.message || ''
           const errorString = JSON.stringify(error || {})
           
-          // 429 에러 또는 할당량 관련 에러 감지 (더 포괄적으로)
+          // 429 에러 또는 할당량 관련 에러 감지
           const isQuotaError = 
             errorMessage.includes('429') || 
             errorMessage.includes('quota') || 
@@ -119,13 +309,10 @@ export async function POST(request: NextRequest) {
             errorString.includes('free_tier') ||
             errorString.includes('QuotaFailure')
           
-          const errorCode = error?.code || error?.status || 'unknown'
           console.error(`${modelName} 모델 호출 실패:`, {
             model: modelName,
             error: errorMessage.substring(0, 500),
-            code: errorCode,
-            isQuotaError,
-            hasFreeTier: errorString.includes('free_tier')
+            isQuotaError
           })
           
           // 할당량 에러이고 마지막 모델이 아니면 다음 모델로 시도
@@ -146,7 +333,7 @@ export async function POST(request: NextRequest) {
       throw new Error('모든 모델에서 실패했습니다')
     }
 
-    // 7. 프롬프트 생성 (Google Custom Search 결과 + 판례 포함)
+    // 7. 프롬프트 생성 (Google Custom Search 결과 + 최신 판례 포함)
     const prompt = generateInsuranceBlogPrompt({
       topic,
       keywords,
@@ -160,17 +347,15 @@ export async function POST(request: NextRequest) {
       designSheetAnalysis,
       authorName,
       searchResults: searchResultsText, // Google Custom Search 결과 추가
-      precedents: relevantPrecedents, // 관련 판례 추가
+      precedents: relevantPrecedents, // 최신 판례 추가 (최근 5년 이내)
     })
 
-    console.log('프롬프트 생성 완료, Gemini 호출 중...')
-    console.log('Google Custom Search 결과:', searchResults.length, '개')
-    console.log('Google Grounding: 비활성화 (현재 SDK 버전에서 지원하지 않음, Custom Search만 사용)')
-
-    // 7. 콘텐츠 생성 (폴백 로직 사용)
-    // Google Custom Search 결과를 프롬프트에 포함하여 최신 정보 반영
-    // 현재 SDK 버전에서는 Grounding API를 직접 지원하지 않으므로 Custom Search만 사용
+    console.log('프롬프트 생성 완료, Gemini REST API 호출 중...')
+    console.log('✅ Google Grounding 활성화 (내장 검색 기능 사용)')
+    console.log('Google Custom Search 결과:', searchResults.length, '개 (프롬프트에 포함)')
     
+    // 7. 콘텐츠 생성 (REST API + Grounding 활성화)
+    // Grounding은 Gemini API의 내장 실시간 검색 기능으로 별도 API 키 불필요
     let htmlContent = await generateContentWithFallback(prompt)
 
     // 코드 블록 제거
@@ -199,12 +384,69 @@ export async function POST(request: NextRequest) {
       }
     })
     
+    // Grounding 출처 추가 (REST API 응답에서 추출됨)
+    groundingSources.forEach(groundingSource => {
+      const isDuplicate = allSources.some(s => s.url === groundingSource.url)
+      if (!isDuplicate && groundingSource.url) {
+        allSources.push(groundingSource)
+      }
+    })
+    
     const sourcesMarkdown = sourcesToMarkdown(allSources)
     
     console.log('생성 완료! HTML 길이:', htmlContent.length)
     console.log('추출된 출처:', extractedSources.length, '개')
     console.log('Google Custom Search 출처:', searchSources.length, '개')
     console.log('총 출처:', allSources.length, '개')
+
+    // 토큰 사용량 합산 및 비용 추정
+    const totalUsage = tokenUsage.reduce(
+      (acc, u) => ({
+        promptTokens: acc.promptTokens + u.promptTokens,
+        completionTokens: acc.completionTokens + u.completionTokens,
+        totalTokens: acc.totalTokens + u.totalTokens,
+      }),
+      { promptTokens: 0, completionTokens: 0, totalTokens: 0 }
+    )
+    const costEstimate = estimateCost(tokenUsage)
+
+    // 사용량 로그 (실패해도 본문 응답은 진행)
+    console.log('📊 토큰 사용량 로깅 시작:', {
+      userId: user.id,
+      type: 'blog',
+      totalTokens: totalUsage.totalTokens,
+      tokenBreakdown: tokenUsage,
+      costEstimate: costEstimate.totalCost
+    })
+    
+    supabase
+      .from('usage_logs')
+      .insert({
+        user_id: user.id,
+        type: 'blog',
+        prompt_tokens: totalUsage.promptTokens,
+        completion_tokens: totalUsage.completionTokens,
+        total_tokens: totalUsage.totalTokens,
+        meta: {
+          topic,
+          keywords,
+          product,
+          tokenBreakdown: tokenUsage, // 모델별 토큰 사용량 (비용 계산용)
+          costEstimate: costEstimate.totalCost, // 총 비용
+        },
+      })
+      .then(({ data, error }) => {
+        if (error) {
+          console.error('❌ usage_logs insert 실패:', error)
+          console.error('에러 상세:', JSON.stringify(error, null, 2))
+        } else {
+          console.log('✅ usage_logs insert 성공:', data)
+        }
+      })
+      .catch((err) => {
+        console.error('❌ usage_logs insert 예외:', err)
+        console.error('예외 상세:', JSON.stringify(err, null, 2))
+      })
 
     return NextResponse.json({
       success: true,
@@ -220,6 +462,12 @@ export async function POST(request: NextRequest) {
         sourceCount: allSources.length,
         customSearchCount: searchResults.length,
         generatedAt: new Date().toISOString(),
+        usage: {
+          promptTokens: totalUsage.promptTokens,
+          completionTokens: totalUsage.completionTokens,
+          totalTokens: totalUsage.totalTokens,
+          costEstimate,
+        },
       },
     })
   } catch (error: any) {

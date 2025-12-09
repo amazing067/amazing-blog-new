@@ -1,9 +1,90 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { GoogleGenerativeAI } from '@google/generative-ai'
 import { generateQuestionPrompt, generateAnswerPrompt, generateConversationThreadPrompt, ConversationMessage } from '@/lib/prompts/qa-prompt'
+import { createClient } from '@/lib/supabase/server'
+
+type TokenUsage = {
+  model: string
+  promptTokens: number
+  candidatesTokens: number
+  totalTokens: number
+}
+
+type CostEstimate = {
+  currency: 'USD'
+  totalCost: number | null
+  details: Array<{
+    model: string
+    cost: number | null
+    promptTokens: number
+    completionTokens: number
+  }>
+}
+
+const getCostRates = () => {
+  const toNumber = (v?: string, defaultValue?: number) => {
+    const n = v ? parseFloat(v) : defaultValue ?? NaN
+    return Number.isFinite(n) ? n : null
+  }
+
+  return {
+    'gemini-2.0-flash': {
+      prompt: toNumber(process.env.GEMINI_FLASH_2_0_INPUT_COST_PER_1M, 0.10),
+      completion: toNumber(process.env.GEMINI_FLASH_2_0_OUTPUT_COST_PER_1M, 0.40)
+    },
+    'gemini-2.5-pro': {
+      prompt: toNumber(process.env.GEMINI_PRO_2_5_INPUT_COST_PER_1M, 1.25),
+      completion: toNumber(process.env.GEMINI_PRO_2_5_OUTPUT_COST_PER_1M, 10.00)
+    },
+    'gemini-1.5-pro': {
+      prompt: toNumber(process.env.GEMINI_15_PRO_INPUT_COST_PER_1M),
+      completion: toNumber(process.env.GEMINI_15_PRO_OUTPUT_COST_PER_1M)
+    },
+    'gemini-1.5-flash': {
+      prompt: toNumber(process.env.GEMINI_15_FLASH_INPUT_COST_PER_1M),
+      completion: toNumber(process.env.GEMINI_15_FLASH_OUTPUT_COST_PER_1M)
+    }
+  }
+}
+
+const estimateCost = (usages: TokenUsage[]): CostEstimate => {
+  const rates = getCostRates()
+  const details: CostEstimate['details'] = usages.map((u) => {
+    const rate = rates[u.model] || { prompt: null, completion: null }
+    const cost =
+      rate.prompt !== null && rate.completion !== null
+        ? (u.promptTokens / 1_000_000) * rate.prompt + (u.candidatesTokens / 1_000_000) * rate.completion
+        : null
+    return {
+      model: u.model,
+      cost,
+      promptTokens: u.promptTokens,
+      completionTokens: u.candidatesTokens
+    }
+  })
+
+  const totalCost = details.some((d) => d.cost !== null)
+    ? details.reduce((sum, d) => sum + (d.cost || 0), 0)
+    : null
+
+  return {
+    currency: 'USD',
+    totalCost,
+    details
+  }
+}
 
 export async function POST(request: NextRequest) {
   try {
+    const supabase = await createClient()
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+
+    if (!user) {
+      return NextResponse.json({ error: '인증이 필요합니다' }, { status: 401 })
+    }
+
     const requestBody = await request.json()
     const { 
       productName, 
@@ -18,7 +99,8 @@ export async function POST(request: NextRequest) {
       questionTitle, // 답변 재생성 시 사용
       questionContent, // 답변 재생성 시 사용
       conversationMode, // 대화형 모드 활성화 여부
-      conversationLength // 대화 횟수 (6, 8, 10, 12 - 짝수만 허용, 항상 설계사가 마무리)
+      conversationLength, // 대화 횟수 (6, 8, 10, 12 - 짝수만 허용, 항상 설계사가 마무리)
+      generateStep // 생성 단계: 'question' | 'answer' | 'conversation' | 'all' (기본값: 'all')
     } = requestBody
 
     // 필수 입력 검증
@@ -53,17 +135,18 @@ export async function POST(request: NextRequest) {
     // ⚠️ 테스트용: 토큰 사용량 추적
     // 실제 운영 시에는 이 부분을 제거해야 합니다
     // ============================================
-    interface TokenUsage {
-      promptTokens: number
-      candidatesTokens: number
-      totalTokens: number
-    }
-    
     const tokenUsage: TokenUsage[] = []
     
-    // API 호출 헬퍼 함수 (재시도 및 폴백 로직 포함, 이미지 지원)
-    const generateContentWithFallback = async (prompt: string, imageBase64?: string | null): Promise<{ text: string; usage?: TokenUsage }> => {
-      const models = ['gemini-2.5-pro', 'gemini-1.5-pro', 'gemini-1.5-flash']
+    // API 호출 헬퍼 함수 (재시도 및 폴백 로직 포함, 이미지 지원, 하이브리드 모델 선택)
+    const generateContentWithFallback = async (
+      prompt: string, 
+      imageBase64?: string | null,
+      useFlash: boolean = false // 하이브리드 방식: true면 Flash 사용
+    ): Promise<{ text: string; usage?: TokenUsage }> => {
+      // 하이브리드 방식: useFlash가 true면 Flash 우선, false면 Pro 우선
+      const models = useFlash 
+        ? ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'] // Flash 우선
+        : ['gemini-2.5-pro', 'gemini-1.5-pro', 'gemini-2.0-flash'] // Pro 우선 (폴백)
       
       // 이미지가 있으면 MIME 타입 감지
       let mimeType = 'image/png'
@@ -112,6 +195,7 @@ export async function POST(request: NextRequest) {
           // 토큰 사용량 추출
           const usageMetadata = response.usageMetadata
           const usage: TokenUsage = {
+            model: modelName,
             promptTokens: usageMetadata?.promptTokenCount || 0,
             candidatesTokens: usageMetadata?.candidatesTokenCount || 0,
             totalTokens: usageMetadata?.totalTokenCount || 0
@@ -168,18 +252,24 @@ export async function POST(request: NextRequest) {
     // 토큰 사용량 합계 계산
     const calculateTotalUsage = (): TokenUsage => {
       return tokenUsage.reduce((acc, usage) => ({
+        model: 'total',
         promptTokens: acc.promptTokens + usage.promptTokens,
         candidatesTokens: acc.candidatesTokens + usage.candidatesTokens,
         totalTokens: acc.totalTokens + usage.totalTokens
-      }), { promptTokens: 0, candidatesTokens: 0, totalTokens: 0 })
+      }), { model: 'total', promptTokens: 0, candidatesTokens: 0, totalTokens: 0 })
     }
 
+    // generateStep에 따라 생성 단계 결정
+    const requestedStep = requestBody.generateStep || 'all' // 'question' | 'answer' | 'conversation' | 'all'
+    
     let finalQuestionTitle = questionTitle
     let finalQuestionContent = questionContent
+    let answerContent = '' // 답변 변수 미리 선언
 
-    // Step 1: 질문 생성 (질문이 제공되지 않은 경우에만)
-    if (!questionTitle || !questionContent) {
-      console.log('Step 1: 질문 생성 중...')
+    // Step 1: 질문 생성
+    if (requestedStep === 'question' || requestedStep === 'all') {
+      if (!questionTitle || !questionContent) {
+        console.log('Step 1: 질문 생성 중...')
       const questionPrompt = generateQuestionPrompt({
         productName,
         targetPersona,
@@ -192,7 +282,8 @@ export async function POST(request: NextRequest) {
         designSheetAnalysis
       })
 
-      const questionResult = await generateContentWithFallback(questionPrompt, designSheetImage)
+      // 하이브리드: 질문 생성은 Flash 사용 (비용 절감)
+      const questionResult = await generateContentWithFallback(questionPrompt, designSheetImage, true)
       let questionText = questionResult.text
 
       // 제어 문자 제거 (<ctrl63>, <ctrl*> 등)
@@ -211,129 +302,157 @@ export async function POST(request: NextRequest) {
         ? contentMatch[1].trim().replace(/<ctrl\d+>/gi, '').replace(/[\x00-\x1F\x7F]/g, '')
         : questionText.split('\n').slice(1).join('\n').trim().replace(/<ctrl\d+>/gi, '').replace(/[\x00-\x1F\x7F]/g, '')
 
-      console.log('Step 1 완료:', { questionTitle: finalQuestionTitle, questionContentLength: finalQuestionContent.length })
-    } else {
-      console.log('Step 1 생략: 기존 질문 사용')
-    }
-
-    // Step 2: 답변 생성 (Step 1 결과 사용)
-    console.log('Step 2: 답변 생성 중...')
-    const answerPrompt = generateAnswerPrompt(
-      {
-        productName,
-        targetPersona,
-        worryPoint,
-        sellingPoint,
-        feelingTone: feelingTone || '고민',
-        answerTone: answerTone || 'friendly',
-        customerStyle: customerStyle || 'curious',
-        designSheetImage,
-        designSheetAnalysis
-      },
-      finalQuestionTitle,
-      finalQuestionContent
-    )
-
-    const answerResult = await generateContentWithFallback(answerPrompt, designSheetImage)
-    let answerContent = answerResult.text
-
-    // 제어 문자 제거 (<ctrl63>, <ctrl*> 등) - 이모티콘 보존
-    answerContent = answerContent.replace(/<ctrl\d+>/gi, '')
-    // 제어 문자 제거 (단, 줄바꿈(\n), 캐리지 리턴(\r), 탭(\t)은 제외하고 이모티콘은 보존)
-    answerContent = answerContent.replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]/g, '')
-
-    // 마크다운이나 코드 블록 제거
-    answerContent = answerContent.replace(/```[\s\S]*?```/g, '').trim()
-    answerContent = answerContent.replace(/\[생성된 답변\]/g, '').trim()
-
-    // 답변 포맷팅 개선 (띄어쓰기 및 문단 구분)
-    // 1. 연속된 공백을 하나로 정리
-    answerContent = answerContent.replace(/[ \t]+/g, ' ')
-    
-    // 2. 각 줄 앞뒤 공백 정리 (단, 줄바꿈은 유지)
-    answerContent = answerContent.split('\n').map(line => line.trim()).join('\n')
-    
-    // 2-1. 만약 줄바꿈이 전혀 없거나 부족한 경우, 4-5문단으로 자동 분리
-    const paragraphs = answerContent.split(/\n\s*\n/).filter(p => p.trim().length > 0)
-    
-    if (paragraphs.length < 4 && answerContent.length > 100) {
-      // 문장 단위로 분리하여 4-5문단으로 재구성
-      const sentences = answerContent
-        .replace(/\n+/g, ' ') // 모든 줄바꿈을 공백으로
-        .split(/([.!?]\s+)/) // 문장 단위로 분리
-        .filter(s => s.trim().length > 0)
-      
-      // 문장들을 그룹화하여 4-5문단으로 나누기
-      const targetParagraphs = 4 + Math.floor(Math.random() * 2) // 4 또는 5문단
-      const sentencesPerParagraph = Math.ceil(sentences.length / targetParagraphs)
-      const newParagraphs: string[] = []
-      
-      for (let i = 0; i < sentences.length; i += sentencesPerParagraph) {
-        const paragraphSentences = sentences.slice(i, i + sentencesPerParagraph)
-        const paragraph = paragraphSentences.join(' ').trim()
-        if (paragraph.length > 0) {
-          newParagraphs.push(paragraph)
-        }
-      }
-      
-      // 4-5문단이 안 되면 조정
-      if (newParagraphs.length < 4 && newParagraphs.length > 0) {
-        // 마지막 문단을 나누어 4개 이상 만들기
-        const lastParagraph = newParagraphs[newParagraphs.length - 1]
-        const lastSentences = lastParagraph.split(/([.!?]\s+)/).filter(s => s.trim().length > 0)
-        if (lastSentences.length >= 2) {
-          newParagraphs.pop()
-          const midPoint = Math.ceil(lastSentences.length / 2)
-          newParagraphs.push(lastSentences.slice(0, midPoint).join(' ').trim())
-          newParagraphs.push(lastSentences.slice(midPoint).join(' ').trim())
-        }
-      }
-      
-      if (newParagraphs.length >= 4) {
-        answerContent = newParagraphs.join('\n\n').trim()
+        console.log('Step 1 완료:', { questionTitle: finalQuestionTitle, questionContentLength: finalQuestionContent.length })
       } else {
-        // 그래도 안 되면 기존 방식 사용 (문장 끝 뒤에 빈 줄 추가)
-        answerContent = answerContent.replace(/([.!?])\s+([가-힣A-Z])/g, '$1\n\n$2')
+        console.log('Step 1 생략: 기존 질문 사용')
+      }
+    } else {
+      console.log('Step 1 생략: requestedStep이 question이 아님')
+      if (!questionTitle || !questionContent) {
+        return NextResponse.json(
+          { error: '질문이 필요합니다. 먼저 질문을 생성해주세요.' },
+          { status: 400 }
+        )
       }
     }
-    
-    // 3. 이모티콘 앞에 줄바꿈이 없으면 추가 (이모티콘을 문단 시작점에 배치)
-    // 이모티콘을 안전하게 처리하기 위해 일반적인 이모티콘을 직접 매칭
-    // 서로게이트 페어로 구성된 이모티콘도 올바르게 처리됨
-    try {
-      // 일반적으로 사용하는 이모티콘 목록 (프롬프트에서 사용하는 것들 + 추가)
-      const commonEmojis = ['👍', '💡', '✅', '📊', '💰', '🎯', '💼', '📋', '📈', '📞', '◆', '⭐', '💎', '🔔', '📝', '📌', '🎉', '🔥', '💪', '✨', '📱', '🏆', '🎁', '💯']
-      
-      // 각 이모티콘에 대해 개별적으로 처리 (더 안전함)
-      commonEmojis.forEach(emoji => {
-        // 이모티콘 앞에 줄바꿈이 없고, 이전 문자가 줄바꿈이 아닌 경우 줄바꿈 추가
-        // 이스케이프 처리하여 특수 문자로 인식되지 않도록 함
-        const escapedEmoji = emoji.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-        answerContent = answerContent.replace(new RegExp(`([^\\n])(${escapedEmoji})`, 'g'), '$1\n\n$2')
-        
-        // 이모티콘 뒤에 공백이 없으면 추가
-        answerContent = answerContent.replace(new RegExp(`(${escapedEmoji})([^\\s\\n])`, 'g'), '$1 $2')
-      })
-    } catch (error) {
-      console.error('이모티콘 처리 중 오류:', error)
-      // 오류 발생 시 원본 내용 유지
-    }
-    
-    // 4. 연속된 줄바꿈을 최대 2개로 정리 (과도한 줄바꿈 방지)
-    answerContent = answerContent.replace(/\n{3,}/g, '\n\n')
-    
-    // 5. 문장 끝 부분에 자동 줄바꿈 추가하지 않음 (프롬프트에서 이미 적절히 처리하도록 함)
-    // 과도한 줄바꿈을 방지하기 위해 자동 추가 로직 제거
-    
-    // 6. 최종 정리 (앞뒤 공백 제거)
-    answerContent = answerContent.trim()
 
-    console.log('Step 2 완료:', { answerContentLength: answerContent.length })
+    // Step 2: 답변 생성
+    if (requestedStep === 'answer' || requestedStep === 'all') {
+      if (!finalQuestionTitle || !finalQuestionContent) {
+        return NextResponse.json(
+          { error: '질문이 필요합니다. 먼저 질문을 생성해주세요.' },
+          { status: 400 }
+        )
+      }
+      
+      console.log('Step 2: 답변 생성 중...')
+      const answerPrompt = generateAnswerPrompt(
+        {
+          productName,
+          targetPersona,
+          worryPoint,
+          sellingPoint,
+          feelingTone: feelingTone || '고민',
+          answerTone: answerTone || 'friendly',
+          customerStyle: customerStyle || 'curious',
+          designSheetImage,
+          designSheetAnalysis
+        },
+        finalQuestionTitle,
+        finalQuestionContent
+      )
+
+      // 하이브리드: 답변 생성은 Pro 사용 (품질 유지)
+      const answerResult = await generateContentWithFallback(answerPrompt, designSheetImage, false)
+      answerContent = answerResult.text
+
+      // 제어 문자 제거 (<ctrl63>, <ctrl*> 등) - 이모티콘 보존
+      answerContent = answerContent.replace(/<ctrl\d+>/gi, '')
+      // 제어 문자 제거 (단, 줄바꿈(\n), 캐리지 리턴(\r), 탭(\t)은 제외하고 이모티콘은 보존)
+      answerContent = answerContent.replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]/g, '')
+
+      // 마크다운이나 코드 블록 제거
+      answerContent = answerContent.replace(/```[\s\S]*?```/g, '').trim()
+      answerContent = answerContent.replace(/\[생성된 답변\]/g, '').trim()
+
+      // 답변 포맷팅 개선 (띄어쓰기 및 문단 구분)
+      // 1. 연속된 공백을 하나로 정리
+      answerContent = answerContent.replace(/[ \t]+/g, ' ')
+      
+      // 2. 각 줄 앞뒤 공백 정리 (단, 줄바꿈은 유지)
+      answerContent = answerContent.split('\n').map(line => line.trim()).join('\n')
+      
+      // 2-1. 만약 줄바꿈이 전혀 없거나 부족한 경우, 4-5문단으로 자동 분리
+      const paragraphs = answerContent.split(/\n\s*\n/).filter(p => p.trim().length > 0)
+      
+      if (paragraphs.length < 4 && answerContent.length > 100) {
+        // 문장 단위로 분리하여 4-5문단으로 재구성
+        const sentences = answerContent
+          .replace(/\n+/g, ' ') // 모든 줄바꿈을 공백으로
+          .split(/([.!?]\s+)/) // 문장 단위로 분리
+          .filter(s => s.trim().length > 0)
+        
+        // 문장들을 그룹화하여 4-5문단으로 나누기
+        const targetParagraphs = 4 + Math.floor(Math.random() * 2) // 4 또는 5문단
+        const sentencesPerParagraph = Math.ceil(sentences.length / targetParagraphs)
+        const newParagraphs: string[] = []
+        
+        for (let i = 0; i < sentences.length; i += sentencesPerParagraph) {
+          const paragraphSentences = sentences.slice(i, i + sentencesPerParagraph)
+          const paragraph = paragraphSentences.join(' ').trim()
+          if (paragraph.length > 0) {
+            newParagraphs.push(paragraph)
+          }
+        }
+        
+        // 4-5문단이 안 되면 조정
+        if (newParagraphs.length < 4 && newParagraphs.length > 0) {
+          // 마지막 문단을 나누어 4개 이상 만들기
+          const lastParagraph = newParagraphs[newParagraphs.length - 1]
+          const lastSentences = lastParagraph.split(/([.!?]\s+)/).filter(s => s.trim().length > 0)
+          if (lastSentences.length >= 2) {
+            newParagraphs.pop()
+            const midPoint = Math.ceil(lastSentences.length / 2)
+            newParagraphs.push(lastSentences.slice(0, midPoint).join(' ').trim())
+            newParagraphs.push(lastSentences.slice(midPoint).join(' ').trim())
+          }
+        }
+        
+        if (newParagraphs.length >= 4) {
+          answerContent = newParagraphs.join('\n\n').trim()
+        } else {
+          // 그래도 안 되면 기존 방식 사용 (문장 끝 뒤에 빈 줄 추가)
+          answerContent = answerContent.replace(/([.!?])\s+([가-힣A-Z])/g, '$1\n\n$2')
+        }
+      }
+      
+      // 3. 이모티콘 앞에 줄바꿈이 없으면 추가 (이모티콘을 문단 시작점에 배치)
+      // 이모티콘을 안전하게 처리하기 위해 일반적인 이모티콘을 직접 매칭
+      // 서로게이트 페어로 구성된 이모티콘도 올바르게 처리됨
+      try {
+        // 일반적으로 사용하는 이모티콘 목록 (프롬프트에서 사용하는 것들 + 추가)
+        const commonEmojis = ['👍', '💡', '✅', '📊', '💰', '🎯', '💼', '📋', '📈', '📞', '◆', '⭐', '💎', '🔔', '📝', '📌', '🎉', '🔥', '💪', '✨', '📱', '🏆', '🎁', '💯']
+        
+        // 각 이모티콘에 대해 개별적으로 처리 (더 안전함)
+        commonEmojis.forEach(emoji => {
+          // 이모티콘 앞에 줄바꿈이 없고, 이전 문자가 줄바꿈이 아닌 경우 줄바꿈 추가
+          // 이스케이프 처리하여 특수 문자로 인식되지 않도록 함
+          const escapedEmoji = emoji.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+          answerContent = answerContent.replace(new RegExp(`([^\\n])(${escapedEmoji})`, 'g'), '$1\n\n$2')
+          
+          // 이모티콘 뒤에 공백이 없으면 추가
+          answerContent = answerContent.replace(new RegExp(`(${escapedEmoji})([^\\s\\n])`, 'g'), '$1 $2')
+        })
+      } catch (error) {
+        console.error('이모티콘 처리 중 오류:', error)
+        // 오류 발생 시 원본 내용 유지
+      }
+      
+      // 4. 연속된 줄바꿈을 최대 2개로 정리 (과도한 줄바꿈 방지)
+      answerContent = answerContent.replace(/\n{3,}/g, '\n\n')
+      
+      // 5. 문장 끝 부분에 자동 줄바꿈 추가하지 않음 (프롬프트에서 이미 적절히 처리하도록 함)
+      // 과도한 줄바꿈을 방지하기 위해 자동 추가 로직 제거
+      
+      // 6. 최종 정리 (앞뒤 공백 제거)
+      answerContent = answerContent.trim()
+
+      console.log('Step 2 완료:', { answerContentLength: answerContent.length })
+    } else {
+      console.log('Step 2 생략: requestedStep이 answer가 아님')
+      // answerContent는 이미 빈 문자열로 초기화됨
+    }
 
     // Step 3: 대화형 모드일 경우 추가 댓글 생성
     let conversationThread: ConversationMessage[] = []
     
-    if (conversationMode && conversationLength) {
+    if ((requestedStep === 'conversation' || requestedStep === 'all') && conversationMode && conversationLength) {
+      if (!finalQuestionTitle || !finalQuestionContent || !answerContent) {
+        return NextResponse.json(
+          { error: '질문과 답변이 필요합니다. 먼저 질문과 답변을 생성해주세요.' },
+          { status: 400 }
+        )
+      }
       console.log('Step 3: 대화형 스레드 생성 중...', { conversationLength })
 
       // 짝수만 허용 (6, 8, 10, 12) - 항상 설계사가 마무리하도록
@@ -359,6 +478,10 @@ export async function POST(request: NextRequest) {
       for (let step = 3; step <= totalSteps; step++) {
         const isCustomerTurn = step % 2 === 1 // 홀수: 고객, 짝수: 설계사
         
+        // 토큰 절감: 최근 대화만 포함 (최대 6개 메시지 = 최근 3턴)
+        // 전체 히스토리를 포함하면 토큰이 기하급수적으로 증가하므로 최근 대화만 사용
+        const recentHistory = conversationHistory.slice(-6) // 최근 6개 메시지만 사용
+        
         const conversationPrompt = generateConversationThreadPrompt(
           {
             productName,
@@ -377,13 +500,14 @@ export async function POST(request: NextRequest) {
               content: finalQuestionContent
             },
             firstAnswer: answerContent,
-            conversationHistory: conversationHistory,
+            conversationHistory: recentHistory, // 전체 히스토리 대신 최근 대화만 사용
             totalSteps: totalSteps,
             currentStep: step
           }
         )
         
-        const threadResult = await generateContentWithFallback(conversationPrompt, designSheetImage)
+        // 하이브리드: 고객 댓글은 Flash, 설계사 댓글은 Pro 사용
+        const threadResult = await generateContentWithFallback(conversationPrompt, designSheetImage, isCustomerTurn)
         let threadContent = threadResult.text
         
         // 제어 문자 제거
@@ -414,7 +538,30 @@ export async function POST(request: NextRequest) {
     // 실제 운영 시에는 tokenUsage 필드를 제거해야 합니다
     // ============================================
     const totalUsage = calculateTotalUsage()
+    const costEstimate = estimateCost(tokenUsage)
     console.log('📊 총 토큰 사용량:', totalUsage)
+
+    // 사용량 로그 (실패해도 응답은 진행)
+    supabase
+      .from('usage_logs')
+      .insert({
+        user_id: user.id,
+        type: 'qa',
+        prompt_tokens: totalUsage.promptTokens,
+        completion_tokens: totalUsage.candidatesTokens,
+        total_tokens: totalUsage.totalTokens,
+        meta: {
+          productName,
+          conversationMode,
+          generateStep: requestedStep,
+          tokenBreakdown: tokenUsage, // 모델별 토큰 사용량 (비용 계산용)
+          costEstimate: costEstimate.totalCost, // 총 비용
+        }
+      })
+      .then(({ error }) => {
+        if (error) console.error('usage_logs insert 실패:', error)
+      })
+      .catch((err) => console.error('usage_logs insert 예외:', err))
 
     return NextResponse.json({
       success: true,
@@ -428,12 +575,12 @@ export async function POST(request: NextRequest) {
         generatedAt: new Date().toISOString()
       },
       conversation: conversationThread.length > 0 ? conversationThread : undefined,
-      // ⚠️ 테스트용: 실제 운영 시 이 필드 제거 필요
-      tokenUsage: {
+      usage: {
         promptTokens: totalUsage.promptTokens,
-        candidatesTokens: totalUsage.candidatesTokens,
+        completionTokens: totalUsage.candidatesTokens,
         totalTokens: totalUsage.totalTokens,
-        breakdown: tokenUsage // 각 단계별 토큰 사용량
+        breakdown: tokenUsage,
+        costEstimate
       },
       metadata: {
         productName,
