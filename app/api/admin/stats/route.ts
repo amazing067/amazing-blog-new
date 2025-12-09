@@ -90,15 +90,8 @@ export async function GET(request: NextRequest) {
         'gemini-2.5-pro': {
           prompt: toNumber(process.env.GEMINI_PRO_2_5_INPUT_COST_PER_1M, 1.25),
           completion: toNumber(process.env.GEMINI_PRO_2_5_OUTPUT_COST_PER_1M, 10.00)
-        },
-        'gemini-1.5-pro': {
-          prompt: toNumber(process.env.GEMINI_15_PRO_INPUT_COST_PER_1M),
-          completion: toNumber(process.env.GEMINI_15_PRO_OUTPUT_COST_PER_1M)
-        },
-        'gemini-1.5-flash': {
-          prompt: toNumber(process.env.GEMINI_15_FLASH_INPUT_COST_PER_1M),
-          completion: toNumber(process.env.GEMINI_15_FLASH_OUTPUT_COST_PER_1M)
         }
+        // gemini-1.5 모델은 더 이상 사용하지 않음
       }
     }
 
