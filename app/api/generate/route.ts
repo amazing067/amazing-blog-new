@@ -215,7 +215,7 @@ export async function POST(request: NextRequest) {
     
     // REST API 호출 헬퍼 함수 (재시도 및 폴백 로직 포함, Grounding 활성화)
     const generateContentWithFallback = async (prompt: string) => {
-      const models = ['gemini-2.5-pro', 'gemini-1.5-pro', 'gemini-1.5-flash']
+      const models = ['gemini-2.5-pro', 'gemini-2.0-flash'] // 1.5 모델 제거
       
       for (let attempt = 0; attempt < models.length; attempt++) {
         const modelName = models[attempt]

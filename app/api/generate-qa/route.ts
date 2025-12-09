@@ -142,15 +142,26 @@ export async function POST(request: NextRequest) {
     const tokenUsage: TokenUsage[] = []
     
     // API 호출 헬퍼 함수 (재시도 및 폴백 로직 포함, 이미지 지원, 하이브리드 모델 선택)
+    // 
+    // Flash 사용 위치 (비용 절감):
+    // - 질문 생성 (Step 1)
+    // - 고객 댓글 (대화형 모드, 홀수 step)
+    //
+    // Pro 사용 위치 (품질 유지):
+    // - 답변 생성 (Step 2)
+    // - 설계사 댓글 (대화형 모드, 짝수 step)
+    //
+    // 폴백 로직: 할당량 초과 시에만 다른 모델로 폴백
     const generateContentWithFallback = async (
       prompt: string, 
       imageBase64?: string | null,
-      useFlash: boolean = false // 하이브리드 방식: true면 Flash 사용
+      useFlash: boolean = false // true: Flash 사용, false: Pro 사용
     ): Promise<{ text: string; usage?: TokenUsage }> => {
       // 하이브리드 방식: useFlash가 true면 Flash 우선, false면 Pro 우선
+      // 할당량 초과 시에만 폴백 (일반 에러는 즉시 실패)
       const models = useFlash 
-        ? ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'] // Flash 우선
-        : ['gemini-2.5-pro', 'gemini-1.5-pro', 'gemini-2.0-flash'] // Pro 우선 (폴백)
+        ? ['gemini-2.0-flash', 'gemini-2.5-pro'] // Flash 우선 → 할당량 초과 시 Pro 폴백
+        : ['gemini-2.5-pro', 'gemini-2.0-flash'] // Pro 우선 → 할당량 초과 시 Flash 폴백
       
       // 이미지가 있으면 MIME 타입 감지
       let mimeType = 'image/png'

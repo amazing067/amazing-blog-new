@@ -13,10 +13,10 @@ export default async function DashboardPage() {
     redirect('/login')
   }
 
-  // 프로필 정보 가져오기
+  // 프로필 정보 가져오기 (필요한 필드만 선택 - 성능 최적화)
   const { data: profile } = await supabase
     .from('profiles')
-    .select('*')
+    .select('id, username, full_name, email, membership_status, is_approved, role')
     .eq('id', user.id)
     .single()
 

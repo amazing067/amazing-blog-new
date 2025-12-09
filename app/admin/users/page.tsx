@@ -17,10 +17,10 @@ export default async function AdminUsersPage() {
     redirect('/login')
   }
 
-  // 관리자 권한 확인
+  // 관리자 권한 확인 (필요한 필드만 선택)
   const { data: profile } = await supabase
     .from('profiles')
-    .select('*')
+    .select('id, role')
     .eq('id', user.id)
     .single()
 
@@ -28,10 +28,10 @@ export default async function AdminUsersPage() {
     redirect('/dashboard')
   }
 
-  // 모든 사용자 목록 (상태별로 필터링)
+  // 모든 사용자 목록 (필요한 필드만 선택 - 성능 최적화)
   const { data: allUsers } = await supabase
     .from('profiles')
-    .select('*')
+    .select('id, username, full_name, email, phone, is_approved, role, membership_status, paid_until, suspended_at, deleted_at, last_payment_at, grace_period_until, payment_note, created_at')
     .order('created_at', { ascending: false })
 
   // 상태별 통계

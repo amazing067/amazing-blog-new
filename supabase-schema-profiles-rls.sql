@@ -32,25 +32,13 @@ CREATE POLICY "Users can update own profile"
   ON profiles FOR UPDATE
   USING (auth.uid() = id);
 
--- 정책 4: 관리자는 모든 프로필을 볼 수 있음
-CREATE POLICY "Admins can view all profiles"
-  ON profiles FOR SELECT
-  USING (
-    EXISTS (
-      SELECT 1 FROM profiles p
-      WHERE p.id = auth.uid()
-      AND p.role = 'admin'
-    )
-  );
-
--- 정책 5: 관리자는 모든 프로필을 수정할 수 있음
-CREATE POLICY "Admins can update all profiles"
-  ON profiles FOR UPDATE
-  USING (
-    EXISTS (
-      SELECT 1 FROM profiles p
-      WHERE p.id = auth.uid()
-      AND p.role = 'admin'
-    )
-  );
+-- ⚠️ 관리자 정책 제거: 무한 재귀 방지
+-- 관리자 권한은 서버 사이드에서 SERVICE_ROLE_KEY를 사용하여 처리합니다.
+-- RLS 정책에서 profiles 테이블을 다시 조회하면 무한 재귀가 발생합니다.
+--
+-- 대신 서버 사이드 코드에서:
+-- 1. 일반 사용자: ANON_KEY 사용 (RLS 정책 적용)
+-- 2. 관리자 작업: SERVICE_ROLE_KEY 사용 (RLS 우회)
+--
+-- 이렇게 하면 무한 재귀 없이 안전하게 관리자 권한을 처리할 수 있습니다.
 

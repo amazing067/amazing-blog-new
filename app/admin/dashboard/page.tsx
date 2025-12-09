@@ -15,10 +15,10 @@ export default async function AdminDashboardPage() {
     redirect('/login')
   }
 
-  // 관리자 권한 확인
+  // 관리자 권한 확인 (필요한 필드만 선택)
   const { data: profile } = await supabase
     .from('profiles')
-    .select('*')
+    .select('id, role')
     .eq('id', user.id)
     .single()
 
@@ -26,19 +26,24 @@ export default async function AdminDashboardPage() {
     redirect('/dashboard')
   }
 
-  // 승인 대기 중인 사용자 목록
-  const { data: pendingUsers } = await supabase
-    .from('profiles')
-    .select('*')
-    .eq('is_approved', false)
-    .order('created_at', { ascending: false })
+  // 병렬로 쿼리 실행 (성능 최적화)
+  const [pendingResult, approvedResult] = await Promise.all([
+    // 승인 대기 중인 사용자 목록 (필요한 필드만 선택)
+    supabase
+      .from('profiles')
+      .select('id, username, full_name, email, created_at, is_approved')
+      .eq('is_approved', false)
+      .order('created_at', { ascending: false }),
+    // 승인된 사용자 목록 (필요한 필드만 선택)
+    supabase
+      .from('profiles')
+      .select('id, username, full_name, email, created_at, is_approved')
+      .eq('is_approved', true)
+      .order('created_at', { ascending: false })
+  ])
 
-  // 승인된 사용자 목록
-  const { data: approvedUsers } = await supabase
-    .from('profiles')
-    .select('*')
-    .eq('is_approved', true)
-    .order('created_at', { ascending: false })
+  const pendingUsers = pendingResult.data
+  const approvedUsers = approvedResult.data
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">

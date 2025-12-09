@@ -15,10 +15,10 @@ export default async function AdminStatsPage() {
     redirect('/login')
   }
 
-  // 관리자 권한 확인
+  // 관리자 권한 확인 (필요한 필드만 선택)
   const { data: profile } = await supabase
     .from('profiles')
-    .select('*')
+    .select('id, role')
     .eq('id', user.id)
     .single()
 

@@ -465,6 +465,7 @@ export default function BlogGenerator({ profile: initialProfile }: { profile: Pr
   const [isEditMode, setIsEditMode] = useState(false)
   const [editableHTML, setEditableHTML] = useState('')
   const [isDraggingOver, setIsDraggingOver] = useState(false)
+  const [isDraggingOverDesignSheet, setIsDraggingOverDesignSheet] = useState(false)
 
   // 이미지 편집 기능을 위한 유틸리티 함수 (이벤트 리스너 없이 구조만 생성)
 
@@ -2426,39 +2427,132 @@ h2 {
                   <label className="block text-sm font-semibold text-gray-700 mb-2">
                     제안서 이미지 (선택)
                   </label>
-                  <div className="flex gap-2">
+                  
+                  {/* 드래그 앤 드롭 영역 */}
+                  <div
+                    onDragOver={(e) => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      if (!isGenerating && !isAnalyzingDesignSheet) {
+                        setIsDraggingOverDesignSheet(true)
+                      }
+                    }}
+                    onDragLeave={(e) => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      setIsDraggingOverDesignSheet(false)
+                    }}
+                    onDrop={async (e) => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      setIsDraggingOverDesignSheet(false)
+                      
+                      if (isGenerating || isAnalyzingDesignSheet) return
+                      
+                      const files = Array.from(e.dataTransfer.files)
+                      const imageFiles = files.filter(file => file.type.startsWith('image/'))
+                      
+                      if (imageFiles.length === 0) {
+                        alert('이미지 파일만 업로드할 수 있습니다.')
+                        return
+                      }
+                      
+                      // 첫 번째 이미지 파일 처리
+                      const file = imageFiles[0]
+                      const reader = new FileReader()
+                      reader.onloadend = async () => {
+                        const base64String = reader.result as string
+                        setFormData(prev => ({ ...prev, designSheetImage: base64String, designSheetAnalysis: null }))
+                        
+                        // 제안서 이미지 분석
+                        setIsAnalyzingDesignSheet(true)
+                        try {
+                          const response = await fetch('/api/analyze-design-sheet', {
+                            method: 'POST',
+                            headers: {
+                              'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({
+                              imageBase64: base64String
+                            }),
+                          })
+
+                          const data = await response.json()
+                          if (data.success && data.data) {
+                            // 제안서 분석 결과를 바탕으로 주제와 키워드 자동 생성
+                            const analysis = data.data
+                            const productName = analysis.productName || '보험'
+                            const targetPersona = analysis.targetPersona || ''
+                            
+                            // 주제 자동 생성: 상품명 + 대상 고객
+                            const autoTopic = `${productName} ${targetPersona ? targetPersona + ' ' : ''}가이드`
+                            
+                            // 키워드 자동 생성: 상품명에서 핵심 키워드 추출
+                            const productKeywords = productName.split(' ').filter((word: string) => word.length > 1)
+                            const autoKeywords = productKeywords.join(', ') || productName
+                            
+                            // formData에 자동으로 채우기
+                            setFormData(prev => ({
+                              ...prev,
+                              designSheetAnalysis: analysis,
+                              topic: prev.topic || autoTopic, // 이미 주제가 있으면 유지, 없으면 자동 생성
+                              keywords: prev.keywords || autoKeywords, // 이미 키워드가 있으면 유지, 없으면 자동 생성
+                            }))
+                          }
+                        } catch (error) {
+                          console.error('제안서 분석 오류:', error)
+                          alert('제안서 분석 중 오류가 발생했습니다.')
+                        } finally {
+                          setIsAnalyzingDesignSheet(false)
+                        }
+                      }
+                      reader.readAsDataURL(file)
+                    }}
+                    className={`border-2 border-dashed rounded-lg p-4 transition-all ${
+                      isDraggingOverDesignSheet
+                        ? 'border-blue-500 bg-blue-50'
+                        : formData.designSheetImage
+                        ? 'border-green-300 bg-green-50'
+                        : 'border-gray-300 bg-gray-50 hover:border-gray-400'
+                    } ${isGenerating || isAnalyzingDesignSheet ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                  >
                     <input
                       ref={fileInputRef}
                       type="file"
                       accept="image/*"
                       onChange={handleDesignSheetUpload}
-                      disabled={isGenerating}
+                      disabled={isGenerating || isAnalyzingDesignSheet}
                       className="hidden"
                     />
-                    <button
-                      type="button"
-                      onClick={() => fileInputRef.current?.click()}
-                      disabled={isGenerating}
-                      className="flex-1 px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:bg-gray-100 disabled:cursor-not-allowed transition-colors text-sm text-gray-700 text-left"
+                    <div
+                      onClick={() => !isGenerating && !isAnalyzingDesignSheet && fileInputRef.current?.click()}
+                      className="text-center"
                     >
-                      {formData.designSheetImage ? '제안서 이미지 첨부됨' : '선택된 파일 없음'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => fileInputRef.current?.click()}
-                      disabled={isGenerating || isAnalyzingDesignSheet}
-                      className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors text-sm font-semibold whitespace-nowrap flex items-center gap-1.5"
-                    >
-                      {isAnalyzingDesignSheet ? (
-                        <>
-                          <Clock className="w-4 h-4 animate-spin" />
-                          분석 중...
-                        </>
+                      {formData.designSheetImage ? (
+                        <div className="space-y-2">
+                          <div className="text-green-600 font-semibold">✓ 제안서 이미지 첨부됨</div>
+                          <img 
+                            src={formData.designSheetImage} 
+                            alt="제안서 미리보기" 
+                            className="max-w-full max-h-32 mx-auto rounded border border-gray-300"
+                          />
+                        </div>
                       ) : (
-                        '📎 첨부'
+                        <div className="space-y-2">
+                          <div className="text-4xl">📎</div>
+                          <div className="text-sm text-gray-600">
+                            {isDraggingOverDesignSheet 
+                              ? '여기에 놓으세요' 
+                              : '파일을 드래그하거나 클릭하여 업로드'}
+                          </div>
+                          <div className="text-xs text-gray-500">
+                            이미지 파일만 업로드 가능
+                          </div>
+                        </div>
                       )}
-                    </button>
+                    </div>
                   </div>
+                  
                   {isAnalyzingDesignSheet && (
                     <p className="text-base font-semibold text-blue-600 mt-2 flex items-center gap-2">
                       <Clock className="w-5 h-5 animate-spin" />
@@ -3860,11 +3954,45 @@ function QAGenerator({
         throw new Error(data.error || '분석 오류')
       }
 
+      // targetPersona를 select 옵션과 매칭
+      const targetPersonaOptions = [
+        '30대 직장인 남성',
+        '30대 직장인 여성',
+        '40대 직장인 남성',
+        '40대 주부',
+        '신혼부부',
+        '50대 직장인',
+        '자녀 있는 가족'
+      ]
+      
+      // API에서 반환된 targetPersona를 select 옵션과 매칭
+      let matchedTargetPersona = data.data.targetPersona || prev.targetPersona
+      if (data.data.targetPersona) {
+        // 정확히 일치하는 옵션이 있는지 확인
+        const exactMatch = targetPersonaOptions.find(opt => opt === data.data.targetPersona)
+        if (exactMatch) {
+          matchedTargetPersona = exactMatch
+        } else {
+          // 부분 일치로 찾기 (예: "30대 남성" -> "30대 직장인 남성")
+          const partialMatch = targetPersonaOptions.find(opt => {
+            const apiValue = data.data.targetPersona.toLowerCase()
+            const optValue = opt.toLowerCase()
+            // 나이대와 성별이 일치하는지 확인
+            const hasAge = optValue.includes(apiValue.split('대')[0] + '대') || apiValue.includes(optValue.split('대')[0] + '대')
+            const hasGender = (optValue.includes('남성') && apiValue.includes('남')) || 
+                             (optValue.includes('여성') && apiValue.includes('여')) ||
+                             (optValue.includes('주부') && apiValue.includes('주부'))
+            return hasAge && (hasGender || optValue.includes('부부') || optValue.includes('가족'))
+          })
+          matchedTargetPersona = partialMatch || data.data.targetPersona // 매칭 실패 시 원본 값 사용
+        }
+      }
+
       // 분석 결과로 폼 자동 채우기
       setQAFormData(prev => ({
         ...prev,
         productName: data.data.productName || prev.productName,
-        targetPersona: data.data.targetPersona || prev.targetPersona,
+        targetPersona: matchedTargetPersona, // 매칭된 값 사용
         worryPoint: data.data.worryPoint || prev.worryPoint,
         sellingPoint: data.data.sellingPoint || prev.sellingPoint,
         designSheetImage: imageToAnalyze,
@@ -3874,6 +4002,11 @@ function QAGenerator({
           specialClauses: data.data.specialClauses || []
         }
       }))
+      
+      console.log('타겟고객 매칭:', { 
+        원본: data.data.targetPersona, 
+        매칭결과: matchedTargetPersona 
+      })
 
       alert('설계서 분석이 완료되었습니다! 폼이 자동으로 채워졌습니다. 필요시 수정 후 "Q&A 생성하기" 버튼을 눌러주세요.')
     } catch (error: any) {
@@ -4433,7 +4566,18 @@ function QAGenerator({
                 <option value="신혼부부">신혼부부</option>
                 <option value="50대 직장인">50대 직장인</option>
                 <option value="자녀 있는 가족">자녀 있는 가족</option>
+                {/* API에서 반환된 값이 옵션에 없을 경우를 대비해 동적으로 추가 */}
+                {qaFormData.targetPersona && 
+                 !['30대 직장인 남성', '30대 직장인 여성', '40대 직장인 남성', '40대 주부', '신혼부부', '50대 직장인', '자녀 있는 가족'].includes(qaFormData.targetPersona) && (
+                  <option value={qaFormData.targetPersona}>{qaFormData.targetPersona}</option>
+                )}
               </select>
+              {qaFormData.targetPersona && 
+               !['30대 직장인 남성', '30대 직장인 여성', '40대 직장인 남성', '40대 주부', '신혼부부', '50대 직장인', '자녀 있는 가족'].includes(qaFormData.targetPersona) && (
+                <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
+                  💡 이미지 분석 결과: {qaFormData.targetPersona}
+                </p>
+              )}
             </div>
 
             <div>
