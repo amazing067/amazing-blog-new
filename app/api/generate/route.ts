@@ -196,11 +196,82 @@ export async function POST(request: NextRequest) {
     
     // 6. Google Custom Search로 최신 정보 검색
     console.log('🔍 Google Custom Search 시작:', { topic, keywords })
-    const searchResults = await searchInsuranceTopics(topic, keywords, 3)
+    let searchResults = await searchInsuranceTopics(topic, keywords, 3)
     console.log('✅ Google Custom Search 완료:', { 
       resultCount: searchResults.length,
       success: searchResults.length > 0 
     })
+    
+    // 6-1. 상품명 감지 및 상품별 추가 검색
+    const detectProductName = (text: string): string | null => {
+      // 보험사명 패턴 감지 (주요 보험사)
+      const insuranceCompanies = [
+        '하나생명', '삼성생명', '교보생명', '한화생명', '동부화재', '흥국화재',
+        '메리츠화재', '롯데손해보험', '현대해상', 'KB생명', '신한생명', 'NH농협생명',
+        'MG손해보험', 'AXA손해보험', 'DB손해보험', '삼성화재', '한화손해보험'
+      ]
+      
+      for (const company of insuranceCompanies) {
+        if (text.includes(company)) {
+          // 상품명 추출 시도 (보험사명 + 특약명/상품명)
+          const match = text.match(new RegExp(`${company}[\\s]*([^\\s]+(?:\\s+[^\\s]+)?)`))
+          if (match) {
+            return `${company} ${match[1]}`.trim()
+          }
+          return company
+        }
+      }
+      return null
+    }
+    
+    const productName = detectProductName(`${topic} ${keywords}`)
+    let productSearchResults: typeof searchResults = []
+    
+    if (productName) {
+      console.log('🔍 상품명 감지됨, 상품별 추가 검색 수행:', productName)
+      
+      // 상품별 장단점 검색
+      const productQueries = [
+        `${productName} 장단점`,
+        `${productName} 특약 장점`,
+        `${productName} 보장내용`,
+        `${productName} 가입 전 확인사항`
+      ]
+      
+      const allProductResults: typeof searchResults = []
+      const seenLinks = new Set(searchResults.map(r => r.link))
+      
+      for (const query of productQueries) {
+        try {
+          const response = await searchInsuranceTopics(query, '', 2)
+          for (const result of response) {
+            if (!seenLinks.has(result.link)) {
+              seenLinks.add(result.link)
+              allProductResults.push(result)
+            }
+          }
+          // API 호출 제한 고려
+          await new Promise(resolve => setTimeout(resolve, 200))
+        } catch (error) {
+          console.warn('⚠️ 상품별 검색 오류:', error)
+        }
+      }
+      
+      productSearchResults = allProductResults.slice(0, 5)
+      console.log('✅ 상품별 검색 완료:', { 
+        productName,
+        resultCount: productSearchResults.length 
+      })
+      
+      // 기존 검색 결과와 통합 (중복 제거)
+      const combinedResults = [...searchResults]
+      for (const result of productSearchResults) {
+        if (!seenLinks.has(result.link)) {
+          combinedResults.push(result)
+        }
+      }
+      searchResults = combinedResults
+    }
     
     // 검색 결과를 프롬프트 형식으로 변환
     const searchResultsText = formatSearchResultsForPrompt(searchResults)
@@ -347,6 +418,7 @@ export async function POST(request: NextRequest) {
       authorName,
       searchResults: searchResultsText, // Google Custom Search 결과 추가
       precedents: relevantPrecedents, // 최신 판례 추가 (최근 5년 이내)
+      detectedProductName: productName || undefined, // 감지된 상품명 전달
     })
 
     console.log('프롬프트 생성 완료, Gemini REST API 호출 중...')
