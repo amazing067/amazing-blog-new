@@ -240,8 +240,9 @@ export async function POST(request: NextRequest) {
               maxOutputTokens: 8192,
             },
             // Grounding 활성화 (Google Search 사용 - 내장 기능, 별도 API 키 불필요)
+            // 최신 API: google_search_retrieval → google_search로 변경
             tools: [{
-              googleSearchRetrieval: {
+              googleSearch: {
                 dynamicRetrievalConfig: {
                   mode: "MODE_DYNAMIC",
                   dynamicThreshold: 0.3
