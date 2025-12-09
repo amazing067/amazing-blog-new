@@ -2709,7 +2709,7 @@ h2 {
                     [✨ AI 글쓰기 시작] 버튼을 눌러주세요
                   </p>
                   <div className="flex gap-2 text-sm text-gray-400">
-                    <span>⚡ 평균 30초</span>
+                    <span>⚡ 평균 2분</span>
                     <span>•</span>
                     <span>📊 SEO 최적화</span>
                     <span>•</span>

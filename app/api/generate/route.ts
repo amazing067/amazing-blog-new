@@ -354,14 +354,26 @@ export async function POST(request: NextRequest) {
             console.log('✅ Grounding 출처 발견:', groundingMetadata.groundingChunks.length, '개')
             
             groundingMetadata.groundingChunks.forEach((chunk: any) => {
-              if (chunk.web?.uri) {
-                groundingSources.push({
-                  title: chunk.web?.title || chunk.web?.uri,
-                  url: chunk.web.uri,
-                  organization: chunk.web?.siteName
-                })
+              // web.uri가 있는 경우
+              if (chunk.web?.uri && chunk.web.uri.trim() !== '') {
+                const url = chunk.web.uri.trim()
+                // 유효한 URL인지 확인 (http:// 또는 https://로 시작)
+                if (url.startsWith('http://') || url.startsWith('https://')) {
+                  groundingSources.push({
+                    title: chunk.web?.title || chunk.web?.uri || 'Grounding 검색 결과',
+                    url: url,
+                    organization: chunk.web?.siteName
+                  })
+                  console.log('✅ Grounding 출처 추가:', url)
+                } else {
+                  console.warn('⚠️ Grounding URL 형식 오류:', url)
+                }
+              } else {
+                console.warn('⚠️ Grounding chunk에 URI 없음:', chunk)
               }
             })
+          } else {
+            console.log('⚠️ Grounding 메타데이터 없음')
           }
           
           return text.trim()
@@ -443,23 +455,33 @@ export async function POST(request: NextRequest) {
     // 모든 출처 통합 (중복 제거)
     const allSources = [...extractedSources]
     
-    // Google Custom Search 출처 추가
+    // Google Custom Search 출처 추가 (URL이 있는 것만)
     searchSources.forEach(searchSource => {
       const isDuplicate = allSources.some(s => s.url === searchSource.url)
-      if (!isDuplicate && searchSource.url) {
+      if (!isDuplicate && searchSource.url && searchSource.url.trim() !== '') {
         allSources.push({
-          title: searchSource.title,
-          url: searchSource.url,
+          title: searchSource.title || '검색 결과',
+          url: searchSource.url.trim(),
           organization: searchSource.organization
         })
+        console.log('✅ Custom Search 출처 추가:', searchSource.url)
+      } else if (!searchSource.url || searchSource.url.trim() === '') {
+        console.warn('⚠️ Custom Search 출처 URL 없음:', searchSource)
       }
     })
     
-    // Grounding 출처 추가 (REST API 응답에서 추출됨)
+    // Grounding 출처 추가 (REST API 응답에서 추출됨, URL이 있는 것만)
     groundingSources.forEach(groundingSource => {
       const isDuplicate = allSources.some(s => s.url === groundingSource.url)
-      if (!isDuplicate && groundingSource.url) {
-        allSources.push(groundingSource)
+      if (!isDuplicate && groundingSource.url && groundingSource.url.trim() !== '') {
+        allSources.push({
+          title: groundingSource.title || 'Grounding 검색 결과',
+          url: groundingSource.url.trim(),
+          organization: groundingSource.organization
+        })
+        console.log('✅ Grounding 출처 추가:', groundingSource.url)
+      } else if (!groundingSource.url || groundingSource.url.trim() === '') {
+        console.warn('⚠️ Grounding 출처 URL 없음:', groundingSource)
       }
     })
     
