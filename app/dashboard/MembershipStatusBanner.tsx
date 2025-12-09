@@ -47,7 +47,7 @@ export default function MembershipStatusBanner({ status, paidUntil, gracePeriodU
     icon = <AlertCircle className="w-4 h-4 text-gray-600" />
   }
 
-  const stylesByKind: Record<typeof kind, string> = {
+  const stylesByKind: Record<'ok' | 'warn' | 'error' | 'info', string> = {
     ok: 'bg-green-50 text-green-800 border-green-200',
     warn: 'bg-amber-50 text-amber-800 border-amber-200',
     error: 'bg-red-50 text-red-800 border-red-200',

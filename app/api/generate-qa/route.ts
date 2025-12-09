@@ -21,7 +21,19 @@ type CostEstimate = {
   }>
 }
 
-const getCostRates = () => {
+type CostRate = {
+  prompt: number | null
+  completion: number | null
+}
+
+type CostRates = {
+  [key: string]: CostRate
+} & {
+  'gemini-2.0-flash': CostRate
+  'gemini-2.5-pro': CostRate
+}
+
+const getCostRates = (): CostRates => {
   const toNumber = (v?: string, defaultValue?: number) => {
     const n = v ? parseFloat(v) : defaultValue ?? NaN
     return Number.isFinite(n) ? n : null
@@ -35,14 +47,6 @@ const getCostRates = () => {
     'gemini-2.5-pro': {
       prompt: toNumber(process.env.GEMINI_PRO_2_5_INPUT_COST_PER_1M, 1.25),
       completion: toNumber(process.env.GEMINI_PRO_2_5_OUTPUT_COST_PER_1M, 10.00)
-    },
-    'gemini-1.5-pro': {
-      prompt: toNumber(process.env.GEMINI_15_PRO_INPUT_COST_PER_1M),
-      completion: toNumber(process.env.GEMINI_15_PRO_OUTPUT_COST_PER_1M)
-    },
-    'gemini-1.5-flash': {
-      prompt: toNumber(process.env.GEMINI_15_FLASH_INPUT_COST_PER_1M),
-      completion: toNumber(process.env.GEMINI_15_FLASH_OUTPUT_COST_PER_1M)
     }
   }
 }
@@ -542,24 +546,26 @@ export async function POST(request: NextRequest) {
     console.log('📊 총 토큰 사용량:', totalUsage)
 
     // 사용량 로그 (실패해도 응답은 진행)
-    supabase
-      .from('usage_logs')
-      .insert({
-        user_id: user.id,
-        type: 'qa',
-        prompt_tokens: totalUsage.promptTokens,
-        completion_tokens: totalUsage.candidatesTokens,
-        total_tokens: totalUsage.totalTokens,
-        meta: {
-          productName,
-          conversationMode,
-          generateStep: requestedStep,
-          tokenBreakdown: tokenUsage, // 모델별 토큰 사용량 (비용 계산용)
-          costEstimate: costEstimate.totalCost, // 총 비용
-        }
-      })
-      .then(({ error }) => {
-        if (error) console.error('usage_logs insert 실패:', error)
+    Promise.resolve(
+      supabase
+        .from('usage_logs')
+        .insert({
+          user_id: user.id,
+          type: 'qa',
+          prompt_tokens: totalUsage.promptTokens,
+          completion_tokens: totalUsage.candidatesTokens,
+          total_tokens: totalUsage.totalTokens,
+          meta: {
+            productName,
+            conversationMode,
+            generateStep: requestedStep,
+            tokenBreakdown: tokenUsage, // 모델별 토큰 사용량 (비용 계산용)
+            costEstimate: costEstimate.totalCost, // 총 비용
+          }
+        })
+    )
+      .then((result: any) => {
+        if (result?.error) console.error('usage_logs insert 실패:', result.error)
       })
       .catch((err) => console.error('usage_logs insert 예외:', err))
 

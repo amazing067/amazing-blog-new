@@ -31,7 +31,19 @@ type CostEstimate = {
   }>
 }
 
-const getCostRates = () => {
+type CostRate = {
+  prompt: number | null
+  completion: number | null
+}
+
+type CostRates = {
+  [key: string]: CostRate
+} & {
+  'gemini-2.0-flash': CostRate
+  'gemini-2.5-pro': CostRate
+}
+
+const getCostRates = (): CostRates => {
   const toNumber = (v?: string, defaultValue?: number) => {
     const n = v ? parseFloat(v) : defaultValue ?? NaN
     return Number.isFinite(n) ? n : null
@@ -45,15 +57,6 @@ const getCostRates = () => {
     'gemini-2.5-pro': {
       prompt: toNumber(process.env.GEMINI_PRO_2_5_INPUT_COST_PER_1M, 1.25),
       completion: toNumber(process.env.GEMINI_PRO_2_5_OUTPUT_COST_PER_1M, 10.00)
-    },
-    // 폴백 모델(1.5)은 명시적 요금이 없으면 비용 계산에서 제외
-    'gemini-1.5-pro': {
-      prompt: toNumber(process.env.GEMINI_15_PRO_INPUT_COST_PER_1M),
-      completion: toNumber(process.env.GEMINI_15_PRO_OUTPUT_COST_PER_1M)
-    },
-    'gemini-1.5-flash': {
-      prompt: toNumber(process.env.GEMINI_15_FLASH_INPUT_COST_PER_1M),
-      completion: toNumber(process.env.GEMINI_15_FLASH_OUTPUT_COST_PER_1M)
     }
   }
 }
@@ -419,28 +422,30 @@ export async function POST(request: NextRequest) {
       costEstimate: costEstimate.totalCost
     })
     
-    supabase
-      .from('usage_logs')
-      .insert({
-        user_id: user.id,
-        type: 'blog',
-        prompt_tokens: totalUsage.promptTokens,
-        completion_tokens: totalUsage.completionTokens,
-        total_tokens: totalUsage.totalTokens,
-        meta: {
-          topic,
-          keywords,
-          product,
-          tokenBreakdown: tokenUsage, // 모델별 토큰 사용량 (비용 계산용)
-          costEstimate: costEstimate.totalCost, // 총 비용
-        },
-      })
-      .then(({ data, error }) => {
-        if (error) {
-          console.error('❌ usage_logs insert 실패:', error)
-          console.error('에러 상세:', JSON.stringify(error, null, 2))
+    Promise.resolve(
+      supabase
+        .from('usage_logs')
+        .insert({
+          user_id: user.id,
+          type: 'blog',
+          prompt_tokens: totalUsage.promptTokens,
+          completion_tokens: totalUsage.completionTokens,
+          total_tokens: totalUsage.totalTokens,
+          meta: {
+            topic,
+            keywords,
+            product,
+            tokenBreakdown: tokenUsage, // 모델별 토큰 사용량 (비용 계산용)
+            costEstimate: costEstimate.totalCost, // 총 비용
+          },
+        })
+    )
+      .then((result: any) => {
+        if (result?.error) {
+          console.error('❌ usage_logs insert 실패:', result.error)
+          console.error('에러 상세:', JSON.stringify(result.error, null, 2))
         } else {
-          console.log('✅ usage_logs insert 성공:', data)
+          console.log('✅ usage_logs insert 성공:', result?.data)
         }
       })
       .catch((err) => {
