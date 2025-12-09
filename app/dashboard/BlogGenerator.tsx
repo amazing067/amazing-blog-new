@@ -3966,7 +3966,7 @@ function QAGenerator({
       ]
       
       // API에서 반환된 targetPersona를 select 옵션과 매칭
-      let matchedTargetPersona = data.data.targetPersona || prev.targetPersona
+      let matchedTargetPersona = data.data.targetPersona || qaFormData.targetPersona
       if (data.data.targetPersona) {
         // 정확히 일치하는 옵션이 있는지 확인
         const exactMatch = targetPersonaOptions.find(opt => opt === data.data.targetPersona)
