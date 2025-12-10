@@ -31,7 +31,8 @@ export async function POST(request: NextRequest) {
     // Gemini Vision API 초기화
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!)
     const model = genAI.getGenerativeModel({ 
-      model: 'gemini-2.5-pro'
+      model: 'gemini-2.5-pro',
+      tools: [{ googleSearch: {} }] as any // Google Grounding 활성화 (타입 체크 우회)
     })
 
     // Base64에서 데이터 부분만 추출 (data:image/...;base64, 제거)
@@ -99,12 +100,21 @@ export async function POST(request: NextRequest) {
     }
 
     const extractedProductName = basicData.productName || '보험 상품'
-    console.log('추출된 상품명:', extractedProductName)
+    console.log('[설계서 분석] 추출된 상품명:', extractedProductName)
 
     // 2단계: 추출된 상품명으로 최신 정보 검색
     let searchResultsText = ''
+    let customSearchCount = 0 // 커스텀 서치 횟수 추적
+    
+    console.log('[설계서 분석] 2단계 조건 확인:', {
+      extractedProductName,
+      isNotEmpty: !!extractedProductName,
+      isNotDefault: extractedProductName !== '보험 상품',
+      willSearch: extractedProductName && extractedProductName !== '보험 상품'
+    })
+    
     if (extractedProductName && extractedProductName !== '보험 상품') {
-      console.log('2단계: 최신 정보 검색 중...')
+      console.log('[설계서 분석] 2단계: 최신 정보 검색 시작 - 상품명:', extractedProductName)
       try {
         const searchQueries = Array.from(new Set([
           `${extractedProductName} 후기`,
@@ -119,6 +129,7 @@ export async function POST(request: NextRequest) {
         for (const q of searchQueries) {
           try {
             const res = await searchGoogle(q, 3)
+            customSearchCount++ // 커스텀 서치 횟수 추적
             if (res.success && res.results.length > 0) {
               for (const r of res.results) {
                 if (r.link && !seen.has(r.link)) {
@@ -134,12 +145,31 @@ export async function POST(request: NextRequest) {
           }
         }
         
-        searchResultsText = formatSearchResultsForPrompt(collected)
-        console.log('🔍 설계서 검색 결과 수집:', collected.length, '건')
+        console.log('[설계서 분석] 🔍 검색 완료 - 수집된 결과:', collected.length, '건')
+        if (collected.length > 0) {
+          console.log('[설계서 분석] 검색 결과 샘플:', collected.slice(0, 2).map(r => ({
+            title: r.title?.substring(0, 50) || '(제목 없음)',
+            snippet: r.snippet?.substring(0, 50) || '(스니펫 없음)',
+            link: r.link?.substring(0, 50) || '(링크 없음)'
+          })))
+          
+          searchResultsText = formatSearchResultsForPrompt(collected)
+          console.log('[설계서 분석] 🔍 포맷된 검색 결과 텍스트 길이:', searchResultsText.length, '글자')
+          if (searchResultsText.length > 0) {
+            console.log('[설계서 분석] 포맷된 검색 결과 샘플 (처음 300자):', searchResultsText.substring(0, 300))
+          } else {
+            console.log('[설계서 분석] ⚠️ 포맷된 검색 결과가 비어있습니다! collected 배열 확인:', collected)
+          }
+        } else {
+          console.log('[설계서 분석] ⚠️ 검색 결과가 비어있습니다!')
+          searchResultsText = ''
+        }
       } catch (searchError) {
-        console.warn('⚠️ 설계서 검색 중 오류:', searchError)
+        console.error('[설계서 분석] ⚠️ 검색 오류:', searchError)
         searchResultsText = ''
       }
+    } else {
+      console.log('[설계서 분석] 2단계 건너뜀 - 상품명이 없거나 기본값입니다.')
     }
 
     // 3단계: 검색 결과를 포함한 최종 분석 프롬프트
@@ -194,10 +224,13 @@ ${searchResultsText ? `4단계: 검색 결과 활용
 - sellingPoint: 검색 결과를 참고하여 현실적인 장점을 정리했는가?
 - 모든 정보는 이미지에서 직접 읽은 내용을 우선하고, 검색 결과는 보완적으로 활용하세요.`
 
-    // 3단계: 최종 분석 수행 (검색 결과 포함)
-    console.log('3단계: 최종 분석 수행 중...')
+    // 3단계: 최종 분석 수행 (검색 결과 포함 + 그라운딩 활성화)
+    console.log('[설계서 분석] 3단계: 최종 분석 시작')
+    console.log('[설계서 분석]   - 검색 결과 포함 여부:', searchResultsText && searchResultsText.length > 0 ? '예' : '아니오')
+    console.log('[설계서 분석]   - 검색 결과 텍스트 길이:', searchResultsText.length, '글자')
+    console.log('[설계서 분석]   - 그라운딩: 활성화')
     
-    // 이미지와 프롬프트를 함께 전송
+    // 이미지와 프롬프트를 함께 전송 (그라운딩 활성화)
     const result = await model.generateContent([
       {
         inlineData: {
@@ -209,6 +242,24 @@ ${searchResultsText ? `4단계: 검색 결과 활용
     ])
 
     const response = await result.response
+    
+    // 그라운딩 결과 확인 및 로그 출력
+    const groundingMetadata = response.candidates?.[0]?.groundingMetadata as any
+    if (groundingMetadata) {
+      console.log('[설계서 분석] 🔍 그라운딩 결과:')
+      console.log('  - 웹 검색 쿼리:', groundingMetadata.webSearchQueries || [])
+      const chunks = groundingMetadata.groundingChunks || groundingMetadata.groundingChuncks || []
+      console.log('  - 검색된 청크 수:', chunks.length)
+      if (chunks.length > 0) {
+        console.log('  - 검색된 청크 샘플:')
+        chunks.slice(0, 3).forEach((chunk: any, idx: number) => {
+          console.log(`    [${idx + 1}] ${chunk.web?.uri || chunk.retrievalMetadata?.uri || '알 수 없음'}`)
+        })
+      }
+    } else {
+      console.log('[설계서 분석] ⚠️ 그라운딩 메타데이터가 없습니다. (그라운딩이 실행되지 않았을 수 있음)')
+    }
+    
     let analysisText = response.text().trim()
 
     // JSON 추출 (코드 블록 제거)
@@ -271,6 +322,7 @@ ${searchResultsText ? `4단계: 검색 결과 활용
     }
 
     console.log('설계서 분석 완료:', analysisData)
+    console.log('[설계서 분석] 커스텀 서치 횟수:', customSearchCount)
 
     return NextResponse.json({
       success: true,
@@ -282,6 +334,11 @@ ${searchResultsText ? `4단계: 검색 결과 활용
         premium: analysisData.premium || '',
         coverages: analysisData.coverages || [],
         specialClauses: analysisData.specialClauses || []
+      },
+      // 설계서 분석 비용 정보 (클라이언트에서 표시 가능)
+      usage: {
+        customSearchCount: customSearchCount,
+        customSearchCost: customSearchCount * 0.0005 // USD
       }
     })
   } catch (error: any) {

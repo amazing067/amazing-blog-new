@@ -405,6 +405,7 @@ export default function SignupPage() {
                 onChange={handleChange}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1e293b]"
                 placeholder="최소 6자 이상"
+                autoComplete="new-password"
                 required
               />
             </div>
@@ -421,6 +422,7 @@ export default function SignupPage() {
                 onChange={handleChange}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1e293b]"
                 placeholder="비밀번호를 다시 입력하세요"
+                autoComplete="new-password"
                 required
               />
             </div>

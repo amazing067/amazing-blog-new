@@ -69,6 +69,8 @@ export async function GET(request: NextRequest) {
         qa_token_total: 0,
         blog_cost_total: 0,
         qa_cost_total: 0,
+        custom_search_count: 0, // 커스텀 서치 총 횟수
+        custom_search_cost: 0, // 커스텀 서치 총 비용 (KRW)
         usage_blog_count: 0,
         usage_qa_count: 0,
         last_usage: null as string | null,
@@ -140,9 +142,12 @@ export async function GET(request: NextRequest) {
     // USD → KRW 환율 (환경변수 또는 기본값 1300원)
     const usdToKrwRate = parseFloat(process.env.USD_TO_KRW_RATE || '1300') || 1300
 
-    usageRes.data?.forEach((row) => {
+    console.log('[통계] usage_logs 총 개수:', usageRes.data?.length || 0)
+    
+    usageRes.data?.forEach((row, index) => {
       const target = profileMap.get(row.user_id)
       if (!target) return
+      
       const rowTokens = row.total_tokens || 0
       target.token_total += rowTokens
       
@@ -168,10 +173,66 @@ export async function GET(request: NextRequest) {
         }
       }
       
+      // 커스텀 서치 비용 계산
+      const customSearchCount = row.meta?.customSearchCount
+      const customSearchCostUsd = row.meta?.customSearchCost
+      
+      // 디버깅: 최근 5개 Q&A/Blog만 로그 (너무 많이 출력 방지)
+      if ((rowType === 'qa' || rowType === 'blog') && index < 5) {
+        console.log(`[통계] [${index}] ${rowType} - meta 확인:`, {
+          hasMeta: !!row.meta,
+          customSearchCount,
+          customSearchCostUsd,
+          metaKeys: row.meta ? Object.keys(row.meta) : [],
+          created_at: row.created_at
+        })
+      }
+      
+      // customSearchCount가 0이어도 명시적으로 있을 수 있으므로 undefined가 아닌지 확인
+      if ((customSearchCount !== undefined && customSearchCount !== null && customSearchCount > 0) || 
+          (customSearchCostUsd !== undefined && customSearchCostUsd !== null && customSearchCostUsd > 0)) {
+        const finalCostUsd = customSearchCostUsd !== undefined && customSearchCostUsd !== null 
+          ? customSearchCostUsd 
+          : ((customSearchCount || 0) * 0.0005)
+        const customSearchCostKrw = finalCostUsd * usdToKrwRate
+        
+        target.custom_search_count += customSearchCount || 0
+        target.custom_search_cost += customSearchCostKrw
+        
+        if (index < 5) {
+          console.log(`[통계] [${index}] ${rowType} - 서치 비용 추가:`, {
+            customSearchCount,
+            customSearchCostUsd: finalCostUsd,
+            customSearchCostKrw,
+            userId: row.user_id?.substring(0, 8)
+          })
+        }
+        
+        // 커스텀 서치 비용도 총 비용에 포함
+        target.cost_total += customSearchCostKrw
+        if (rowType === 'blog') {
+          target.blog_cost_total += customSearchCostKrw
+        } else if (rowType === 'qa') {
+          target.qa_cost_total += customSearchCostKrw
+        }
+      } else if ((rowType === 'qa' || rowType === 'blog') && index < 5) {
+        console.log(`[통계] [${index}] ${rowType} - 서치 비용 없음:`, {
+          customSearchCount,
+          customSearchCostUsd,
+          hasMeta: !!row.meta
+        })
+      }
+      
       if (!target.last_usage || (row.created_at && row.created_at > target.last_usage)) {
         target.last_usage = row.created_at
       }
     })
+    
+    console.log('[통계] 집계 완료 - 사용자별 서치 비용:', 
+      Array.from(profileMap.values())
+        .filter(u => u.custom_search_cost > 0)
+        .map(u => ({ username: u.username, searchCost: u.custom_search_cost.toFixed(2) }))
+    )
 
     // usage 기반 카운트 보정 (blog_posts/qa_sets 카운트가 0일 때)
     profileMap.forEach((value) => {

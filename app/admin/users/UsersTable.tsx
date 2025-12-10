@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { UserCheck, UserX, AlertCircle, CreditCard } from 'lucide-react'
 import MembershipActions from './MembershipActions'
 
@@ -26,32 +27,43 @@ interface UsersTableProps {
 }
 
 export default function UsersTable({ users: initialUsers }: UsersTableProps) {
+  const router = useRouter()
   const [users, setUsers] = useState(initialUsers)
-  const [filter, setFilter] = useState<'all' | 'active' | 'pending' | 'deleted' | 'expiring'>('all')
+  const [filter, setFilter] = useState<'all' | 'active' | 'suspended' | 'deleted' | 'expiring'>('all')
   const [searchTerm, setSearchTerm] = useState('')
 
   const handleUpdate = () => {
     // 페이지 새로고침으로 최신 데이터 가져오기
-    window.location.reload()
+    // 약간의 지연을 두어 DB 업데이트가 완료되도록 함
+    console.log('[UsersTable] handleUpdate 호출됨')
+    setTimeout(() => {
+      console.log('[UsersTable] 페이지 새로고침 실행')
+      // router.refresh()와 window.location.reload() 모두 시도
+      router.refresh()
+      // router.refresh()가 즉시 반영되지 않을 수 있으므로 강제 새로고침도 시도
+      setTimeout(() => {
+        window.location.reload()
+      }, 100)
+    }, 500)
   }
 
   const getStatusLabel = (status: string | null) => {
     switch (status) {
       case 'active': return '활성'
-      case 'pending': return '대기'
-      case 'suspended': return '대기'
+      case 'pending': return '정지' // pending도 정지로 표시
+      case 'suspended': return '정지'
       case 'deleted': return '삭제'
-      default: return '대기'
+      default: return '정지' // 기본값도 정지
     }
   }
 
   const getStatusColor = (status: string | null) => {
     switch (status) {
       case 'active': return 'bg-green-100 text-green-800 border-green-300'
-      case 'pending': return 'bg-yellow-100 text-yellow-800 border-yellow-300'
-      case 'suspended': return 'bg-yellow-100 text-yellow-800 border-yellow-300'
+      case 'pending': return 'bg-red-100 text-red-800 border-red-300' // pending도 빨간색
+      case 'suspended': return 'bg-red-100 text-red-800 border-red-300'
       case 'deleted': return 'bg-gray-100 text-gray-800 border-gray-300'
-      default: return 'bg-gray-100 text-gray-800 border-gray-300'
+      default: return 'bg-red-100 text-red-800 border-red-300' // 기본값도 빨간색
     }
   }
 
@@ -79,8 +91,7 @@ export default function UsersTable({ users: initialUsers }: UsersTableProps) {
       sevenDaysLater.setDate(sevenDaysLater.getDate() + 7)
       return paidUntil <= sevenDaysLater && paidUntil > new Date()
     }
-    // suspended도 pending과 동일하게 필터
-    if (filter === 'pending') {
+    if (filter === 'suspended') {
       return user.membership_status === 'pending' || user.membership_status === 'suspended'
     }
     return user.membership_status === filter
@@ -112,14 +123,14 @@ export default function UsersTable({ users: initialUsers }: UsersTableProps) {
             활성
           </button>
           <button
-            onClick={() => setFilter('pending')}
+            onClick={() => setFilter('suspended')}
             className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${
-              filter === 'pending'
-                ? 'bg-yellow-600 text-white'
+              filter === 'suspended'
+                ? 'bg-red-600 text-white'
                 : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
             }`}
           >
-            대기
+            정지
           </button>
           <button
             onClick={() => setFilter('expiring')}

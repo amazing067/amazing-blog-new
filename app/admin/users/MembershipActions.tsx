@@ -20,7 +20,7 @@ export default function MembershipActions({ userId, currentStatus, paidUntil, ro
 
   const isSuperAdmin = role === 'admin' || username === 'amazing'
 
-  const handleStatusChange = async (status: 'active' | 'pending' | 'deleted', note?: string) => {
+  const handleStatusChange = async (status: 'active' | 'suspended' | 'deleted', note?: string) => {
     if (isSuperAdmin) {
       alert('이 계정은 항상 활성 상태이며 변경할 수 없습니다.')
       return
@@ -31,22 +31,71 @@ export default function MembershipActions({ userId, currentStatus, paidUntil, ro
 
     setIsLoading(true)
     try {
+      console.log('[상태 변경] 요청 시작:', { userId, status, note })
+      
       const response = await fetch('/api/admin/update-membership-status', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId, status, note })
       })
 
-      const data = await response.json()
+      console.log('[상태 변경] API 응답 상태:', response.status, response.statusText)
+      console.log('[상태 변경] API 응답 헤더:', Object.fromEntries(response.headers.entries()))
 
-      if (!response.ok) {
-        throw new Error(data.error || '상태 변경 실패')
+      let data
+      try {
+        const text = await response.text()
+        console.log('[상태 변경] API 응답 원본 텍스트:', text)
+        data = text ? JSON.parse(text) : {}
+      } catch (parseError) {
+        console.error('[상태 변경] JSON 파싱 오류:', parseError)
+        throw new Error('서버 응답을 파싱할 수 없습니다.')
       }
 
-      alert('상태가 변경되었습니다')
-      onUpdate()
+      console.log('[상태 변경] API 응답 데이터:', data)
+
+      if (!response.ok) {
+        console.error('[상태 변경] API 오류:', {
+          status: response.status,
+          statusText: response.statusText,
+          data: data,
+          error: data?.error,
+          errorCode: data?.errorCode,
+          details: data?.details
+        })
+        
+        const errorMessage = data?.error || data?.message || `상태 변경 실패 (${response.status}: ${response.statusText})`
+        throw new Error(errorMessage)
+      }
+
+      console.log('[상태 변경] 성공:', { userId, status, data })
+      
+      // 업데이트된 데이터 확인
+      if (data.data) {
+        console.log('[상태 변경] 업데이트된 데이터:', data.data)
+        console.log('[상태 변경] 실제 상태:', data.data.membership_status)
+      }
+      
+      // 성공 메시지 표시
+      alert(`상태가 "${getStatusLabel(status)}"로 변경되었습니다`)
+      
+      // 상태 업데이트를 즉시 반영 (약간의 지연을 두어 DB 업데이트 완료 대기)
+      // DB 업데이트가 완전히 반영되도록 충분한 시간 대기
+      setTimeout(() => {
+        console.log('[상태 변경] 페이지 새로고침 시작')
+        onUpdate()
+      }, 800)
     } catch (error: any) {
-      alert(`오류: ${error.message}`)
+      console.error('[상태 변경] 오류 발생:', error)
+      console.error('[상태 변경] 오류 상세:', {
+        name: error?.name,
+        message: error?.message,
+        stack: error?.stack,
+        cause: error?.cause
+      })
+      
+      const errorMessage = error?.message || '상태 변경 중 오류가 발생했습니다'
+      alert(`오류: ${errorMessage}`)
     } finally {
       setIsLoading(false)
     }
@@ -97,20 +146,20 @@ export default function MembershipActions({ userId, currentStatus, paidUntil, ro
   const getStatusLabel = (status: string | null) => {
     switch (status) {
       case 'active': return '활성'
-      case 'pending': return '대기'
-      case 'suspended': return '대기'
+      case 'pending': return '정지' // pending도 정지로 표시
+      case 'suspended': return '정지'
       case 'deleted': return '삭제'
-      default: return '알 수 없음'
+      default: return '정지' // 기본값도 정지
     }
   }
 
   const getStatusColor = (status: string | null) => {
     switch (status) {
       case 'active': return 'bg-green-100 text-green-800 border-green-300'
-      case 'pending': return 'bg-yellow-100 text-yellow-800 border-yellow-300'
-      case 'suspended': return 'bg-yellow-100 text-yellow-800 border-yellow-300'
+      case 'pending': return 'bg-red-100 text-red-800 border-red-300' // pending도 빨간색
+      case 'suspended': return 'bg-red-100 text-red-800 border-red-300'
       case 'deleted': return 'bg-gray-100 text-gray-800 border-gray-300'
-      default: return 'bg-gray-100 text-gray-800 border-gray-300'
+      default: return 'bg-red-100 text-red-800 border-red-300' // 기본값도 빨간색
     }
   }
 
@@ -153,12 +202,12 @@ export default function MembershipActions({ userId, currentStatus, paidUntil, ro
             </button>
           )}
 
-          {!isSuperAdmin && currentStatus !== 'pending' && currentStatus !== 'deleted' && (
+          {!isSuperAdmin && currentStatus !== 'suspended' && currentStatus !== 'deleted' && (
             <button
-              onClick={() => handleStatusChange('pending', '관리자 수동 대기')}
+              onClick={() => handleStatusChange('suspended', '관리자 수동 정지')}
               disabled={isLoading}
-              className="p-1.5 text-yellow-600 hover:bg-yellow-50 rounded transition-colors disabled:opacity-50"
-              title="대기"
+              className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors disabled:opacity-50"
+              title="정지"
             >
               <Pause className="w-4 h-4" />
             </button>

@@ -16,6 +16,8 @@ type UserStat = {
   qa_token_total: number
   blog_cost_total: number
   qa_cost_total: number
+  custom_search_count?: number
+  custom_search_cost?: number
   last_blog: string | null
   last_qa: string | null
   last_usage: string | null
@@ -88,18 +90,19 @@ export default function StatsTable() {
           <table className="w-full text-sm">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-4 py-3 text-left font-semibold text-gray-700">아이디</th>
-                <th className="px-4 py-3 text-left font-semibold text-gray-700">이름</th>
-                <th className="px-4 py-3 text-left font-semibold text-gray-700">이메일</th>
-                <th className="px-4 py-3 text-right font-semibold text-gray-700">글 수</th>
-                <th className="px-4 py-3 text-right font-semibold text-gray-700">Q&A</th>
-                <th className="px-4 py-3 text-right font-semibold text-gray-700">블로그 토큰</th>
-                <th className="px-4 py-3 text-right font-semibold text-gray-700">Q&A 토큰</th>
-                <th className="px-4 py-3 text-right font-semibold text-gray-700">총 토큰</th>
-                <th className="px-4 py-3 text-right font-semibold text-gray-700">블로그 비용</th>
-                <th className="px-4 py-3 text-right font-semibold text-gray-700">Q&A 비용</th>
-                <th className="px-4 py-3 text-right font-semibold text-gray-700">총 비용</th>
-                <th className="px-4 py-3 text-left font-semibold text-gray-700">최근 활동</th>
+                <th className="px-2 py-3 text-left text-xs font-semibold text-gray-700 whitespace-nowrap">아이디</th>
+                <th className="px-2 py-3 text-left text-xs font-semibold text-gray-700 whitespace-nowrap">이름</th>
+                <th className="px-2 py-3 text-left text-xs font-semibold text-gray-700 whitespace-nowrap">이메일</th>
+                <th className="px-2 py-3 text-right text-xs font-semibold text-gray-700 whitespace-nowrap">글 수</th>
+                <th className="px-2 py-3 text-right text-xs font-semibold text-gray-700 whitespace-nowrap">Q&A</th>
+                <th className="px-2 py-3 text-right text-xs font-semibold text-gray-700 whitespace-nowrap">블로그 토큰</th>
+                <th className="px-2 py-3 text-right text-xs font-semibold text-gray-700 whitespace-nowrap">Q&A 토큰</th>
+                <th className="px-2 py-3 text-right text-xs font-semibold text-gray-700 whitespace-nowrap">총 토큰</th>
+                <th className="px-2 py-3 text-right text-xs font-semibold text-gray-700 whitespace-nowrap">블로그 비용</th>
+                <th className="px-2 py-3 text-right text-xs font-semibold text-gray-700 whitespace-nowrap">Q&A 비용</th>
+                <th className="px-2 py-3 text-right text-xs font-semibold text-gray-700 whitespace-nowrap">서치 비용</th>
+                <th className="px-2 py-3 text-right text-xs font-semibold text-gray-700 whitespace-nowrap">총 비용</th>
+                <th className="px-2 py-3 text-left text-xs font-semibold text-gray-700 whitespace-nowrap">최근 활동</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -107,18 +110,21 @@ export default function StatsTable() {
                 const lastActivity = u.last_usage || u.last_blog || u.last_qa || u.created_at
                 return (
                   <tr key={u.user_id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3 font-semibold text-gray-900">{u.username}</td>
-                    <td className="px-4 py-3 text-gray-800">{u.full_name || '-'}</td>
-                    <td className="px-4 py-3 text-gray-600">{u.email || '-'}</td>
-                    <td className="px-4 py-3 text-right text-gray-800">{formatNumber(u.blog_count || 0)}</td>
-                    <td className="px-4 py-3 text-right text-gray-800">{formatNumber(u.qa_count || 0)}</td>
-                    <td className="px-4 py-3 text-right text-blue-700 font-bold">{formatNumber(u.blog_token_total || 0)}</td>
-                    <td className="px-4 py-3 text-right text-purple-700 font-bold">{formatNumber(u.qa_token_total || 0)}</td>
-                    <td className="px-4 py-3 text-right text-gray-800 font-bold">{formatNumber(u.token_total || 0)}</td>
-                    <td className="px-4 py-3 text-right text-blue-700 font-bold">{formatCost(u.blog_cost_total || 0)}</td>
-                    <td className="px-4 py-3 text-right text-purple-700 font-bold">{formatCost(u.qa_cost_total || 0)}</td>
-                    <td className="px-4 py-3 text-right text-gray-900 font-bold">{formatCost(u.cost_total || 0)}</td>
-                    <td className="px-4 py-3 text-gray-600">{formatDate(lastActivity)}</td>
+                    <td className="px-2 py-3 text-xs font-semibold text-gray-900 whitespace-nowrap">{u.username}</td>
+                    <td className="px-2 py-3 text-xs text-gray-800 whitespace-nowrap">{u.full_name || '-'}</td>
+                    <td className="px-2 py-3 text-xs text-gray-600 whitespace-nowrap">{u.email || '-'}</td>
+                    <td className="px-2 py-3 text-xs text-right text-gray-800 whitespace-nowrap">{formatNumber(u.blog_count || 0)}</td>
+                    <td className="px-2 py-3 text-xs text-right text-gray-800 whitespace-nowrap">{formatNumber(u.qa_count || 0)}</td>
+                    <td className="px-2 py-3 text-xs text-right text-blue-700 font-bold whitespace-nowrap">{formatNumber(u.blog_token_total || 0)}</td>
+                    <td className="px-2 py-3 text-xs text-right text-purple-700 font-bold whitespace-nowrap">{formatNumber(u.qa_token_total || 0)}</td>
+                    <td className="px-2 py-3 text-xs text-right text-gray-800 font-bold whitespace-nowrap">{formatNumber(u.token_total || 0)}</td>
+                    <td className="px-2 py-3 text-xs text-right text-blue-700 font-bold whitespace-nowrap">{formatCost(u.blog_cost_total || 0)}</td>
+                    <td className="px-2 py-3 text-xs text-right text-purple-700 font-bold whitespace-nowrap">{formatCost(u.qa_cost_total || 0)}</td>
+                    <td className="px-2 py-3 text-xs text-right text-green-700 font-bold whitespace-nowrap" title={`서치 ${u.custom_search_count || 0}회`}>
+                      {formatCost(u.custom_search_cost || 0)}
+                    </td>
+                    <td className="px-2 py-3 text-xs text-right text-gray-900 font-bold whitespace-nowrap">{formatCost(u.cost_total || 0)}</td>
+                    <td className="px-2 py-3 text-xs text-gray-600 whitespace-nowrap">{formatDate(lastActivity)}</td>
                   </tr>
                 )
               })}

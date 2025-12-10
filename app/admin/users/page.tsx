@@ -36,7 +36,8 @@ export default async function AdminUsersPage() {
 
   // 상태별 통계
   const activeUsers = allUsers?.filter(u => u.membership_status === 'active') || []
-  const pendingUsers = allUsers?.filter(u => u.membership_status === 'pending' || u.membership_status === 'suspended' || (!u.membership_status && !u.is_approved)) || []
+  // pending과 suspended를 모두 정지로 처리
+  const suspendedUsers = allUsers?.filter(u => u.membership_status === 'pending' || u.membership_status === 'suspended' || (!u.membership_status && !u.is_approved)) || []
   const deletedUsers = allUsers?.filter(u => u.membership_status === 'deleted') || []
 
   // 결제 만료 임박 사용자 (7일 이내)
@@ -102,9 +103,9 @@ export default async function AdminUsersPage() {
               <div className="text-2xl font-bold text-gray-800">{activeUsers.length}</div>
               <div className="text-sm text-gray-500 mt-1">활성 회원</div>
             </div>
-            <div className="bg-white rounded-xl shadow-lg p-4 border-t-4 border-yellow-500">
-              <div className="text-2xl font-bold text-gray-800">{pendingUsers.length}</div>
-              <div className="text-sm text-gray-500 mt-1">대기/유예</div>
+            <div className="bg-white rounded-xl shadow-lg p-4 border-t-4 border-red-500">
+              <div className="text-2xl font-bold text-gray-800">{suspendedUsers.length}</div>
+              <div className="text-sm text-gray-500 mt-1">정지</div>
             </div>
             <div className="bg-white rounded-xl shadow-lg p-4 border-t-4 border-orange-500">
               <div className="text-2xl font-bold text-orange-600">{expiringSoon.length}</div>

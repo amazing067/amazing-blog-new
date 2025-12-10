@@ -39,7 +39,7 @@ export default function LoginPage() {
       
       const { data: profileData, error: profileError } = await supabase
         .from('profiles')
-        .select('email, is_approved, role')
+        .select('email, is_approved, role, membership_status')
         .eq('username', formData.username)
         .single()
 
@@ -65,6 +65,20 @@ export default function LoginPage() {
       // 2. 승인 여부 확인
       if (!profileData.is_approved) {
         setError('관리자 승인 대기 중입니다. 승인 후 로그인이 가능합니다.')
+        setIsSubmitting(false)
+        return
+      }
+
+      // 3. 멤버십 상태 확인 (대기/정지 상태면 로그인 불가)
+      if (profileData.membership_status === 'pending' || profileData.membership_status === 'suspended') {
+        setError('계정이 대기 상태입니다. 관리자에게 문의해주세요.')
+        setIsSubmitting(false)
+        return
+      }
+
+      // 4. 삭제된 계정 확인
+      if (profileData.membership_status === 'deleted') {
+        setError('삭제된 계정입니다. 관리자에게 문의해주세요.')
         setIsSubmitting(false)
         return
       }
@@ -160,6 +174,7 @@ export default function LoginPage() {
                 onChange={handleChange}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1e293b]"
                 placeholder="비밀번호를 입력하세요"
+                autoComplete="current-password"
                 required
               />
             </div>

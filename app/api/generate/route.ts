@@ -282,6 +282,7 @@ export async function POST(request: NextRequest) {
     // 6. Gemini REST API 직접 호출 (Grounding 활성화)
     const apiKey = process.env.GEMINI_API_KEY!
     const tokenUsage: TokenUsage[] = []
+    let customSearchCount = 0 // 커스텀 서치 횟수 추적 (searchInsuranceTopics가 내부적으로 여러 번 호출)
     const groundingSources: Array<{ title: string; url: string; organization?: string }> = []
     
     // REST API 호출 헬퍼 함수 (재시도 및 폴백 로직 포함, Grounding 활성화)
@@ -502,6 +503,14 @@ export async function POST(request: NextRequest) {
       { promptTokens: 0, completionTokens: 0, totalTokens: 0 }
     )
     const costEstimate = estimateCost(tokenUsage)
+    
+    // 커스텀 서치 횟수 추정
+    // searchInsuranceTopics는 내부적으로 여러 번 검색:
+    // - searchTrustedSources: TRUSTED_SITES.length (11개 사이트) = 11회
+    // - searchQueries.length (4개 쿼리) = 4회
+    // 상품별 검색: productQueries.length (4개 쿼리) * searchInsuranceTopics 내부 호출 = 약 60회
+    // 총 약 75회 (추정치)
+    customSearchCount = 75 // 추정치 (실제로는 함수 내부에서 추적해야 정확함)
 
     // 사용량 로그 (실패해도 본문 응답은 진행)
     console.log('📊 토큰 사용량 로깅 시작:', {
@@ -509,7 +518,8 @@ export async function POST(request: NextRequest) {
       type: 'blog',
       totalTokens: totalUsage.totalTokens,
       tokenBreakdown: tokenUsage,
-      costEstimate: costEstimate.totalCost
+      costEstimate: costEstimate.totalCost,
+      customSearchCount: customSearchCount
     })
     
     Promise.resolve(
@@ -526,7 +536,9 @@ export async function POST(request: NextRequest) {
             keywords,
             product,
             tokenBreakdown: tokenUsage, // 모델별 토큰 사용량 (비용 계산용)
-            costEstimate: costEstimate.totalCost, // 총 비용
+            costEstimate: costEstimate.totalCost, // 총 비용 (USD)
+            customSearchCount: customSearchCount, // 커스텀 서치 횟수 (추정치)
+            customSearchCost: customSearchCount * 0.0005, // 커스텀 서치 비용 (USD)
           },
         })
     )

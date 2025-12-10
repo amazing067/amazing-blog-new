@@ -154,6 +154,7 @@ export async function POST(request: NextRequest) {
     // 실제 운영 시에는 이 부분을 제거해야 합니다
     // ============================================
     const tokenUsage: TokenUsage[] = []
+    let customSearchCount = 0 // 커스텀 서치 횟수 추적
     
     // ============================================
     // Q&A 전용 최신 검색 요약 (뉴스/블로그/커뮤니티 포함, 출처 표기 없음)
@@ -172,9 +173,14 @@ export async function POST(request: NextRequest) {
       const collected: SearchResult[] = []
       const seen = new Set<string>()
       
+      console.log('[Q&A 생성] 검색 시작 - 검색 쿼리 개수:', searchQueries.length)
+      
       for (const q of searchQueries) {
         try {
           const res = await searchGoogle(q, 3)
+          customSearchCount++ // 커스텀 서치 횟수 추적 (호출당 1회)
+          console.log('[Q&A 생성] 검색 완료:', q, '- 커스텀 서치 횟수:', customSearchCount)
+          
           if (res.success && res.results.length > 0) {
             for (const r of res.results) {
               if (r.link && !seen.has(r.link)) {
@@ -186,16 +192,20 @@ export async function POST(request: NextRequest) {
           // 호출 간 짧은 대기 (쿼터 보호)
           await new Promise(resolve => setTimeout(resolve, 120))
         } catch (err) {
-          console.warn('⚠️ Q&A 검색 오류:', q, err)
+          console.warn('[Q&A 생성] ⚠️ 검색 오류:', q, err)
+          // 에러가 나도 검색 시도는 했으므로 카운트는 이미 증가됨
         }
       }
       
       searchResultsText = formatSearchResultsForPrompt(collected)
-      console.log('🔍 Q&A 검색 결과 수집:', collected.length, '건')
+      console.log('[Q&A 생성] 🔍 검색 완료 - 수집된 결과:', collected.length, '건, 커스텀 서치 총 횟수:', customSearchCount)
     } catch (searchError) {
-      console.warn('⚠️ Q&A 검색 요약 생성 중 오류:', searchError)
+      console.error('[Q&A 생성] ⚠️ 검색 요약 생성 중 오류:', searchError)
       searchResultsText = ''
+      console.log('[Q&A 생성] 검색 오류 발생했지만 커스텀 서치 횟수:', customSearchCount)
     }
+    
+    console.log('[Q&A 생성] 최종 커스텀 서치 횟수:', customSearchCount)
     
     // API 호출 헬퍼 함수 (재시도 및 폴백 로직 포함, 이미지 지원, 하이브리드 모델 선택)
     // 
@@ -238,10 +248,14 @@ export async function POST(request: NextRequest) {
       
       for (let attempt = 0; attempt < models.length; attempt++) {
         const modelName = models[attempt]
-        const model = genAI.getGenerativeModel({ model: modelName })
+        // 그라운딩 활성화 (Google Search 통합)
+        const model = genAI.getGenerativeModel({ 
+          model: modelName,
+          tools: [{ googleSearch: {} }] as any // Google Grounding 활성화 (타입 체크 우회)
+        })
         
         try {
-          console.log(`모델 시도: ${modelName} (시도 ${attempt + 1}/${models.length})`)
+          console.log(`모델 시도: ${modelName} (시도 ${attempt + 1}/${models.length}, 그라운딩: 활성화)`)
           
           // 이미지가 있으면 이미지와 텍스트를 함께 전송
           let result
@@ -262,6 +276,23 @@ export async function POST(request: NextRequest) {
           
           const response = await result.response
           const text = response.text().trim()
+          
+          // 그라운딩 결과 확인 및 로그 출력
+          const groundingMetadata = response.candidates?.[0]?.groundingMetadata as any
+          if (groundingMetadata) {
+            console.log(`[${modelName}] 🔍 그라운딩 결과:`)
+            console.log(`  - 웹 검색 쿼리:`, groundingMetadata.webSearchQueries || [])
+            const chunks = groundingMetadata.groundingChunks || groundingMetadata.groundingChuncks || []
+            console.log(`  - 검색된 청크 수:`, chunks.length)
+            if (chunks.length > 0) {
+              console.log(`  - 검색된 청크 샘플:`)
+              chunks.slice(0, 3).forEach((chunk: any, idx: number) => {
+                console.log(`    [${idx + 1}] ${chunk.web?.uri || chunk.retrievalMetadata?.uri || '알 수 없음'}`)
+              })
+            }
+          } else {
+            console.log(`[${modelName}] ⚠️ 그라운딩 메타데이터가 없습니다. (그라운딩이 실행되지 않았을 수 있음)`)
+          }
           
           // 토큰 사용량 추출
           const usageMetadata = response.usageMetadata
@@ -616,6 +647,22 @@ export async function POST(request: NextRequest) {
     console.log('📊 총 토큰 사용량:', totalUsage)
 
     // 사용량 로그 (실패해도 응답은 진행)
+    const usageLogMeta = {
+      productName,
+      conversationMode,
+      generateStep: requestedStep,
+      tokenBreakdown: tokenUsage, // 모델별 토큰 사용량 (비용 계산용)
+      costEstimate: costEstimate.totalCost, // 총 비용 (USD)
+      customSearchCount: customSearchCount, // 커스텀 서치 횟수
+      customSearchCost: customSearchCount * 0.0005, // 커스텀 서치 비용 (USD, $0.0005 per search)
+    }
+    
+    console.log('[Q&A 생성] usage_logs 저장할 데이터:', {
+      customSearchCount,
+      customSearchCost: customSearchCount * 0.0005,
+      meta: JSON.stringify(usageLogMeta).substring(0, 300)
+    })
+    
     Promise.resolve(
       supabase
         .from('usage_logs')
@@ -625,19 +672,17 @@ export async function POST(request: NextRequest) {
           prompt_tokens: totalUsage.promptTokens,
           completion_tokens: totalUsage.candidatesTokens,
           total_tokens: totalUsage.totalTokens,
-          meta: {
-            productName,
-            conversationMode,
-            generateStep: requestedStep,
-            tokenBreakdown: tokenUsage, // 모델별 토큰 사용량 (비용 계산용)
-            costEstimate: costEstimate.totalCost, // 총 비용
-          }
+          meta: usageLogMeta
         })
     )
       .then((result: any) => {
-        if (result?.error) console.error('usage_logs insert 실패:', result.error)
+        if (result?.error) {
+          console.error('[Q&A 생성] usage_logs insert 실패:', result.error)
+        } else {
+          console.log('[Q&A 생성] usage_logs insert 성공:', { customSearchCount, customSearchCost: customSearchCount * 0.0005 })
+        }
       })
-      .catch((err) => console.error('usage_logs insert 예외:', err))
+      .catch((err) => console.error('[Q&A 생성] usage_logs insert 예외:', err))
 
     return NextResponse.json({
       success: true,
