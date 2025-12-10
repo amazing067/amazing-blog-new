@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { Shield, LogOut, Sparkles, Copy, Send, FileDown, Clock, BookOpen, TrendingUp, ArrowLeft, UserCheck, History, BarChart3, FileText, Save, MessageSquare, Image as ImageIcon } from 'lucide-react'
+import { Shield, LogOut, Sparkles, Copy, Send, FileDown, Clock, BookOpen, TrendingUp, ArrowLeft, UserCheck, History, BarChart3, FileText, Save, MessageSquare, Image as ImageIcon, Link as LinkIcon } from 'lucide-react'
 import MembershipStatusBanner from './MembershipStatusBanner'
 import { createClient } from '@/lib/supabase/client'
 import type { BlogPost } from '@/types/blog.types'
@@ -443,7 +443,7 @@ const TEMPLATES = [
 export default function BlogGenerator({ profile: initialProfile }: { profile: Profile | null }) {
   const router = useRouter()
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const [activeTab, setActiveTab] = useState<'write' | 'history' | 'stats' | 'approval' | 'qa' | 'qa-history' | 'image-analysis'>('write')
+  const [activeTab, setActiveTab] = useState<'write' | 'history' | 'stats' | 'approval' | 'qa' | 'qa-history' | 'image-analysis' | 'kakao-link'>('write')
   const [profile, setProfile] = useState<Profile | null>(initialProfile)
   const [formData, setFormData] = useState({
     topic: '',
@@ -2284,6 +2284,17 @@ h2 {
               <ImageIcon className="w-4 h-4" />
               🏥 전문 이미지 분석기
             </button>
+            <button
+              onClick={() => setActiveTab('kakao-link')}
+              className={`flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-semibold transition-all ${
+                activeTab === 'kakao-link'
+                  ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md'
+                  : 'text-gray-600 hover:bg-gray-100'
+              }`}
+            >
+              <LinkIcon className="w-4 h-4" />
+              🔗 카톡 유입 추적 링크
+            </button>
           </div>
         </div>
 
@@ -3262,6 +3273,13 @@ h2 {
           <ImageAnalyzer profile={profile} />
         </div>
         )}
+
+        {/* 카톡 유입 추적 링크 생성기 탭 */}
+        {activeTab === 'kakao-link' && (
+        <div className="max-w-5xl mx-auto">
+          <KakaoLinkGenerator profile={profile} />
+        </div>
+        )}
       </main>
     </div>
   )
@@ -3643,7 +3661,7 @@ function QAGenerator({
 }: { 
   profile: Profile | null
   showListOnly?: boolean
-  onTabChange?: (tab: 'write' | 'history' | 'stats' | 'approval' | 'qa' | 'qa-history' | 'image-analysis') => void
+  onTabChange?: (tab: 'write' | 'history' | 'stats' | 'approval' | 'qa' | 'qa-history' | 'image-analysis' | 'kakao-link') => void
 }) {
   const [qaFormData, setQAFormData] = useState({
     productName: '',
@@ -5650,6 +5668,213 @@ function ApprovalGenerator({ profile }: { profile: Profile | null }) {
             </div>
           </div>
         </div>
+      </div>
+    </div>
+  )
+}
+
+// 카톡 유입 추적 링크 생성기 컴포넌트
+function KakaoLinkGenerator({ profile }: { profile: Profile | null }) {
+  const [channelId, setChannelId] = useState<string>('')
+  const [isEditingChannelId, setIsEditingChannelId] = useState(false)
+  const [generatedLink, setGeneratedLink] = useState<string>('')
+  const [uniqueId, setUniqueId] = useState<string>('')
+
+  // localStorage 키 (사용자별)
+  const getStorageKey = () => {
+    if (!profile?.id) return 'kakao_channel_id_default'
+    return `kakao_channel_id_${profile.id}`
+  }
+
+  // 고유번호 생성 함수 (타임스탬프 + 랜덤 문자열)
+  const generateUniqueId = (): string => {
+    const timestamp = Date.now().toString(36) // 타임스탬프를 36진수로 변환
+    const randomStr = Math.random().toString(36).substring(2, 8) // 랜덤 문자열 6자리
+    return `${timestamp}-${randomStr}`.toUpperCase()
+  }
+
+  // 채널 ID 로드
+  useEffect(() => {
+    if (typeof window !== 'undefined' && profile?.id) {
+      const stored = localStorage.getItem(getStorageKey())
+      if (stored) {
+        setChannelId(stored)
+      } else {
+        setIsEditingChannelId(true) // 저장된 ID가 없으면 편집 모드로
+      }
+    }
+  }, [profile?.id])
+
+  // 채널 ID 저장
+  const handleSaveChannelId = () => {
+    if (!channelId.trim()) {
+      alert('채널 ID를 입력해주세요')
+      return
+    }
+
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(getStorageKey(), channelId.trim())
+      setIsEditingChannelId(false)
+      alert('채널 ID가 저장되었습니다')
+    }
+  }
+
+  // 채널 ID 수정
+  const handleEditChannelId = () => {
+    setIsEditingChannelId(true)
+  }
+
+  // 채널 ID에서 순수 ID만 추출 (URL이 포함되어 있을 경우 처리)
+  const extractChannelId = (input: string): string => {
+    const trimmed = input.trim()
+    
+    // 전체 URL이 입력된 경우
+    if (trimmed.includes('pf.kakao.com')) {
+      // https://pf.kakao.com/_JxmxaJn 또는 https://pf.kakao.com/_JxmxaJn/chat 형식
+      const match = trimmed.match(/pf\.kakao\.com\/_([^\/\?]+)/)
+      if (match && match[1]) {
+        return match[1]
+      }
+    }
+    
+    // 이미 순수 ID만 입력된 경우
+    return trimmed
+  }
+
+  // 링크 생성 (고유번호 자동 생성)
+  const handleGenerateLink = () => {
+    if (!channelId.trim()) {
+      alert('먼저 채널 ID를 입력해주세요')
+      setIsEditingChannelId(true)
+      return
+    }
+
+    // 채널 ID에서 순수 ID만 추출
+    const pureChannelId = extractChannelId(channelId)
+    
+    // 고유번호 자동 생성
+    const newUniqueId = generateUniqueId()
+    setUniqueId(newUniqueId)
+
+    // 카톡 채널 링크 생성 (고유번호를 쿼리 파라미터로 포함, 채팅창으로 바로 연결)
+    // 카톡 채널 링크 형식: https://pf.kakao.com/_[채널ID]/chat?ref=[고유번호]
+    const kakaoLink = `https://pf.kakao.com/_${pureChannelId}/chat?ref=${newUniqueId}`
+    
+    setGeneratedLink(kakaoLink)
+  }
+
+  // 링크 복사
+  const handleCopyLink = () => {
+    if (!generatedLink) {
+      alert('먼저 링크를 생성해주세요')
+      return
+    }
+
+    navigator.clipboard.writeText(generatedLink)
+    alert('링크가 클립보드에 복사되었습니다!')
+  }
+
+  return (
+    <div className="bg-white rounded-xl shadow-lg p-8">
+      <h2 className="text-2xl font-bold text-gray-800 mb-6 flex items-center gap-3">
+        <LinkIcon className="w-7 h-7 text-blue-600" />
+        카톡 유입 추적 링크 생성기
+      </h2>
+
+      <p className="text-gray-600 mb-6">
+        고유번호가 자동으로 포함된 카톡 채널 링크를 생성합니다. 네이버에서 이미지에 링크를 붙일 때 사용하세요.
+      </p>
+
+      {/* 채널 ID 설정 */}
+      <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-lg p-6 mb-6">
+        <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
+          <LinkIcon className="w-5 h-5 text-blue-600" />
+          카톡 채널 ID 설정
+        </h3>
+
+        {isEditingChannelId ? (
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-2">
+                채널 ID 또는 채널 링크
+              </label>
+              <input
+                type="text"
+                value={channelId}
+                onChange={(e) => setChannelId(e.target.value)}
+                placeholder="JxmxaJn 또는 https://pf.kakao.com/_JxmxaJn"
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                채널 ID만 입력하거나 전체 링크를 입력해도 자동으로 처리됩니다 (예: JxmxaJn 또는 https://pf.kakao.com/_JxmxaJn)
+              </p>
+            </div>
+            <button
+              onClick={handleSaveChannelId}
+              className="px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-semibold rounded-lg hover:shadow-lg transition-all"
+            >
+              💾 저장
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div className="bg-white rounded-lg p-4 border border-gray-200">
+              <p className="text-sm text-gray-600 mb-1">현재 채널 ID</p>
+              <p className="text-lg font-bold text-gray-800">{channelId || '설정되지 않음'}</p>
+            </div>
+            <button
+              onClick={handleEditChannelId}
+              className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors text-sm font-semibold"
+            >
+              ✏️ 수정
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* 링크 생성 및 복사 */}
+      <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-lg p-6">
+        <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
+          <LinkIcon className="w-5 h-5 text-green-600" />
+          추적 링크 생성
+        </h3>
+
+        <button
+          onClick={handleGenerateLink}
+          disabled={!channelId}
+          className="w-full mb-4 px-6 py-3 bg-gradient-to-r from-green-600 to-emerald-600 text-white font-semibold rounded-lg hover:shadow-lg transition-all disabled:from-gray-300 disabled:to-gray-400 disabled:cursor-not-allowed"
+        >
+          🔗 링크 생성하기
+        </button>
+
+        {generatedLink && (
+          <div className="space-y-4">
+            <div className="bg-white rounded-lg p-4 border-2 border-green-200">
+              <p className="text-sm text-gray-600 mb-2">생성된 링크</p>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={generatedLink}
+                  readOnly
+                  className="flex-1 px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-sm"
+                />
+                <button
+                  onClick={handleCopyLink}
+                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm font-semibold flex items-center gap-2"
+                >
+                  <Copy className="w-4 h-4" />
+                  복사
+                </button>
+              </div>
+            </div>
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <p className="text-sm text-blue-800">
+                💡 <strong>사용 방법:</strong> 생성된 링크를 복사하여 네이버에서 이미지에 링크를 붙이세요. 
+                매번 생성할 때마다 새로운 고유번호가 자동으로 포함되어 겹치지 않습니다.
+              </p>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )

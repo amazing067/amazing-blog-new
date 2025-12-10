@@ -24,6 +24,7 @@ export interface QAPromptData {
     coverages?: string[]
     specialClauses?: string[]
   }
+  searchResultsText?: string // 최신 검색 결과 요약 (불릿 문자열)
 }
 
 export interface ConversationMessage {
@@ -47,7 +48,7 @@ export interface ConversationContext {
  * Step 1: 일반인 질문 생성 프롬프트
  */
 export function generateQuestionPrompt(data: QAPromptData): string {
-  const { productName, targetPersona, worryPoint, feelingTone, customerStyle, designSheetImage, designSheetAnalysis } = data
+  const { productName, targetPersona, worryPoint, feelingTone, customerStyle, designSheetImage, designSheetAnalysis, searchResultsText } = data
   
   // 고객 스타일 톤을 함수 최상단에서 미리 계산
   const customerStyleTone = (() => {
@@ -208,6 +209,12 @@ export function generateQuestionPrompt(data: QAPromptData): string {
 - 보험에 대한 지식이 거의 없는 일반인
 - 설계서를 받았지만 내용을 제대로 이해하지 못함
 - 다른 사람들의 조언을 구하고 싶어함
+${searchResultsText ? `
+[최근 검색 요약]
+- 아래 검색 요약을 근거로 최신/구체 정보를 자연스럽게 반영하세요
+- 링크나 출처를 본문에 남기지 말고 내용만 녹여서 전달하세요
+${searchResultsText}
+` : ''}
 
 [핵심 지침]
 
@@ -486,7 +493,7 @@ ${specialClauseInfo ? `- 설계서 특약: ${specialClauseInfo}` : ''}
  * Step 2: 전문가 답변 생성 프롬프트
  */
 export function generateAnswerPrompt(data: QAPromptData, questionTitle: string, questionContent: string): string {
-  const { productName, sellingPoint, answerTone, feelingTone, targetPersona, designSheetAnalysis, customerStyle } = data
+  const { productName, sellingPoint, answerTone, feelingTone, targetPersona, designSheetAnalysis, customerStyle, searchResultsText } = data
   
   // 고객 스타일 톤을 함수 최상단에서 미리 계산 (generateQuestionPrompt와 동일한 로직)
   const customerStyleTone = (() => {
@@ -532,6 +539,12 @@ export function generateAnswerPrompt(data: QAPromptData, questionTitle: string, 
 - 보험카페에서 ${productName}에 대한 질문이 올라왔고, 많은 사람들이 관심을 보이고 있습니다
 - 고객들은 "아 이 상품에 리뷰가 이렇게 달렸구나", "사람들이 관심이 있구나"라고 느끼고 있습니다
 - 당신의 목표: 고객의 궁금증을 해결하고 "나도 연락해볼까?" 하고 싶게 만들어서 보험 가입까지 이어지게 하는 것
+${searchResultsText ? `
+[최근 검색 요약]
+- 아래 검색 요약을 근거로 최신/구체 정보를 자연스럽게 반영하세요
+- 링크나 출처를 본문에 남기지 말고 내용만 녹여서 전달하세요
+${searchResultsText}
+` : ''}
 
 [역할 설정]
 - 15년 이상의 경력을 가진 보험 전문가 (약관 해석, 상품 분석, 시장 동향에 정통)
@@ -544,6 +557,13 @@ export function generateAnswerPrompt(data: QAPromptData, questionTitle: string, 
 - **매우 중요**: ${productName}에 대한 디테일한 질문에 전문가스러운 디테일한 답변을 제공하여 고객이 "아 정말 이런 걸 받을 수 있구나"라고 느끼게 하세요
 
 [핵심 지침]
+
+0. **세일즈 모드 (가장 중요!)**:
+   - 존댓말을 유지하되 직설적이고 강한 CTA로 설득하세요
+   - 반박·중립 없이 우리 상품 가입을 자연스럽게 유도하세요
+   - 설계서 정보와 최신 검색 정보(뉴스·블로그·커뮤니티·카페 포함)를 근거로 장점/혜택을 구체적 숫자와 예시로 제시하세요
+   - 출처나 링크를 본문에 남기지 않습니다 (근거는 내용에만 녹여서 전달)
+   - 금액·담보·특약 등 수치를 숨기지 말고 모두 공개해도 됩니다
 
 1. **고객 호명 및 공감하기 (매우 중요!)**:
    - **고객 호명 필수**: 질문 제목이나 본문에서 고객의 닉네임을 추출하거나, 자연스러운 호명 사용
@@ -591,7 +611,7 @@ export function generateAnswerPrompt(data: QAPromptData, questionTitle: string, 
      * "누적을 보기 때문에 오픈카톡에 정보 남겨주시면 연락 드리겠습니다^^" (이유 설명)
      * "일반 암진단비에 체증형을 넣으면 보험료가 크게 올라서 부담이 됩니다 다만 유사암진단비는 보험료가 그리 높지 않아서 체증형으로 구성하시면 비용 대비 효율이 좋아요" (이유와 대안 제시)
      * "항암치료의 경우 대부분이 통원치료인데 1회당 치료비는 300~500만원이고 실비 보장 20만원 외에는 온전히 환자 부담이 됩니다 그래서 암주요치료비 특약이 중요한 거예요" (상황 설명)
-   - **최신 정보 활용**: Google Grounding을 통해 최신 ${productName} 관련 정보, 경쟁사 보험료, 신상품 출시 정보 등을 자연스럽게 반영
+   - **최신 정보 활용**: Google Grounding을 통해 최신 ${productName} 관련 정보, 경쟁사 보험료, 신상품 출시 정보, 커뮤니티/카페 후기를 자연스럽게 반영 (출처 표기는 하지 않음)
    - 질문자의 나이/성별(${targetPersona})에 맞는 보험료 데이터를 참고하여 답변
    - **⚠️ 대화가 길어지지 않도록 간결하게**: 핵심만 전달하고 구매로 이어지도록
    - **⚠️ 마침표(.) 사용 절대 금지**: 모든 문장 끝에 마침표를 사용하지 마세요
@@ -922,7 +942,7 @@ export function generateConversationThreadPrompt(
   data: QAPromptData,
   context: ConversationContext
 ): string {
-  const { productName, targetPersona, worryPoint, sellingPoint, feelingTone, answerTone, customerStyle, designSheetAnalysis } = data
+  const { productName, targetPersona, worryPoint, sellingPoint, feelingTone, answerTone, customerStyle, designSheetAnalysis, searchResultsText } = data
   const { initialQuestion, firstAnswer, conversationHistory, totalSteps, currentStep } = context
 
   // 나이/성별 추출 (기존 로직 재사용)
@@ -1099,37 +1119,42 @@ ${currentStyle.examples.map(ex => `     * "${ex}"`).join('\n')}
 
 8. **다양성 확보 (매우 중요!)**:
    - **매번 생성할 때마다 다른 패턴, 다른 구조, 다른 표현을 사용하세요**
-   - **질문 시작 패턴 다양화** (매번 다르게 선택, 총 20가지 패턴 - 반복적 표현 제거):
-     * 패턴 A: "그렇다면..."
-     * 패턴 B: "추가로 궁금한 게 있는데요..."
-     * 패턴 C: "실제로는..."
-     * 패턴 D: "혹시..."
-     * 패턴 E: "그런데..."
-     * 패턴 F: "그리고..."
-     * 패턴 G: "또한..."
-     * 패턴 H: "그리고요..."
-     * 패턴 I: "그런데 한 가지 더..."
-     * 패턴 J: "추가로 질문이 있는데요..."
-     * 패턴 K: "그리고 궁금한 게 있어요..."
-     * 패턴 L: "또 궁금한 게 있는데요..."
-     * 패턴 M: "그리고요 혹시..."
-     * 패턴 N: "그런데 추가로..."
-     * 패턴 O: "그리고 한 가지 더..."
-     * 패턴 P: "또한 궁금한 게 있어요..."
-     * 패턴 Q: "그리고 실제로는..."
-     * 패턴 R: "그런데 실제로는..."
-     * 패턴 S: "그리고 혹시..."
-     * 패턴 T: "또한 실제로는..."
+   - **질문 시작 패턴 다양화 (매우 중요!)**:
+     * **⚠️ 전환 문구 사용 최소화**: "그런데", "혹시", "또 궁금한 게 있는데요", "추가로 질문이 있는데요" 같은 전환 문구는 가끔만 사용하세요 (10% 이하)
+     * **대부분은 바로 질문부터 시작**: 90% 이상은 전환 문구 없이 바로 구체적 질문부터 시작하세요
+     * **바로 질문 시작 패턴 (우선 사용, 90% 이상)**:
+       - 패턴 A: "[구체적 담보명] [금액] 적정한가요?"
+       - 패턴 B: "[담보명]이 [조건]에도 적용되나요?"
+       - 패턴 C: "[담보명] [금액]보다 더 추가 가입 가능한가요?"
+       - 패턴 D: "[담보명] [기간] 보장되는지 궁금해요"
+       - 패턴 E: "[담보명] 특약 [조건] 맞나요?"
+       - 패턴 F: "[담보명] [금액]으로 가입했는데 적정한가요?"
+       - 패턴 G: "[담보명]이 [다른담보]에도 포함되나요?"
+       - 패턴 H: "[담보명] [기간]마다 보장되는지 확인하고 싶어요"
+       - 패턴 I: "[담보명] [금액]보다 높게 가입할 수 있나요?"
+       - 패턴 J: "[담보명] [조건] 제한이 있는지 궁금해요"
+       - 패턴 K: "[담보명] [금액]이 ${age}대 ${gender === '남' ? '남성' : '여성'}에게 충분한가요?"
+       - 패턴 L: "[담보명] [조건]에도 보장되나요?"
+       - 패턴 M: "[담보명] [금액]으로 구성했는데 괜찮은가요?"
+       - 패턴 N: "[담보명] [기간] 보장 조건이 어떻게 되나요?"
+       - 패턴 O: "[담보명] [금액]보다 더 필요할까요?"
+     * **전환 문구 사용 패턴 (가끔만 사용, 10% 이하)**:
+       - 패턴 P: "그렇다면 [구체적 질문]"
+       - 패턴 Q: "실제로는 [구체적 질문]"
+       - 패턴 R: "그리고 [구체적 질문]"
+     * **⚠️ 절대 반복 금지**: "그런데", "혹시", "또 궁금한 게 있는데요", "추가로 질문이 있는데요", "그리고 궁금한 게 있어요" 같은 표현은 절대 반복하지 마세요
      * **⚠️ 반복적 표현 제거**: "아 그렇군요", "아 알겠습니다", "이해했습니다" 같은 표현은 절대 사용하지 마세요
-   - **질문 구조 다양화** (총 8가지 구조):
-     * 구조 1: 전환 문구 → 구체적 질문 1개
-     * 구조 2: 전환 문구 → 구체적 질문 2개
-     * 구조 3: 구체적 질문 1개 → 추가 질문
-     * 구조 4: 전환 문구 → 구체적 질문 → 조건 질문
-     * 구조 5: 구체적 질문 1개 → 전환 문구 → 추가 질문
-     * 구조 6: 전환 문구 → 조건 질문 → 구체적 질문
-     * 구조 7: 구체적 질문 2개 → 전환 문구 → 조건 질문
-     * 구조 8: 전환 문구 → 구체적 질문 1개 → 비교 질문
+   - **질문 구조 다양화 (매우 중요!)**:
+     * **⚠️ 전환 문구 없는 구조 우선 사용 (90% 이상)**:
+       - 구조 1: 구체적 질문 1개 (가장 많이 사용)
+       - 구조 2: 구체적 질문 2개
+       - 구조 3: 구체적 질문 1개 → 추가 질문
+       - 구조 4: 구체적 질문 → 조건 질문
+       - 구조 5: 구체적 질문 2개 → 조건 질문
+       - 구조 6: 구체적 질문 1개 → 비교 질문
+     * **전환 문구 있는 구조 (가끔만 사용, 10% 이하)**:
+       - 구조 7: 전환 문구 → 구체적 질문 1개 (가끔만)
+       - 구조 8: 전환 문구 → 구체적 질문 2개 (매우 가끔)
    - **표현 방식 다양화**:
      * "궁금해요" / "궁금합니다" / "알고 싶어요" / "확인하고 싶어요" / "모르겠어요"
      * "가능한지" / "되는지" / "포함되는지" / "적용되는지"
@@ -1211,6 +1236,15 @@ ${previousMessages ? `이전 댓글들:\n${previousMessages}` : ''}
    - 예: "앞서 말씀드린 [내용]과 관련해서..."
 
 4. **${productName}에 대한 전문적이고 디테일한 답변 (매우 중요!)**:
+   ${searchResultsText ? `
+   - **최신 검색 정보 활용 (매우 중요!)**:
+     * 아래 최신 검색 결과를 참고하여 정확하고 확실한 정보를 제공하세요
+     * 검색 결과의 구체적 금액, 보험료, 보장 내용, 경쟁사 비교 정보를 자연스럽게 활용하세요
+     * 출처는 언급하지 말고 내용만 활용하여 답변에 녹여내세요
+     
+     [최신 검색 결과]
+${searchResultsText}
+   ` : ''}
    - **${productName}의 구체적 보장 내용 상세 설명**: 고객이 "아 정말 이런 걸 받을 수 있구나"라고 느끼도록 구체적 금액, 조건, 특약명을 명확히
      * 예: "${productName}의 [구체적 특약명]은 [구체적 금액/조건]을 보장해요"
      * 예: "특약 구성이 탄탄한 편입니다 특히 [구체적 특약명]이 있어서 [구체적 보장 내용]을 받을 수 있어요"
@@ -1219,7 +1253,7 @@ ${previousMessages ? `이전 댓글들:\n${previousMessages}` : ''}
    - **리스크 및 제한사항 명확히 설명**: 보장하지 못하는 부분이나 제한사항을 명확히 설명하되, 부정적이지 않게
      * 예: "다만 이 특약은 면책기간이 90일이어서 참고하시면 좋을 것 같아요"
      * 예: "주의할 점은 비급여 치료비는 별도 특약으로 추가 가입이 가능해요"
-   - **최신 정보 활용**: Google Grounding을 통해 최신 ${productName} 관련 정보, 경쟁사 보험료, 신상품 출시 정보 등을 자연스럽게 반영
+   - **최신 정보 활용**: ${searchResultsText ? '위 검색 결과를 참고하여' : 'Google Grounding을 통해'} 최신 ${productName} 관련 정보, 경쟁사 보험료, 신상품 출시 정보 등을 자연스럽게 반영
    - **구체적 금액/조건 명시 필수**: 모호한 표현 대신 구체적 숫자 사용 - 고객이 "아 정말 이런 걸 받을 수 있구나"라고 느끼도록
      * ❌ "적정합니다" → ✅ "월 1만원으로 200만원 보장받을 수 있어 합리적입니다"
      * ❌ "보장됩니다" → ✅ "일반 골절시 50만원, 10대 골절에 해당되는 경우 250만원 보장됩니다^^"

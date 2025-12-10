@@ -131,10 +131,23 @@ export default function Home() {
                 backgroundClip: 'text',
                 animation: 'shimmer 3s ease-in-out infinite'
               }}
-            >김성민</span>
+            >김성민</span> | 문의: 290본부 본부장 양창대
+          </p>
+          <p className="text-sm text-gray-600 mb-2">
+            <span 
+              className="font-bold"
+              style={{
+                background: 'linear-gradient(90deg, #60a5fa, #a78bfa, #c084fc, #a78bfa, #60a5fa)',
+                backgroundSize: '200% auto',
+                WebkitBackgroundClip: 'text',
+                WebkitTextFillColor: 'transparent',
+                backgroundClip: 'text',
+                animation: 'shimmer 3s ease-in-out infinite'
+              }}
+            >프라임에셋 광진2지점</span>
           </p>
           <p className="text-sm text-gray-600">
-            문의: 290본부 본부장 양창대
+            서울 광진구 천호대로 561, 영창빌딩 8층 프라임에셋 어메이징사업부
           </p>
         </div>
       </footer>

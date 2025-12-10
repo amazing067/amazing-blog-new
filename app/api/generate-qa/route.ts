@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { GoogleGenerativeAI } from '@google/generative-ai'
 import { generateQuestionPrompt, generateAnswerPrompt, generateConversationThreadPrompt, ConversationMessage } from '@/lib/prompts/qa-prompt'
 import { createClient } from '@/lib/supabase/server'
+import { searchGoogle, SearchResult } from '@/lib/google-search'
 
 type TokenUsage = {
   model: string
@@ -78,6 +79,19 @@ const estimateCost = (usages: TokenUsage[]): CostEstimate => {
   }
 }
 
+// 검색 결과를 프롬프트용 불릿 문자열로 변환 (출처 표기 없이 내용만)
+const formatSearchResultsForPrompt = (results: SearchResult[]): string => {
+  if (!results || results.length === 0) return ''
+  return results
+    .slice(0, 5)
+    .map((r, idx) => {
+      const title = (r.title || '').replace(/\s+/g, ' ').trim().slice(0, 80)
+      const snippet = (r.snippet || '').replace(/\s+/g, ' ').trim().slice(0, 200)
+      return `- (${idx + 1}) ${title} — ${snippet}`
+    })
+    .join('\n')
+}
+
 export async function POST(request: NextRequest) {
   try {
     const supabase = await createClient()
@@ -140,6 +154,48 @@ export async function POST(request: NextRequest) {
     // 실제 운영 시에는 이 부분을 제거해야 합니다
     // ============================================
     const tokenUsage: TokenUsage[] = []
+    
+    // ============================================
+    // Q&A 전용 최신 검색 요약 (뉴스/블로그/커뮤니티 포함, 출처 표기 없음)
+    // ============================================
+    let searchResultsText = ''
+    try {
+      const searchQueries = Array.from(new Set([
+        `${productName} 후기`,
+        `${productName} 특약`,
+        `${productName} 장점`,
+        `${productName} ${targetPersona}`,
+        `${productName} ${worryPoint}`,
+        `${productName} ${sellingPoint}`
+      ]))
+      
+      const collected: SearchResult[] = []
+      const seen = new Set<string>()
+      
+      for (const q of searchQueries) {
+        try {
+          const res = await searchGoogle(q, 3)
+          if (res.success && res.results.length > 0) {
+            for (const r of res.results) {
+              if (r.link && !seen.has(r.link)) {
+                seen.add(r.link)
+                collected.push(r)
+              }
+            }
+          }
+          // 호출 간 짧은 대기 (쿼터 보호)
+          await new Promise(resolve => setTimeout(resolve, 120))
+        } catch (err) {
+          console.warn('⚠️ Q&A 검색 오류:', q, err)
+        }
+      }
+      
+      searchResultsText = formatSearchResultsForPrompt(collected)
+      console.log('🔍 Q&A 검색 결과 수집:', collected.length, '건')
+    } catch (searchError) {
+      console.warn('⚠️ Q&A 검색 요약 생성 중 오류:', searchError)
+      searchResultsText = ''
+    }
     
     // API 호출 헬퍼 함수 (재시도 및 폴백 로직 포함, 이미지 지원, 하이브리드 모델 선택)
     // 
@@ -294,7 +350,8 @@ export async function POST(request: NextRequest) {
         answerTone: answerTone || 'friendly',
         customerStyle: customerStyle || 'curious',
         designSheetImage,
-        designSheetAnalysis
+        designSheetAnalysis,
+        searchResultsText
       })
 
       // 하이브리드: 질문 생성은 Flash 사용 (비용 절감)
@@ -351,7 +408,8 @@ export async function POST(request: NextRequest) {
           answerTone: answerTone || 'friendly',
           customerStyle: customerStyle || 'curious',
           designSheetImage,
-          designSheetAnalysis
+          designSheetAnalysis,
+          searchResultsText
         },
         finalQuestionTitle,
         finalQuestionContent
@@ -507,7 +565,8 @@ export async function POST(request: NextRequest) {
             answerTone: answerTone || 'friendly',
             customerStyle: customerStyle || 'curious',
             designSheetImage,
-            designSheetAnalysis
+            designSheetAnalysis,
+            searchResultsText: searchResultsText || undefined // 검색 결과 전달 (설계사 댓글에서만 활용)
           },
           {
             initialQuestion: {
