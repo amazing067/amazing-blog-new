@@ -3676,6 +3676,7 @@ function QAGenerator({
   
   const [isGenerating, setIsGenerating] = useState(false)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
+  const [isDraggingOverDesignSheet, setIsDraggingOverDesignSheet] = useState(false)
   const [progress, setProgress] = useState(0)
   const [generatedQuestion, setGeneratedQuestion] = useState<{ title: string; content: string } | null>(null)
   const [generatedAnswer, setGeneratedAnswer] = useState<string | null>(null)
@@ -3928,10 +3929,7 @@ function QAGenerator({
     fileInputRef.current?.click()
   }
 
-  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-
+  const processDesignSheetImage = async (file: File) => {
     const reader = new FileReader()
     reader.onloadend = async () => {
       const base64String = reader.result as string
@@ -3943,6 +3941,12 @@ function QAGenerator({
       }, 500)
     }
     reader.readAsDataURL(file)
+  }
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    await processDesignSheetImage(file)
   }
 
   // 설계서 이미지 업로드 시 자동으로 분석만 수행하는 함수
@@ -4043,6 +4047,41 @@ function QAGenerator({
     }
 
     await handleAnalyzeDesignSheetOnly()
+  }
+
+  // 드래그 앤 드롭 핸들러
+  const handleDesignSheetDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (!isGenerating && !isAnalyzing) {
+      setIsDraggingOverDesignSheet(true)
+    }
+  }
+
+  const handleDesignSheetDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDraggingOverDesignSheet(false)
+  }
+
+  const handleDesignSheetDrop = async (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDraggingOverDesignSheet(false)
+    
+    if (isGenerating || isAnalyzing) return
+    
+    const files = Array.from(e.dataTransfer.files)
+    const imageFiles = files.filter(file => file.type.startsWith('image/'))
+    
+    if (imageFiles.length === 0) {
+      alert('이미지 파일만 업로드할 수 있습니다.')
+      return
+    }
+    
+    // 첫 번째 이미지 파일 처리
+    const file = imageFiles[0]
+    await processDesignSheetImage(file)
   }
 
   const handleRandomGenerate = async () => {
@@ -4733,39 +4772,66 @@ function QAGenerator({
               <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">
                 설계서 이미지 (선택)
               </label>
-              <div className="flex gap-2">
+              
+              {/* 드래그 앤 드롭 영역 */}
+              <div
+                onDragOver={handleDesignSheetDragOver}
+                onDragLeave={handleDesignSheetDragLeave}
+                onDrop={handleDesignSheetDrop}
+                className={`border-2 border-dashed rounded-lg p-4 transition-all ${
+                  isDraggingOverDesignSheet
+                    ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30'
+                    : qaFormData.designSheetImage
+                    ? 'border-green-300 bg-green-50 dark:bg-green-900/30'
+                    : 'border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-800 hover:border-gray-400 dark:hover:border-gray-500'
+                } ${isGenerating || isAnalyzing ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+              >
                 <input
+                  ref={fileInputRef}
                   type="file"
                   accept="image/*"
                   onChange={handleImageUpload}
-                  disabled={isAnalyzing || isGenerating}
-                  className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white disabled:bg-gray-100 dark:disabled:bg-gray-700 disabled:cursor-not-allowed file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-50 dark:file:bg-blue-900/30 file:text-blue-700 dark:file:text-blue-300 hover:file:bg-blue-100 dark:hover:file:bg-blue-900/50"
+                  disabled={isGenerating || isAnalyzing}
+                  className="hidden"
                 />
-                {qaFormData.designSheetImage && (
-                  <button
-                    onClick={handleAnalyzeDesignSheet}
-                    disabled={isAnalyzing || isGenerating}
-                    className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors text-sm font-semibold whitespace-nowrap"
-                  >
-                    {isAnalyzing ? (
-                      <>
-                        <Clock className="w-4 h-4 inline mr-1 animate-spin" />
-                        분석중...
-                      </>
-                    ) : (
-                      '📄 분석만'
-                    )}
-                  </button>
-                )}
+                <div
+                  onClick={() => !isGenerating && !isAnalyzing && fileInputRef.current?.click()}
+                  className="text-center"
+                >
+                  {qaFormData.designSheetImage ? (
+                    <div className="space-y-2">
+                      <div className="text-green-600 dark:text-green-400 font-semibold">✓ 설계서 이미지 첨부됨</div>
+                      <img 
+                        src={qaFormData.designSheetImage} 
+                        alt="설계서 미리보기" 
+                        className="max-w-full max-h-32 mx-auto rounded border border-gray-300 dark:border-gray-600"
+                      />
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <div className="text-4xl">📎</div>
+                      <div className="text-sm text-gray-600 dark:text-gray-300">
+                        {isDraggingOverDesignSheet 
+                          ? '여기에 놓으세요' 
+                          : '파일을 드래그하거나 클릭하여 업로드'}
+                      </div>
+                      <div className="text-xs text-gray-500 dark:text-gray-400">
+                        이미지 파일만 업로드 가능
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
-              {qaFormData.designSheetImage && !isAnalyzing && !isGenerating && (
-                <p className="text-xs text-green-600 mt-1">
-                  ✓ 이미지가 첨부되었습니다. 이미지 업로드 시 자동으로 분석 및 Q&A가 생성됩니다.
+              
+              {isAnalyzing && (
+                <p className="text-base font-semibold text-blue-600 dark:text-blue-400 mt-2 flex items-center gap-2">
+                  <Clock className="w-5 h-5 animate-spin" />
+                  설계서 분석 중...
                 </p>
               )}
-              {(isAnalyzing || isGenerating) && (
-                <p className="text-xs text-blue-600 mt-1">
-                  🔄 설계서 분석 및 Q&A 생성 중...
+              {qaFormData.designSheetImage && !isAnalyzing && !isGenerating && (
+                <p className="text-xs text-green-600 dark:text-green-400 mt-1">
+                  ✓ 이미지가 첨부되었습니다. 이미지 업로드 시 자동으로 분석됩니다.
                 </p>
               )}
             </div>
@@ -5002,7 +5068,7 @@ function QAGenerator({
           )}
 
         
-        {/* 대화형 스레드 (개선된 타임라인 스타일) */}
+        {/* 대화형 스레드 (카카오톡/슬랙 스타일) */}
         {conversationThread.length > 0 && (
           <div className="bg-white rounded-xl shadow-lg p-6 mt-6 border border-gray-200">
             <div className="flex justify-between items-center mb-6 pb-4 border-b border-gray-200">
@@ -5025,79 +5091,113 @@ function QAGenerator({
               </button>
             </div>
             
-            {/* 타임라인 스타일 컨테이너 */}
-            <div className="relative max-h-[700px] overflow-y-auto">
-              {/* 중앙 타임라인 */}
-              <div className="absolute left-1/2 transform -translate-x-1/2 w-0.5 h-full bg-gradient-to-b from-blue-200 via-purple-200 to-indigo-200"></div>
-              
-              <div className="space-y-6 py-4">
+            {/* 카카오톡/슬랙 스타일 채팅 컨테이너 (시각적 구분 강화) */}
+            <div className="bg-gradient-to-b from-gray-50 to-gray-100 rounded-lg p-6 max-h-[700px] overflow-y-auto">
+              <div className="space-y-4">
                 {conversationThread.map((message, idx) => {
                   const isCustomer = message.role === 'customer'
-                  const isLast = idx === conversationThread.length - 1
+                  const prevMessage = idx > 0 ? conversationThread[idx - 1] : null
+                  const nextMessage = idx < conversationThread.length - 1 ? conversationThread[idx + 1] : null
+                  const showAvatar = !prevMessage || prevMessage.role !== message.role || idx === 0
+                  const isGrouped = nextMessage && nextMessage.role === message.role
+                  
                   return (
                     <div
                       key={idx}
-                      className={`relative flex items-start ${isCustomer ? 'justify-start' : 'justify-end'}`}
+                      className={`flex items-start gap-3 ${isCustomer ? 'justify-start' : 'justify-end'} ${
+                        showAvatar ? 'mt-2' : 'mt-1'
+                      }`}
                     >
-                      {/* 타임라인 점 */}
-                      <div className={`absolute left-1/2 transform -translate-x-1/2 w-4 h-4 rounded-full border-2 border-white shadow-md z-10 ${
-                        isCustomer
-                          ? 'bg-blue-500'
-                          : 'bg-indigo-500'
-                      }`}></div>
-                      
-                      {/* 메시지 카드 */}
-                      <div className={`w-[48%] ${isCustomer ? 'pr-8' : 'pl-8'}`}>
-                        <div className={`group relative bg-white rounded-xl shadow-md hover:shadow-lg transition-all border-2 ${
-                          isCustomer
-                            ? 'border-blue-100 hover:border-blue-200'
-                            : 'border-indigo-100 hover:border-indigo-200'
-                        }`}>
-                          {/* 헤더 */}
-                          <div className={`flex items-center justify-between px-4 py-3 border-b ${
-                            isCustomer
-                              ? 'bg-blue-50 border-blue-100'
-                              : 'bg-indigo-50 border-indigo-100'
-                          }`}>
-                            <div className="flex items-center gap-2">
-                              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold shadow-sm ${
-                                isCustomer
-                                  ? 'bg-blue-500 text-white'
-                                  : 'bg-indigo-500 text-white'
-                              }`}>
-                                {isCustomer ? '👤' : '👨‍💼'}
-                              </div>
-                              <div>
-                                <div className={`text-sm font-semibold ${
-                                  isCustomer ? 'text-blue-700' : 'text-indigo-700'
-                                }`}>
-                                  {isCustomer ? '고객' : '설계사'}
-                                </div>
-                                <div className="text-xs text-gray-500">
-                                  댓글 #{Math.ceil((message.step + 1) / 2)}
-                                </div>
-                              </div>
+                      {/* 왼쪽: 고객 아바타 (왼쪽에만) */}
+                      {isCustomer && (
+                        <div className={`flex-shrink-0 ${showAvatar ? 'block' : 'invisible'}`}>
+                          <div className="relative">
+                            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center text-white text-base font-bold shadow-lg ring-2 ring-blue-200 ring-offset-2">
+                              👤
                             </div>
-                            <button
-                              onClick={() => {
-                                navigator.clipboard.writeText(message.content)
-                                alert('댓글이 클립보드에 복사되었습니다!')
-                              }}
-                              className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 hover:bg-white rounded-md"
-                              title="복사"
-                            >
-                              <Copy className="w-4 h-4 text-gray-500" />
-                            </button>
+                            {showAvatar && (
+                              <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-green-400 rounded-full border-2 border-white shadow-sm"></div>
+                            )}
                           </div>
-                          
-                          {/* 내용 */}
-                          <div className="px-4 py-4">
-                            <p className="text-sm text-gray-800 whitespace-pre-wrap leading-relaxed">
+                        </div>
+                      )}
+                      
+                      {/* 중앙: 메시지 버블 */}
+                      <div className={`flex flex-col ${isCustomer ? 'items-start' : 'items-end'} max-w-[70%] ${isCustomer ? 'ml-0' : 'mr-0'}`}>
+                        {/* 이름 표시 (같은 역할이 연속될 때는 첫 메시지에만) */}
+                        {showAvatar && (
+                          <div className={`mb-2 ${isCustomer ? 'ml-1' : 'mr-1'}`}>
+                            <div className={`text-sm font-bold ${
+                              isCustomer ? 'text-blue-600' : 'text-indigo-600'
+                            }`}>
+                              {isCustomer ? '고객' : '설계사'}
+                            </div>
+                            <div className="text-xs text-gray-500">
+                              댓글 #{Math.ceil((message.step + 1) / 2)}
+                            </div>
+                          </div>
+                        )}
+                        
+                        {/* 말풍선 */}
+                        <div className="group relative">
+                          <div
+                            className={`rounded-2xl px-5 py-3 shadow-lg hover:shadow-xl transition-all duration-200 border ${
+                              isCustomer
+                                ? 'bg-gradient-to-br from-blue-500 to-blue-600 text-white rounded-bl-sm border-blue-400'
+                                : 'bg-white text-gray-800 rounded-br-sm border-gray-300'
+                            } ${isGrouped ? (isCustomer ? 'rounded-tl-sm' : 'rounded-tr-sm') : ''}`}
+                            style={{
+                              wordBreak: 'break-word',
+                              boxShadow: isCustomer 
+                                ? '0 4px 12px rgba(59, 130, 246, 0.3)' 
+                                : '0 4px 12px rgba(0, 0, 0, 0.1)'
+                            }}
+                          >
+                            <p className={`text-sm whitespace-pre-wrap leading-relaxed ${
+                              isCustomer ? 'text-white' : 'text-gray-800'
+                            }`}>
                               {message.content}
                             </p>
                           </div>
+                          
+                          {/* 복사 버튼 (호버 시) */}
+                          <button
+                            onClick={() => {
+                              navigator.clipboard.writeText(message.content)
+                              alert('댓글이 클립보드에 복사되었습니다!')
+                            }}
+                            className={`absolute opacity-0 group-hover:opacity-100 transition-all duration-200 p-2 rounded-full ${
+                              isCustomer 
+                                ? 'bg-white text-blue-600 shadow-lg -right-10 top-1/2 -translate-y-1/2' 
+                                : 'bg-gray-700 text-white shadow-lg -left-10 top-1/2 -translate-y-1/2'
+                            } hover:scale-110`}
+                            title="복사"
+                          >
+                            <Copy className="w-4 h-4" />
+                          </button>
                         </div>
+                        
+                        {/* 댓글 번호 (아바타가 없을 때만) */}
+                        {!showAvatar && (
+                          <div className={`text-xs text-gray-400 mt-1 px-2 ${isCustomer ? 'ml-1' : 'mr-1'}`}>
+                            #{Math.ceil((message.step + 1) / 2)}
+                          </div>
+                        )}
                       </div>
+                      
+                      {/* 오른쪽: 설계사 아바타 (오른쪽에만) */}
+                      {!isCustomer && (
+                        <div className={`flex-shrink-0 ${showAvatar ? 'block' : 'invisible'}`}>
+                          <div className="relative">
+                            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white text-base font-bold shadow-lg ring-2 ring-indigo-200 ring-offset-2">
+                              👨‍💼
+                            </div>
+                            {showAvatar && (
+                              <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-blue-400 rounded-full border-2 border-white shadow-sm"></div>
+                            )}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )
                 })}
