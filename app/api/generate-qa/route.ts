@@ -401,9 +401,73 @@ export async function POST(request: NextRequest) {
         ? titleMatch[1].trim().replace(/<ctrl\d+>/gi, '').replace(/[\x00-\x1F\x7F]/g, '')
         : questionText.split('\n')[0].trim().replace(/<ctrl\d+>/gi, '').replace(/[\x00-\x1F\x7F]/g, '')
       
-      finalQuestionContent = contentMatch 
+      const rawQuestionContent = contentMatch 
         ? contentMatch[1].trim().replace(/<ctrl\d+>/gi, '').replace(/[\x00-\x1F\x7F]/g, '')
         : questionText.split('\n').slice(1).join('\n').trim().replace(/<ctrl\d+>/gi, '').replace(/[\x00-\x1F\x7F]/g, '')
+
+      // 질문 본문 줄단락 자동 재배치 (문단 최소 3개 확보)
+      const formatQuestionContent = (text: string): string => {
+        let cleaned = (text || '')
+          .replace(/```[\s\S]*?```/g, '')
+          .replace(/[ \t]+/g, ' ')
+          .split('\n')
+          .map(line => line.trim())
+          .join('\n')
+          .replace(/\n{3,}/g, '\n\n')
+          .trim()
+
+        const existingParagraphs = cleaned.split(/\n\s*\n/).filter(p => p.trim().length > 0)
+        if (existingParagraphs.length >= 3) {
+          return existingParagraphs.join('\n\n').trim()
+        }
+
+        // 문장 단위 분리 (질문/감탄 위주 구두점)
+        const sentenceCandidates = cleaned
+          .replace(/\n+/g, ' ')
+          .split(/(?<=[?!])\s+/)
+          .filter(s => s.trim().length > 0)
+
+        const buildParagraphsFromSentences = (sentences: string[], target: number): string[] => {
+          if (sentences.length === 0) return []
+          const sentencesPerParagraph = Math.max(1, Math.ceil(sentences.length / target))
+          const grouped: string[] = []
+          for (let i = 0; i < sentences.length; i += sentencesPerParagraph) {
+            const chunk = sentences.slice(i, i + sentencesPerParagraph).join(' ').trim()
+            if (chunk.length > 0) grouped.push(chunk)
+          }
+          return grouped
+        }
+
+        let paragraphs = sentenceCandidates.length > 0
+          ? buildParagraphsFromSentences(sentenceCandidates, Math.min(4, Math.max(3, sentenceCandidates.length)))
+          : []
+
+        // 구두점이 거의 없을 때 단어 단위로 분리
+        if (paragraphs.length < 3) {
+          const words = cleaned.split(/\s+/).filter(Boolean)
+          const wordsPerParagraph = Math.max(5, Math.ceil(words.length / 3))
+          const wordParagraphs: string[] = []
+          for (let i = 0; i < words.length; i += wordsPerParagraph) {
+            const chunk = words.slice(i, i + wordsPerParagraph).join(' ').trim()
+            if (chunk.length > 0) wordParagraphs.push(chunk)
+          }
+          paragraphs = wordParagraphs
+        }
+
+        if (paragraphs.length === 2 && paragraphs[1].length > 120) {
+          // 2개만 만들어졌을 때는 두 번째 문단을 반으로 나눠 3개로 보정
+          const second = paragraphs.pop() as string
+          const words = second.split(/\s+/)
+          const mid = Math.ceil(words.length / 2)
+          paragraphs.push(words.slice(0, mid).join(' ').trim())
+          paragraphs.push(words.slice(mid).join(' ').trim())
+        }
+
+        const finalParagraphs = paragraphs.filter(p => p.trim().length > 0)
+        return finalParagraphs.length > 0 ? finalParagraphs.join('\n\n').trim() : cleaned
+      }
+
+      finalQuestionContent = formatQuestionContent(rawQuestionContent)
 
         console.log('Step 1 완료:', { questionTitle: finalQuestionTitle, questionContentLength: finalQuestionContent.length })
       } else {
