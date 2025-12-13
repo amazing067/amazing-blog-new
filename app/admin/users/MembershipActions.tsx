@@ -215,12 +215,7 @@ export default function MembershipActions({ userId, currentStatus, paidUntil, ro
 
           {!isSuperAdmin && currentStatus !== 'deleted' && (
             <button
-              onClick={() => {
-                const note = prompt('삭제 사유를 입력해주세요:')
-                if (note !== null) {
-                  handleStatusChange('deleted', note)
-                }
-              }}
+              onClick={() => handleStatusChange('deleted')}
               disabled={isLoading}
               className="p-1.5 text-gray-600 hover:bg-gray-50 rounded transition-colors disabled:opacity-50"
               title="삭제"

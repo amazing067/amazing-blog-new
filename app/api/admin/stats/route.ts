@@ -15,28 +15,68 @@ export async function GET(request: NextRequest) {
 
     if (!user) return NextResponse.json({ error: '인증이 필요합니다' }, { status: 401 })
 
-    const { data: me } = await supabase
-      .from('profiles')
-      .select('role')
-      .eq('id', user.id)
-      .single()
+    // Service role 우선 사용 (있으면)
+    let statsClient = supabase
+    let adminClient: any = null
+    
+    if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
+      const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY.trim().replace(/[\r\n\t]/g, '').replace(/\s+/g, '')
+      
+      if (serviceRoleKey && serviceRoleKey.length >= 50 && serviceRoleKey.startsWith('eyJ')) {
+        adminClient = createAdminClient(
+          process.env.NEXT_PUBLIC_SUPABASE_URL!,
+          serviceRoleKey
+        ) as any
+        statsClient = adminClient
+      }
+    }
+
+    // 관리자 권한 확인 (SERVICE_ROLE_KEY 사용)
+    let me: { role: string } | null = null
+    
+    if (adminClient) {
+      const { data: profileData, error: profileError } = await adminClient
+        .from('profiles')
+        .select('role')
+        .eq('id', user.id)
+        .single()
+      
+      if (!profileError && profileData) {
+        me = profileData
+      }
+    }
+    
+    // SERVICE_ROLE_KEY가 없거나 실패한 경우 일반 클라이언트 사용
+    if (!me) {
+      const { data: profileData, error: profileError } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', user.id)
+        .single()
+      
+      if (profileError) {
+        console.error('프로필 조회 오류:', profileError)
+        return NextResponse.json({ 
+          error: '프로필을 조회할 수 없습니다. RLS 정책을 확인해주세요.',
+          details: profileError.message
+        }, { status: 500 })
+      }
+      
+      if (profileData) {
+        me = profileData
+      }
+    }
 
     if (!me || me.role !== 'admin') {
       return NextResponse.json({ error: '관리자 권한이 필요합니다' }, { status: 403 })
     }
 
-    // Service role 우선 사용 (있으면)
-    let statsClient = supabase
-    if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
-      statsClient = createAdminClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.SUPABASE_SERVICE_ROLE_KEY
-      ) as any
-    }
-
     // 병렬 조회
     const [profilesRes, blogRes, qaRes, usageRes] = await Promise.all([
-      statsClient.from('profiles').select('id, username, full_name, email, created_at'),
+      statsClient
+        .from('profiles')
+        .select('id, username, full_name, phone, created_at, role, department_id, department_name, team_id, team_name')
+        .is('deleted_at', null), // 삭제된 사용자는 제외
       statsClient
         .from('blog_posts')
         .select('user_id, created_at', { count: 'exact', head: false }),
@@ -57,7 +97,12 @@ export async function GET(request: NextRequest) {
         user_id: p.id,
         username: p.username,
         full_name: p.full_name,
-        email: p.email,
+        phone: p.phone,
+        role: p.role,
+        department_id: p.department_id,
+        department_name: p.department_name,
+        team_id: p.team_id,
+        team_name: p.team_name,
         created_at: p.created_at,
         blog_count: 0,
         last_blog: null as string | null,

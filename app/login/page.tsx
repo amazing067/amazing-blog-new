@@ -34,33 +34,61 @@ export default function LoginPage() {
     try {
       const supabase = createClient()
 
-      // 1. username으로 profiles 테이블에서 이메일 조회
+      // 1. username으로 프로필 조회 (서버 사이드 API 사용)
       console.log('로그인 시도:', formData.username)
       
-      const { data: profileData, error: profileError } = await supabase
-        .from('profiles')
-        .select('email, is_approved, role, membership_status')
-        .eq('username', formData.username)
-        .single()
+      // username 정규화 (공백 제거, 소문자 변환)
+      const normalizedUsername = formData.username.trim().toLowerCase()
+      console.log('[로그인] 입력된 username:', formData.username, '→ 정규화:', normalizedUsername)
+      
+      const profileResponse = await fetch('/api/login/get-profile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: normalizedUsername })
+      })
 
-      console.log('프로필 조회 결과:', { profileData, profileError })
+      // 응답 본문 읽기
+      const responseText = await profileResponse.text()
+      let profileResult: any = {}
+      
+      try {
+        profileResult = JSON.parse(responseText)
+      } catch (parseError) {
+        console.error('[로그인] 응답 파싱 실패:', parseError, responseText)
+        setError('서버 응답 오류가 발생했습니다')
+        setIsSubmitting(false)
+        return
+      }
 
-      if (profileError || !profileData) {
-        console.error('프로필 조회 실패:', {
-          code: profileError?.code,
-          message: profileError?.message,
-          details: profileError?.details,
-          hint: profileError?.hint
+      console.log('[로그인] 프로필 조회 응답:', {
+        ok: profileResponse.ok,
+        status: profileResponse.status,
+        hasProfile: !!profileResult.profile,
+        error: profileResult.error,
+        code: profileResult.code,
+        fullResult: profileResult
+      })
+
+      if (!profileResponse.ok || !profileResult.profile) {
+        console.error('[로그인] 프로필 조회 실패 상세:', {
+          status: profileResponse.status,
+          statusText: profileResponse.statusText,
+          error: profileResult.error,
+          code: profileResult.code,
+          message: profileResult.message,
+          fullResult: profileResult
         })
         
-        if (profileError?.code === 'PGRST116') {
+        if (profileResult.code === 'PGRST116' || profileResponse.status === 404) {
           setError('존재하지 않는 아이디입니다')
         } else {
-          setError(`오류: ${profileError?.message || '프로필을 찾을 수 없습니다'}`)
+          setError(profileResult.error || '프로필을 찾을 수 없습니다')
         }
         setIsSubmitting(false)
         return
       }
+
+      const profileData = profileResult.profile
 
       // 2. 승인 여부 확인
       if (!profileData.is_approved) {
@@ -83,23 +111,35 @@ export default function LoginPage() {
         return
       }
 
-      // 3. 이메일과 비밀번호로 로그인
-      console.log('Auth 로그인 시도:', profileData.email)
+      // 3. 아이디와 비밀번호로 로그인 (내부적으로 이메일 형식 사용)
+      if (!profileData.loginEmail) {
+        setError('로그인 정보를 찾을 수 없습니다. 관리자에게 문의해주세요.')
+        setIsSubmitting(false)
+        return
+      }
       
       const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-        email: profileData.email,
+        email: profileData.loginEmail,
         password: formData.password,
       })
 
-      console.log('Auth 로그인 결과:', { authData, authError })
+      console.log('Auth 로그인 결과:', { 
+        hasUser: !!authData?.user, 
+        userId: authData?.user?.id,
+        error: authError 
+      })
 
       if (authError) {
-        console.error('Auth 로그인 실패:', authError)
+        console.error('Auth 로그인 실패:', {
+          message: authError.message,
+          status: authError.status,
+          name: authError.name
+        })
         
-        if (authError.message.includes('Invalid')) {
+        if (authError.message.includes('Invalid') || authError.message.includes('credentials')) {
           setError('아이디 또는 비밀번호가 올바르지 않습니다')
         } else {
-          setError(`로그인 오류: ${authError.message}`)
+          setError('로그인에 실패했습니다. 아이디와 비밀번호를 확인해주세요.')
         }
         setIsSubmitting(false)
         return

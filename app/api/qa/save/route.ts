@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { createClient as createAdminClient } from '@supabase/supabase-js'
 
 export async function POST(request: NextRequest) {
   try {
@@ -24,8 +25,25 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // qa_sets 테이블에 저장
-    const { data: savedQA, error } = await supabase
+    // SERVICE_ROLE_KEY 사용 (RLS 우회)
+    const rawServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+    if (!rawServiceRoleKey) {
+      return NextResponse.json({ error: '서버 설정 오류' }, { status: 500 })
+    }
+
+    const serviceRoleKey = rawServiceRoleKey.trim().replace(/[\r\n\t]/g, '').replace(/\s+/g, '')
+    
+    if (!serviceRoleKey || serviceRoleKey.length < 50 || !serviceRoleKey.startsWith('eyJ')) {
+      return NextResponse.json({ error: '서버 설정 오류' }, { status: 500 })
+    }
+
+    const adminClient = createAdminClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      serviceRoleKey
+    ) as any
+
+    // qa_sets 테이블에 저장 (SERVICE_ROLE_KEY 사용으로 RLS 우회)
+    const { data: savedQA, error } = await adminClient
       .from('qa_sets')
       .insert({
         user_id: user.id,

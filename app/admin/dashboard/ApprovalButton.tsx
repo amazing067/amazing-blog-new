@@ -28,6 +28,7 @@ export default function ApprovalButton({ userId }: { userId: string }) {
         .update({ 
           is_approved: true,
           membership_status: 'active',
+          role: 'fc', // 승인 시 FC 역할로 설정
           paid_until: paidUntil.toISOString(),
           last_payment_at: new Date().toISOString()
         })

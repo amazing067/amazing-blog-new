@@ -15,12 +15,60 @@ export default async function AdminDashboardPage() {
     redirect('/login')
   }
 
-  // 관리자 권한 확인 (필요한 필드만 선택)
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('id, role')
-    .eq('id', user.id)
-    .single()
+  // 관리자 권한 확인 (서버 사이드 API 사용 - RLS 우회)
+  let profile: { id: string; role: string } | null = null
+  let profileError: any = null
+
+  try {
+    // SERVICE_ROLE_KEY 사용 시도
+    const rawServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+    if (rawServiceRoleKey) {
+      const serviceRoleKey = rawServiceRoleKey.trim().replace(/[\r\n\t]/g, '').replace(/\s+/g, '')
+      
+      if (serviceRoleKey && serviceRoleKey.length >= 50 && serviceRoleKey.startsWith('eyJ')) {
+        const { createClient: createAdminClient } = await import('@supabase/supabase-js')
+        const adminClient = createAdminClient(
+          process.env.NEXT_PUBLIC_SUPABASE_URL!,
+          serviceRoleKey
+        ) as any
+
+        const { data: profileData, error: err } = await adminClient
+          .from('profiles')
+          .select('id, role')
+          .eq('id', user.id)
+          .single()
+
+        if (!err && profileData) {
+          profile = profileData
+        } else {
+          profileError = err
+        }
+      }
+    }
+
+    // SERVICE_ROLE_KEY가 없거나 실패한 경우 일반 클라이언트 사용
+    if (!profile) {
+      const { data: profileData, error: err } = await supabase
+        .from('profiles')
+        .select('id, role')
+        .eq('id', user.id)
+        .single()
+
+      if (err) {
+        profileError = err
+      } else {
+        profile = profileData
+      }
+    }
+  } catch (error: any) {
+    console.error('프로필 조회 중 오류:', error)
+    profileError = error
+  }
+
+  if (profileError) {
+    console.error('관리자 프로필 조회 실패:', profileError)
+    redirect('/dashboard')
+  }
 
   if (!profile || profile.role !== 'admin') {
     redirect('/dashboard')
@@ -31,13 +79,13 @@ export default async function AdminDashboardPage() {
     // 승인 대기 중인 사용자 목록 (필요한 필드만 선택)
     supabase
       .from('profiles')
-      .select('id, username, full_name, email, created_at, is_approved')
+      .select('id, username, full_name, phone, created_at, is_approved')
       .eq('is_approved', false)
       .order('created_at', { ascending: false }),
     // 승인된 사용자 목록 (필요한 필드만 선택)
     supabase
       .from('profiles')
-      .select('id, username, full_name, email, created_at, is_approved')
+      .select('id, username, full_name, phone, created_at, is_approved')
       .eq('is_approved', true)
       .order('created_at', { ascending: false })
   ])
@@ -184,6 +232,70 @@ export default async function AdminDashboardPage() {
               </div>
             </div>
           </div>
+
+          {/* 승인 대기 사용자 목록 */}
+          {pendingUsers && pendingUsers.length > 0 && (
+            <div className="mt-8 bg-white rounded-2xl shadow-lg p-6">
+              <h2 className="text-2xl font-bold text-gray-800 mb-6 flex items-center gap-2">
+                <UserX className="w-6 h-6 text-yellow-600" />
+                승인 대기 중인 사용자 ({pendingUsers.length}명)
+              </h2>
+              <div className="space-y-4">
+                {pendingUsers.map((user) => (
+                  <div
+                    key={user.id}
+                    className="flex items-center justify-between p-4 bg-yellow-50 border border-yellow-200 rounded-lg hover:bg-yellow-100 transition-colors"
+                  >
+                    <div className="flex-1">
+                      <div className="flex items-center gap-3">
+                        <div className="font-semibold text-gray-800">{user.full_name}</div>
+                        <div className="text-sm text-gray-500">({user.username})</div>
+                      </div>
+                      <div className="text-sm text-gray-600 mt-1">{user.phone || '-'}</div>
+                      <div className="text-xs text-gray-400 mt-1">
+                        가입일: {new Date(user.created_at).toLocaleDateString('ko-KR')}
+                      </div>
+                    </div>
+                    <ApprovalButton userId={user.id} />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* 승인된 사용자 목록 (간단히) */}
+          {approvedUsers && approvedUsers.length > 0 && (
+            <div className="mt-8 bg-white rounded-2xl shadow-lg p-6">
+              <h2 className="text-2xl font-bold text-gray-800 mb-6 flex items-center gap-2">
+                <UserCheck className="w-6 h-6 text-green-600" />
+                승인된 사용자 ({approvedUsers.length}명)
+              </h2>
+              <div className="grid md:grid-cols-2 gap-4">
+                {approvedUsers.slice(0, 10).map((user) => (
+                  <div
+                    key={user.id}
+                    className="p-4 bg-green-50 border border-green-200 rounded-lg"
+                  >
+                    <div className="font-semibold text-gray-800">{user.full_name}</div>
+                    <div className="text-sm text-gray-600">{user.phone || '-'}</div>
+                    <div className="text-xs text-gray-400 mt-1">
+                      가입일: {new Date(user.created_at).toLocaleDateString('ko-KR')}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {approvedUsers.length > 10 && (
+                <div className="mt-4 text-center">
+                  <Link
+                    href="/admin/users"
+                    className="text-blue-600 hover:underline font-semibold"
+                  >
+                    전체 회원 목록 보기 →
+                  </Link>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </main>
     </div>

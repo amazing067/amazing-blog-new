@@ -19,9 +19,8 @@ export default function MembershipStatusBanner({ status, paidUntil, gracePeriodU
 
   if (status === 'active') {
     if (!paidUntil) {
-      text = '결제 정보가 없습니다. 관리자에게 문의해주세요.'
-      kind = 'info'
-      icon = <AlertCircle className="w-4 h-4 text-blue-600" />
+      // 결제 정보가 없어도 배너를 표시하지 않음
+      return null
     } else {
       const paidDate = new Date(paidUntil)
       const days = Math.ceil((paidDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))

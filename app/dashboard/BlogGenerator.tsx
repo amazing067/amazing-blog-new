@@ -2,12 +2,13 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { Shield, LogOut, Sparkles, Copy, Send, FileDown, Clock, BookOpen, TrendingUp, ArrowLeft, UserCheck, History, BarChart3, FileText, Save, MessageSquare, Image as ImageIcon, Link as LinkIcon } from 'lucide-react'
+import { Shield, LogOut, Sparkles, Copy, Send, FileDown, Clock, BookOpen, TrendingUp, ArrowLeft, UserCheck, History, BarChart3, FileText, Save, MessageSquare, Image as ImageIcon, Link as LinkIcon, Crown, Building2, MapPin, Users, User } from 'lucide-react'
 import MembershipStatusBanner from './MembershipStatusBanner'
 import { createClient } from '@/lib/supabase/client'
 import type { BlogPost } from '@/types/blog.types'
 import { TEMPLATE_TOPICS } from '@/lib/template-topics'
 import { addWarningToHTML } from '@/lib/insurance-warnings'
+import { getRoleLabel, ROLES } from '@/lib/constants/roles'
 
 // CSS 선택자 충돌 방지를 위한 유틸리티 함수
 const scopeHTMLForEditor = (html: string) => {
@@ -440,6 +441,48 @@ const TEMPLATES = [
   },
 ]
 
+// 역할별 스타일 및 아이콘
+const getRoleStyles = (role: string | null | undefined) => {
+  if (!role) role = ROLES.FC
+  
+  switch (role) {
+    case ROLES.ADMIN:
+    case ROLES.DEPARTMENT_HEAD:
+      return {
+        bgColor: 'bg-amber-100',
+        textColor: 'text-amber-800',
+        icon: Crown,
+        iconColor: 'text-amber-600',
+        label: getRoleLabel(role)
+      }
+    case ROLES.BRANCH_HEAD:
+      return {
+        bgColor: 'bg-green-100',
+        textColor: 'text-green-800',
+        icon: MapPin,
+        iconColor: 'text-green-600',
+        label: getRoleLabel(role)
+      }
+    case ROLES.TEAM_LEADER:
+      return {
+        bgColor: 'bg-purple-100',
+        textColor: 'text-purple-800',
+        icon: Users,
+        iconColor: 'text-purple-600',
+        label: getRoleLabel(role)
+      }
+    case ROLES.FC:
+    default:
+      return {
+        bgColor: 'bg-orange-100',
+        textColor: 'text-orange-800',
+        icon: User,
+        iconColor: 'text-orange-600',
+        label: getRoleLabel(role)
+      }
+  }
+}
+
 export default function BlogGenerator({ profile: initialProfile }: { profile: Profile | null }) {
   const router = useRouter()
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -806,17 +849,24 @@ export default function BlogGenerator({ profile: initialProfile }: { profile: Pr
     
     setIsLoadingPosts(true)
     try {
-      const supabase = createClient()
-      const { data, error } = await supabase
-        .from('blog_posts')
-        .select('*')
-        .eq('user_id', profile.id)
-        .order('created_at', { ascending: false })
+      // 서버 사이드 API 사용 (RLS 우회)
+      const response = await fetch('/api/blog-posts')
+      const result = await response.json()
 
-      if (error) throw error
-      setBlogPosts(data || [])
-    } catch (error) {
-      console.error('글 목록 로딩 오류:', error)
+      if (!response.ok) {
+        console.error('글 목록 로딩 오류:', result)
+        throw new Error(result.error || '블로그 글을 불러올 수 없습니다')
+      }
+
+      setBlogPosts(result.posts || [])
+    } catch (error: any) {
+      console.error('글 목록 로딩 오류:', {
+        error,
+        message: error?.message,
+        profileId: profile?.id
+      })
+      // 에러가 있어도 빈 배열로 설정하여 UI가 깨지지 않도록 함
+      setBlogPosts([])
     } finally {
       setIsLoadingPosts(false)
     }
@@ -2083,7 +2133,56 @@ h2 {
                     } : {})
                   }}
                 >
-                  {profile?.full_name}님 환영합니다
+                  <span className="inline-flex items-center gap-2">
+                    <span>{profile?.full_name}님 환영합니다</span>
+                    {profile?.role && (() => {
+                      const roleStyles = getRoleStyles(profile.role)
+                      const RoleIcon = roleStyles.icon
+                      return (
+                        <span 
+                          className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold border-2"
+                          style={{
+                            background: 'linear-gradient(90deg, #fcd34d, #fb923c, #fbbf24, #fb923c, #fcd34d)',
+                            backgroundSize: '200% auto',
+                            borderColor: 'rgba(251, 191, 36, 0.5)',
+                            boxShadow: '0 2px 8px rgba(251, 191, 36, 0.3)',
+                            animation: 'shimmer 3s ease-in-out infinite',
+                            ...(isEditMode ? {
+                              fontSize: '0.625rem',
+                              padding: '0.125rem 0.375rem',
+                              margin: '0',
+                              lineHeight: '1.2',
+                              height: 'auto',
+                              minHeight: 'auto',
+                              maxHeight: 'none',
+                              boxSizing: 'border-box'
+                            } : {})
+                          }}
+                        >
+                          <RoleIcon 
+                            className="w-3 h-3" 
+                            style={{
+                              color: '#92400e',
+                              filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.2))'
+                            }}
+                          />
+                          <span
+                            style={{
+                              background: 'linear-gradient(90deg, #92400e, #78350f, #92400e)',
+                              backgroundSize: '200% auto',
+                              WebkitBackgroundClip: 'text',
+                              WebkitTextFillColor: 'transparent',
+                              backgroundClip: 'text',
+                              animation: 'shimmer 3s ease-in-out infinite',
+                              fontWeight: 700
+                            }}
+                          >
+                            {roleStyles.label}
+                          </span>
+                        </span>
+                      )
+                    })()}
+                  </span>
                 </p>
               </div>
             </div>
@@ -2151,6 +2250,55 @@ h2 {
                 </button>
               </div>
             )}
+            {profile?.role === 'team_leader' && (
+              <button
+                onClick={() => router.push('/team/stats')}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 bg-blue-500 text-white text-sm font-semibold rounded-md hover:bg-blue-600 transition-colors"
+                style={isEditMode ? {
+                  padding: '0.375rem 0.625rem',
+                  fontSize: '0.875rem',
+                  fontWeight: 600,
+                  margin: 0,
+                  height: 'auto',
+                  minHeight: 'auto',
+                  maxHeight: 'none',
+                  lineHeight: 'normal',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.375rem',
+                  whiteSpace: 'nowrap',
+                  boxSizing: 'border-box'
+                } : {}}
+              >
+                <BarChart3 className="w-3.5 h-3.5" style={isEditMode ? { width: '0.875rem', height: '0.875rem', margin: 0, padding: 0 } : {}} />
+                팀 통계
+              </button>
+            )}
+            {(profile?.role === 'department_head' || profile?.role === 'branch_head') && (
+              <button
+                onClick={() => router.push('/department/stats')}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 bg-purple-500 text-white text-sm font-semibold rounded-md hover:bg-purple-600 transition-colors"
+                style={isEditMode ? {
+                  padding: '0.375rem 0.625rem',
+                  fontSize: '0.875rem',
+                  fontWeight: 600,
+                  margin: 0,
+                  height: 'auto',
+                  minHeight: 'auto',
+                  maxHeight: 'none',
+                  lineHeight: 'normal',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.375rem',
+                  whiteSpace: 'nowrap',
+                  boxSizing: 'border-box'
+                } : {}}
+              >
+                <BarChart3 className="w-3.5 h-3.5" style={isEditMode ? { width: '0.875rem', height: '0.875rem', margin: 0, padding: 0 } : {}} />
+                본부 통계
+              </button>
+            )}
+            {/* 로그아웃 버튼 (오른쪽 끝) */}
             <form 
               action="/api/auth/signout" 
               method="post"
@@ -3671,6 +3819,7 @@ function QAGenerator({
     feelingTone: '고민',
     answerTone: 'friendly',
     customerStyle: 'curious', // 고객 스타일: 'friendly' | 'cold' | 'brief' | 'curious'
+    answerLength: 'default' as 'short' | 'default', // 답변 길이: 'short' (150-250자) | 'default' (300-700자)
     designSheetImage: '' as string | null
   })
   
@@ -4085,14 +4234,8 @@ function QAGenerator({
   }
 
   const handleRandomGenerate = async () => {
-    // 랜덤 프리셋 데이터 (실제 많이 검색되는 보험 상품들)
+    // 랜덤 프리셋 데이터 (실제 많이 검색되는 보험 상품들 - 실손보험 제외)
     const randomPresets = [
-      {
-        productName: '삼성생명 실손의료비보험',
-        targetPersona: '30대 직장인 남성',
-        worryPoint: '실손보험료가 매월 부담스러운데, 보장 범위가 충분한지 궁금합니다. 현재 보험료로 적절한 보장을 받을 수 있을까요?',
-        sellingPoint: '실손보험료가 합리적이고, 보장 범위가 넓으며, 특약 구성이 탄탄합니다'
-      },
       {
         productName: '한화생명 종신보험',
         targetPersona: '40대 직장인 남성',
@@ -4112,16 +4255,10 @@ function QAGenerator({
         sellingPoint: '자기차량 손해, 대인배상, 대물배상을 모두 보장하며, 보험료 대비 보장 범위가 우수합니다'
       },
       {
-        productName: '삼성화재 실손보험',
-        targetPersona: '20대 직장인',
-        worryPoint: '신입 직장인이라 돈이 없는데 실손보험은 꼭 들어야 하는가요? 저렴하게 가입할 수 있는 방법이 있을까요?',
-        sellingPoint: '보험료가 저렴하면서도 입원, 통원, 처방 약제비를 모두 보장하며, 특히 청년층에 맞춘 상품입니다'
-      },
-      {
         productName: '신한생명 종합건강보험',
         targetPersona: '30대 직장인 여성',
-        worryPoint: '실손보험, 암보험, 질병보험을 따로 들어야 할까요? 하나로 합쳐서 들 수 있는 상품이 있을까요?',
-        sellingPoint: '실손, 암, 질병보험을 통합한 상품으로 보험료 절감 효과가 있고, 관리도 편리합니다'
+        worryPoint: '암보험, 질병보험을 따로 들어야 할까요? 하나로 합쳐서 들 수 있는 상품이 있을까요?',
+        sellingPoint: '암, 질병보험을 통합한 상품으로 보험료 절감 효과가 있고, 관리도 편리합니다'
       },
       {
         productName: 'KB생명 연금보험',
@@ -4160,12 +4297,6 @@ function QAGenerator({
         sellingPoint: '뇌졸중, 심근경색, 관상동맥우회술 등 중대질병을 보장하며, 진단비는 물론 수술비, 입원비까지 종합 보장합니다'
       },
       {
-        productName: '한화생명 실비보험',
-        targetPersona: '20대 직장인',
-        worryPoint: '병원비가 부담스러워서 실비보험을 알아보고 있어요. 실손보험과 실비보험의 차이가 뭔가요?',
-        sellingPoint: '입원, 통원, 처방 약제비를 실제 발생한 금액만큼 보장하며, 특히 비급여 항목까지 보장하여 부담을 줄여줍니다'
-      },
-      {
         productName: 'DB손해보험 상해보험',
         targetPersona: '20대 대학생',
         worryPoint: '교통사고나 각종 사고에 대한 보장이 필요한데, 가격도 저렴한지 궁금합니다. 알뜰하게 가입하고 싶어요.',
@@ -4176,6 +4307,168 @@ function QAGenerator({
         targetPersona: '30대 직장인',
         worryPoint: '해외여행을 가는데 여행자보험이 필수인가요? 어떤 보장이 필요할까요?',
         sellingPoint: '해외 질병, 상해 사고를 보장하며, 여행 취소/지연, 휴대품 분실까지 보장하여 안심하고 여행할 수 있습니다'
+      },
+      {
+        productName: '삼성생명 유사암보험',
+        targetPersona: '30대 직장인 여성',
+        worryPoint: '유사암 진단비가 걱정되는데, 일반 암보험으로는 보장이 안 될까요? 유사암보험을 따로 들어야 하나요?',
+        sellingPoint: '유사암 진단비를 보장하며, 일반 암보험과 함께 가입하면 더욱 완벽한 보장을 받을 수 있습니다'
+      },
+      {
+        productName: '한화생명 질병보험',
+        targetPersona: '30대 직장인 남성',
+        worryPoint: '뇌혈관질환, 심장질환 같은 질병이 걱정됩니다. 현재 보험료로 충분한 보장을 받을 수 있을까요?',
+        sellingPoint: '뇌혈관질환, 심장질환 등 주요 질병을 보장하며, 진단비, 수술비, 입원비를 종합적으로 보장합니다'
+      },
+      {
+        productName: '교보생명 상해보험',
+        targetPersona: '20대 직장인',
+        worryPoint: '사고로 인한 상해가 걱정되는데, 상해보험이 꼭 필요한가요? 보험료는 얼마나 드나요?',
+        sellingPoint: '상해 사망, 후유장해를 보장하며, 보험료가 저렴하면서도 실질적인 보장을 제공합니다'
+      },
+      {
+        productName: '삼성화재 운전자보험',
+        targetPersona: '30대 직장인 남성',
+        worryPoint: '운전 중 사고가 걱정됩니다. 자동차보험과 운전자보험의 차이가 뭔가요? 둘 다 들어야 하나요?',
+        sellingPoint: '운전 중 사고로 인한 상해, 사망을 보장하며, 자동차보험과 함께 가입하면 더욱 완벽한 보장을 받을 수 있습니다'
+      },
+      {
+        productName: 'NH농협손해보험 장기요양보험',
+        targetPersona: '50대 직장인',
+        worryPoint: '노후에 장기요양이 필요할 수 있어서 걱정됩니다. 장기요양보험이 실제로 도움이 될까요?',
+        sellingPoint: '장기요양 등급에 따라 요양비를 보장하며, 노후 생활을 안정적으로 보장할 수 있습니다'
+      },
+      {
+        productName: 'KB손해보험 배상책임보험',
+        targetPersona: '30대 직장인',
+        worryPoint: '타인에게 피해를 입혔을 때 배상책임이 걱정됩니다. 배상책임보험이 필요한가요?',
+        sellingPoint: '타인에게 입힌 재산상 손해, 신체상 손해를 보장하며, 생활 안정을 위한 필수 보험입니다'
+      },
+      {
+        productName: '메리츠화재 재물보험',
+        targetPersona: '30대 신혼부부',
+        worryPoint: '집에 있는 가전제품이나 가구가 파손될 수 있어 걱정됩니다. 재물보험이 필요한가요?',
+        sellingPoint: '가전제품, 가구 등 재물 손해를 보장하며, 화재, 도난, 파손 등 다양한 위험을 보장합니다'
+      },
+      {
+        productName: 'DB생명 교육보험',
+        targetPersona: '30대 부모',
+        worryPoint: '자녀의 교육비가 걱정됩니다. 교육보험을 언제부터 들여야 할까요? 보험료는 얼마나 드나요?',
+        sellingPoint: '자녀의 교육비를 확보할 수 있으며, 만기 시 해지환급금을 받아 교육비로 활용할 수 있습니다'
+      },
+      {
+        productName: '신한화재 해상보험',
+        targetPersona: '40대 사업자',
+        worryPoint: '해상 운송 중 화물 손실이 걱정됩니다. 해상보험이 필요한가요?',
+        sellingPoint: '해상 운송 중 화물 손실, 손해를 보장하며, 수출입 업무를 안정적으로 진행할 수 있습니다'
+      },
+      {
+        productName: '현대생명 변액연금보험',
+        targetPersona: '40대 직장인 남성',
+        worryPoint: '노후 자금을 확보하고 싶은데, 변액연금보험의 수익률이 궁금합니다. 리스크는 없나요?',
+        sellingPoint: '변액연금으로 노후 자금을 확보할 수 있으며, 투자 수익에 따라 연금액이 증가할 수 있습니다'
+      },
+      {
+        productName: '삼성생명 정기보험',
+        targetPersona: '30대 직장인 남성',
+        worryPoint: '가족을 위한 보장이 필요한데, 종신보험보다 정기보험이 저렴하다고 들었어요. 어떤 게 나을까요?',
+        sellingPoint: '정기보험은 보험료가 저렴하면서도 가족을 위한 충분한 보장을 제공하며, 필요 시 연장도 가능합니다'
+      },
+      {
+        productName: '한화화재 공제보험',
+        targetPersona: '40대 사업자',
+        worryPoint: '사업 중 발생할 수 있는 위험에 대비하고 싶습니다. 공제보험이 일반 보험과 다른가요?',
+        sellingPoint: '사업자들을 위한 특화된 보험으로, 사업 중 발생할 수 있는 다양한 위험을 보장합니다'
+      },
+      {
+        productName: '교보생명 어린이암보험',
+        targetPersona: '30대 부모',
+        worryPoint: '아이에게 암보험이 필요한가요? 어린이암보험을 따로 들어야 하나요?',
+        sellingPoint: '어린이에게 특화된 암보험으로, 소아암 진단비, 수술비, 입원비를 종합적으로 보장합니다'
+      },
+      {
+        productName: 'KB생명 갱신형보험',
+        targetPersona: '30대 직장인',
+        worryPoint: '갱신형보험과 비갱신형보험의 차이가 뭔가요? 어떤 게 더 유리한가요?',
+        sellingPoint: '갱신형보험은 보험료가 저렴하면서도 필요 시 갱신하여 보장을 지속할 수 있습니다'
+      },
+      {
+        productName: '삼성화재 배상책임보험',
+        targetPersona: '30대 직장인',
+        worryPoint: '타인에게 피해를 입혔을 때 배상책임이 걱정됩니다. 배상책임보험이 필요한가요?',
+        sellingPoint: '타인에게 입힌 재산상 손해, 신체상 손해를 보장하며, 생활 안정을 위한 필수 보험입니다'
+      },
+      {
+        productName: 'NH농협생명 종신보험',
+        targetPersona: '40대 직장인 남성',
+        worryPoint: '가족을 위한 평생 보장이 필요한데, 종신보험의 보험료가 부담스러워요. 해지환급금은 있나요?',
+        sellingPoint: '평생 보장을 제공하며, 해지환급금도 있어 장기적으로 유리한 상품입니다'
+      },
+      {
+        productName: 'DB손해보험 여행자보험',
+        targetPersona: '30대 직장인',
+        worryPoint: '해외여행을 가는데 여행자보험이 필수인가요? 어떤 보장이 필요할까요?',
+        sellingPoint: '해외 질병, 상해 사고를 보장하며, 여행 취소/지연, 휴대품 분실까지 보장하여 안심하고 여행할 수 있습니다'
+      },
+      {
+        productName: '현대해상 자동차보험',
+        targetPersona: '30대 직장인 남성',
+        worryPoint: '자동차보험 가입 시 어떤 특약이 필요한지, 현재 보험료가 합리적인지 확인하고 싶습니다.',
+        sellingPoint: '자기차량 손해, 대인배상, 대물배상을 모두 보장하며, 보험료 대비 보장 범위가 우수합니다'
+      },
+      {
+        productName: '메리츠생명 암보험',
+        targetPersona: '30대 직장인 여성',
+        worryPoint: '암 진단비와 수술비가 걱정되어 암보험을 고려하고 있습니다. 현재 보험료로 충분한 보장을 받을 수 있을까요?',
+        sellingPoint: '암 진단비, 수술비, 입원비를 종합적으로 보장하며, 암 2차 진단비까지 포함되어 있습니다'
+      },
+      {
+        productName: '신한생명 종신보험',
+        targetPersona: '40대 직장인 남성',
+        worryPoint: '가족을 위한 보장이 필요한데, 종신보험과 정기보험 중 어떤 게 나을지 고민입니다.',
+        sellingPoint: '종신보험의 안정성과 보장의 완결성을 제공하며, 해지환급금도 있어 장기적으로 유리합니다'
+      },
+      {
+        productName: 'KB손해보험 화재보험',
+        targetPersona: '30대 신혼부부',
+        worryPoint: '아파트 구매 후 화재보험을 들어야 하는데, 어떤 보장이 필요한지 모르겠어요.',
+        sellingPoint: '화재, 자연재해, 배관누수 등을 종합적으로 보장하며, 가전제품 파손까지 포함되어 있습니다'
+      },
+      {
+        productName: '삼성생명 연금보험',
+        targetPersona: '40대 직장인 남성',
+        worryPoint: '노후 준비를 위해 연금보험을 고려하고 있는데, 확정형과 변액형 중 어떤 게 나을까요?',
+        sellingPoint: '확정형 연금으로 안정적인 노후 자금을 보장하며, 해지환급금도 있어 유연한 운영이 가능합니다'
+      },
+      {
+        productName: '한화생명 치아보험',
+        targetPersona: '30대 직장인',
+        worryPoint: '임플란트나 보철치료 비용이 너무 비싸서 치아보험을 고려 중입니다. 실제로 보장받을 수 있는 금액이 궁금해요.',
+        sellingPoint: '임플란트, 보철치료를 충분히 보장하며, 정기 검진비까지 포함되어 치과 치료비 부담을 크게 줄여줍니다'
+      },
+      {
+        productName: '교보생명 어린이보험',
+        targetPersona: '30대 부모',
+        worryPoint: '아이가 태어났는데 자녀보험을 언제 들여야 할까요? 보험료가 부담스러운데 꼭 필요한가요?',
+        sellingPoint: '어린이 질병, 상해사고를 보장하며, 교육비 확보까지 가능한 상품으로 자녀의 미래를 준비할 수 있습니다'
+      },
+      {
+        productName: 'DB생명 간병인보험',
+        targetPersona: '50대 직장인',
+        worryPoint: '부모님 연세가 많아져서 간병비가 걱정됩니다. 간병인보험이 실제로 도움이 될까요?',
+        sellingPoint: '간병인 비용, 요양보호사 비용을 보장하며, 장기요양 등급에 따라 추가 보험금을 지급하여 부담을 줄여줍니다'
+      },
+      {
+        productName: '현대생명 중대질병보험',
+        targetPersona: '40대 직장인 남성',
+        worryPoint: '뇌졸중, 심근경색 같은 중대질병이 걱정되는데, 암보험만으로는 부족할까요?',
+        sellingPoint: '뇌졸중, 심근경색, 관상동맥우회술 등 중대질병을 보장하며, 진단비는 물론 수술비, 입원비까지 종합 보장합니다'
+      },
+      {
+        productName: '메리츠화재 상해보험',
+        targetPersona: '20대 대학생',
+        worryPoint: '교통사고나 각종 사고에 대한 보장이 필요한데, 가격도 저렴한지 궁금합니다.',
+        sellingPoint: '상해 사망/후유장해를 보장하며, 보험료가 저렴하면서도 실질적인 보장을 제공합니다'
       }
     ]
 
@@ -4650,6 +4943,75 @@ function QAGenerator({
                 placeholder="예: 보험료가 적당한지, 보장 범위가 충분한지 궁금합니다"
               />
             </div>
+
+            {/* 설계서 이미지 (선택) - 왼쪽 컬럼에 배치 */}
+            <div className="md:block hidden">
+              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">
+                설계서 이미지 (선택)
+              </label>
+              
+              {/* 드래그 앤 드롭 영역 */}
+              <div
+                onDragOver={handleDesignSheetDragOver}
+                onDragLeave={handleDesignSheetDragLeave}
+                onDrop={handleDesignSheetDrop}
+                className={`border-2 border-dashed rounded-lg p-4 transition-all ${
+                  isDraggingOverDesignSheet
+                    ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30'
+                    : qaFormData.designSheetImage
+                    ? 'border-green-300 bg-green-50 dark:bg-green-900/30'
+                    : 'border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-800 hover:border-gray-400 dark:hover:border-gray-500'
+                } ${isGenerating || isAnalyzing ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+              >
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handleImageUpload}
+                  disabled={isGenerating || isAnalyzing}
+                  className="hidden"
+                />
+                <div
+                  onClick={() => !isGenerating && !isAnalyzing && fileInputRef.current?.click()}
+                  className="text-center"
+                >
+                  {qaFormData.designSheetImage ? (
+                    <div className="space-y-2">
+                      <div className="text-green-600 dark:text-green-400 font-semibold">✓ 설계서 이미지 첨부됨</div>
+                      <img 
+                        src={qaFormData.designSheetImage} 
+                        alt="설계서 미리보기" 
+                        className="max-w-full max-h-32 mx-auto rounded border border-gray-300 dark:border-gray-600"
+                      />
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <div className="text-4xl">📎</div>
+                      <div className="text-sm text-gray-600 dark:text-gray-300">
+                        {isDraggingOverDesignSheet 
+                          ? '여기에 놓으세요' 
+                          : '파일을 드래그하거나 클릭하여 업로드'}
+                      </div>
+                      <div className="text-xs text-gray-500 dark:text-gray-400">
+                        이미지 파일만 업로드 가능
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+              
+              {isAnalyzing && (
+                <p className="text-base font-semibold text-blue-600 dark:text-blue-400 mt-2 flex items-center gap-2">
+                  <Clock className="w-5 h-5 animate-spin" />
+                  설계서 분석 중...
+                </p>
+              )}
+              {qaFormData.designSheetImage && !isAnalyzing && !isGenerating && (
+                <p className="text-xs text-green-600 dark:text-green-400 mt-1">
+                  ✓ 이미지가 첨부되었습니다. 이미지 업로드 시 자동으로 분석됩니다.
+                </p>
+              )}
+            </div>
           </div>
 
           <div className="space-y-4">
@@ -4699,6 +5061,45 @@ function QAGenerator({
                 <option value="comparative">비교형</option>
                 <option value="persuasive">설득형</option>
               </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">
+                답변 길이
+              </label>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setQAFormData(prev => ({ ...prev, answerLength: 'short' }))}
+                  disabled={isGenerating || isAnalyzing}
+                  className={`flex-1 px-4 py-2.5 rounded-lg font-semibold text-sm transition-all ${
+                    qaFormData.answerLength === 'short'
+                      ? 'bg-blue-600 text-white shadow-md'
+                      : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                  } disabled:opacity-50 disabled:cursor-not-allowed`}
+                >
+                  📝 짧은 답변
+                  <span className="block text-xs mt-0.5 opacity-90">(150-250자)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setQAFormData(prev => ({ ...prev, answerLength: 'default' }))}
+                  disabled={isGenerating || isAnalyzing}
+                  className={`flex-1 px-4 py-2.5 rounded-lg font-semibold text-sm transition-all ${
+                    qaFormData.answerLength === 'default'
+                      ? 'bg-blue-600 text-white shadow-md'
+                      : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                  } disabled:opacity-50 disabled:cursor-not-allowed`}
+                >
+                  📄 기본 답변
+                  <span className="block text-xs mt-0.5 opacity-90">(300-700자)</span>
+                </button>
+              </div>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1.5">
+                {qaFormData.answerLength === 'short' 
+                  ? '핵심만 간결하게 전달하는 짧은 답변을 생성합니다'
+                  : '상세한 설명과 비교 분석을 포함한 기본 답변을 생성합니다'}
+              </p>
             </div>
 
             <div>
@@ -4768,7 +5169,8 @@ function QAGenerator({
               )}
             </div>
 
-            <div>
+            {/* 설계서 이미지 (선택) - 작은 화면에서만 오른쪽에 표시 */}
+            <div className="md:hidden">
               <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">
                 설계서 이미지 (선택)
               </label>

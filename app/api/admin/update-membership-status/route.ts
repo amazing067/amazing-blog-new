@@ -15,59 +15,74 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '인증이 필요합니다' }, { status: 401 })
     }
 
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('role')
-      .eq('id', user.id)
-      .single()
-
-    if (!profile || profile.role !== 'admin') {
-      return NextResponse.json({ error: '관리자 권한이 필요합니다' }, { status: 403 })
-    }
-
-    // SERVICE_ROLE_KEY가 있으면 사용, 없으면 ANON_KEY로 RLS 정책을 통해 업데이트
+    // 관리자 권한 확인 및 SERVICE_ROLE_KEY 설정
+    let profile: { id: string; role: string } | null = null
     let updateClient = supabase
     
-    // 환경 변수 확인
+    // 환경 변수에서 SERVICE_ROLE_KEY 가져오기 (한 번만 정의)
     const rawServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
     console.log('[API] SERVICE_ROLE_KEY 존재 여부:', !!rawServiceRoleKey)
-    console.log('[API] SERVICE_ROLE_KEY 원본 길이:', rawServiceRoleKey?.length || 0)
-    console.log('[API] SERVICE_ROLE_KEY 원본 시작:', rawServiceRoleKey?.substring(0, 30) || '없음')
     
     if (rawServiceRoleKey) {
       // 키에서 공백, 줄바꿈, 특수문자 제거
       const serviceRoleKey = rawServiceRoleKey.trim().replace(/[\r\n\t]/g, '').replace(/\s+/g, '')
       
+      console.log('[API] SERVICE_ROLE_KEY 원본 길이:', rawServiceRoleKey.length)
       console.log('[API] SERVICE_ROLE_KEY 정리 후 길이:', serviceRoleKey.length)
       console.log('[API] SERVICE_ROLE_KEY 정리 후 시작:', serviceRoleKey.substring(0, 30))
       
       // JWT 토큰 형식 확인 (eyJ로 시작해야 함)
-      if (!serviceRoleKey || serviceRoleKey.length < 50 || !serviceRoleKey.startsWith('eyJ')) {
+      if (serviceRoleKey && serviceRoleKey.length >= 50 && serviceRoleKey.startsWith('eyJ')) {
+        try {
+          const adminClient = createAdminClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            serviceRoleKey
+          ) as any
+
+          // 관리자 권한 확인
+          const { data: profileData } = await adminClient
+            .from('profiles')
+            .select('id, role')
+            .eq('id', user.id)
+            .single()
+
+          if (profileData) {
+            profile = profileData
+          }
+
+          // 업데이트 클라이언트 설정
+          updateClient = adminClient
+          console.log('[API] SERVICE_ROLE 클라이언트 생성 성공')
+        } catch (clientError: any) {
+          console.error('[API] SERVICE_ROLE 클라이언트 생성 실패:', clientError)
+        }
+      } else {
         console.error('[API] SERVICE_ROLE_KEY가 유효하지 않습니다.', {
           length: serviceRoleKey?.length,
           startsWith: serviceRoleKey?.substring(0, 3),
           rawLength: rawServiceRoleKey?.length
         })
-        return NextResponse.json({ 
-          error: 'SERVICE_ROLE_KEY가 올바르게 설정되지 않았습니다. .env.local 파일을 확인해주세요.',
-          hint: '키는 "eyJ"로 시작하는 JWT 토큰이어야 합니다.'
-        }, { status: 500 })
       }
-      
-      try {
-        updateClient = createAdminClient(
-          process.env.NEXT_PUBLIC_SUPABASE_URL!,
-          serviceRoleKey
-        ) as any
-        console.log('[API] SERVICE_ROLE 클라이언트 생성 성공')
-      } catch (clientError: any) {
-        console.error('[API] SERVICE_ROLE 클라이언트 생성 실패:', clientError)
-        return NextResponse.json({ 
-          error: 'SERVICE_ROLE 클라이언트 생성 실패',
-          details: clientError?.message
-        }, { status: 500 })
+    }
+
+    // SERVICE_ROLE_KEY가 없거나 실패한 경우 일반 클라이언트 사용
+    if (!profile) {
+      const { data: profileData } = await supabase
+        .from('profiles')
+        .select('id, role')
+        .eq('id', user.id)
+        .single()
+
+      if (profileData) {
+        profile = profileData
       }
-    } else {
+    }
+
+    if (!profile || profile.role !== 'admin') {
+      return NextResponse.json({ error: '관리자 권한이 필요합니다' }, { status: 403 })
+    }
+
+    if (!rawServiceRoleKey) {
       console.warn('[API] SERVICE_ROLE_KEY가 설정되지 않았습니다. ANON_KEY를 사용합니다.')
     }
 
@@ -93,6 +108,111 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '이 계정은 변경할 수 없습니다.' }, { status: 400 })
     }
 
+    // 삭제인 경우 완전히 삭제 (기록에도 남지 않음)
+    if (status === 'deleted') {
+      console.log('[API] 사용자 완전 삭제 시작:', { userId })
+      
+      // 삭제는 반드시 SERVICE_ROLE_KEY를 사용해야 함
+      if (!rawServiceRoleKey) {
+        return NextResponse.json({ 
+          error: '삭제 기능은 SERVICE_ROLE_KEY가 필요합니다. 환경 변수를 확인해주세요.' 
+        }, { status: 500 })
+      }
+
+      // SERVICE_ROLE_KEY로 Admin 클라이언트 생성
+      const serviceRoleKey = rawServiceRoleKey.trim().replace(/[\r\n\t]/g, '').replace(/\s+/g, '')
+      
+      if (!serviceRoleKey || !serviceRoleKey.startsWith('eyJ')) {
+        return NextResponse.json({ 
+          error: 'SERVICE_ROLE_KEY가 유효하지 않습니다.' 
+        }, { status: 500 })
+      }
+
+      const adminClient = createAdminClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        serviceRoleKey
+      )
+
+      try {
+        // 1. 관련 데이터 먼저 삭제 (CASCADE가 작동하지 않는 경우 대비)
+        // blog_posts 삭제
+        const { error: deletePostsError } = await adminClient
+          .from('blog_posts')
+          .delete()
+          .eq('user_id', userId)
+        
+        if (deletePostsError) {
+          console.warn('[API] blog_posts 삭제 오류 (무시 가능):', deletePostsError)
+        } else {
+          console.log('[API] blog_posts 삭제 완료')
+        }
+
+        // qa_sets 삭제 (존재하는 경우)
+        const { error: deleteQaError } = await adminClient
+          .from('qa_sets')
+          .delete()
+          .eq('user_id', userId)
+        
+        if (deleteQaError) {
+          console.warn('[API] qa_sets 삭제 오류 (무시 가능):', deleteQaError)
+        } else {
+          console.log('[API] qa_sets 삭제 완료')
+        }
+
+        // 2. profiles 테이블에서 삭제 (SERVICE_ROLE_KEY 사용)
+        const { data: deleteResult, error: deleteProfileError } = await adminClient
+          .from('profiles')
+          .delete()
+          .eq('id', userId)
+          .select()
+
+        if (deleteProfileError) {
+          console.error('[API] 프로필 삭제 오류 상세:', {
+            message: deleteProfileError.message,
+            code: deleteProfileError.code,
+            details: deleteProfileError.details,
+            hint: deleteProfileError.hint
+          })
+          return NextResponse.json({ 
+            error: `프로필 삭제 실패: ${deleteProfileError.message || '알 수 없는 오류'}`,
+            errorCode: deleteProfileError.code,
+            hint: deleteProfileError.hint,
+            details: process.env.NODE_ENV === 'development' ? deleteProfileError : undefined
+          }, { status: 500 })
+        }
+
+        console.log('[API] 프로필 삭제 결과:', deleteResult)
+
+        // 3. auth.users에서도 삭제 (Admin API 사용)
+        try {
+          const { error: deleteAuthError } = await adminClient.auth.admin.deleteUser(userId)
+          if (deleteAuthError) {
+            console.warn('[API] auth.users 삭제 오류 (무시 가능):', deleteAuthError)
+            // auth.users 삭제 실패해도 profiles는 삭제되었으므로 성공으로 처리
+          } else {
+            console.log('[API] auth.users 삭제 성공')
+          }
+        } catch (authDeleteError: any) {
+          console.warn('[API] auth.users 삭제 시도 중 오류 (무시 가능):', authDeleteError)
+          // auth.users 삭제 실패해도 profiles는 삭제되었으므로 성공으로 처리
+        }
+
+        console.log('[API] 사용자 완전 삭제 성공:', { userId })
+
+        return NextResponse.json({ 
+          success: true, 
+          message: '사용자가 완전히 삭제되었습니다',
+          data: { id: userId, deleted: true }
+        })
+      } catch (error: any) {
+        console.error('[API] 삭제 중 예상치 못한 오류:', error)
+        return NextResponse.json({ 
+          error: `삭제 중 오류 발생: ${error.message || '알 수 없는 오류'}`,
+          details: process.env.NODE_ENV === 'development' ? String(error) : undefined
+        }, { status: 500 })
+      }
+    }
+
     // suspended는 그대로 유지 (정지 상태)
     const normalizedStatus = status
 
@@ -102,15 +222,21 @@ export async function POST(request: NextRequest) {
       payment_note: note || null
     }
 
-    if (normalizedStatus === 'deleted') {
-      updates.deleted_at = new Date().toISOString()
-    }
-
     if (normalizedStatus === 'active') {
       updates.suspended_at = null
       updates.grace_period_until = null
       updates.deleted_at = null
       updates.is_approved = true
+      // 활성화 시 user 역할을 fc로 변경
+      const { data: targetUser } = await updateClient
+        .from('profiles')
+        .select('role')
+        .eq('id', userId)
+        .single()
+      
+      if (targetUser?.role === 'user') {
+        updates.role = 'fc'
+      }
     }
 
     if (normalizedStatus === 'suspended') {

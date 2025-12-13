@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { GoogleGenerativeAI } from '@google/generative-ai'
-import { generateQuestionPrompt, generateAnswerPrompt, generateConversationThreadPrompt, ConversationMessage } from '@/lib/prompts/qa-prompt'
+import { generateQuestionPrompt, generateAnswerPrompt, generateConversationThreadPrompt, generateReviewMessagePrompt, generateReviewResponsePrompt, ConversationMessage } from '@/lib/prompts/qa-prompt'
 import { createClient } from '@/lib/supabase/server'
 import { searchGoogle, SearchResult } from '@/lib/google-search'
 
@@ -112,6 +112,7 @@ export async function POST(request: NextRequest) {
       feelingTone, 
       answerTone,
       customerStyle, // 고객 스타일: 'friendly' | 'cold' | 'brief' | 'curious'
+      answerLength, // 답변 길이: 'short' (150-250자) | 'default' (300-700자)
       designSheetImage,
       designSheetAnalysis, // 설계서 분석 결과 (보험료, 담보, 특약 등)
       questionTitle, // 답변 재생성 시 사용
@@ -502,6 +503,7 @@ export async function POST(request: NextRequest) {
           feelingTone: feelingTone || '고민',
           answerTone: answerTone || 'friendly',
           customerStyle: customerStyle || 'curious',
+          answerLength: answerLength || 'default', // 답변 길이 추가
           designSheetImage,
           designSheetAnalysis,
           searchResultsText
@@ -699,6 +701,203 @@ export async function POST(request: NextRequest) {
         console.log(`Step 3-${step} 완료:`, { role: newMessage.role, contentLength: threadContent.length })
       }
       
+      // 후기성 문구 자동 삽입 (대화 횟수에 포함되지 않음)
+      // 중간 위치: 4-5번째 댓글 이후에 삽입
+      const midInsertPosition = Math.min(5, Math.floor(totalSteps / 2))
+      const midInsertIndex = conversationThread.findIndex(msg => msg.step >= midInsertPosition)
+      
+      if (midInsertIndex > 0 && midInsertIndex < conversationThread.length) {
+        console.log('후기성 문구 1 (중간) 생성 중...')
+        
+        // 중간 후기성 문구 생성
+        const midReviewPrompt = generateReviewMessagePrompt(
+          {
+            productName,
+            targetPersona,
+            worryPoint,
+            sellingPoint,
+            feelingTone: feelingTone || '고민',
+            answerTone: answerTone || 'friendly',
+            customerStyle: customerStyle || 'curious',
+            designSheetImage,
+            designSheetAnalysis,
+            searchResultsText: searchResultsText || undefined
+          },
+          {
+            initialQuestion: {
+              title: finalQuestionTitle,
+              content: finalQuestionContent
+            },
+            firstAnswer: answerContent,
+            conversationHistory: conversationHistory.slice(0, midInsertIndex + 1),
+            productName
+          }
+        )
+        
+        const midReviewResult = await generateContentWithFallback(midReviewPrompt, designSheetImage, true)
+        let midReviewContent = midReviewResult.text
+        midReviewContent = midReviewContent.replace(/<ctrl\d+>/gi, '')
+        midReviewContent = midReviewContent.replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]/g, '')
+        midReviewContent = midReviewContent.replace(/```[\s\S]*?```/g, '').trim()
+        midReviewContent = midReviewContent.replace(/\[생성된 후기성 문구\]/g, '').trim()
+        midReviewContent = midReviewContent.trim()
+        
+        // 설계사 응답 생성
+        const midResponsePrompt = generateReviewResponsePrompt(
+          {
+            productName,
+            targetPersona,
+            worryPoint,
+            sellingPoint,
+            feelingTone: feelingTone || '고민',
+            answerTone: answerTone || 'friendly',
+            customerStyle: customerStyle || 'curious',
+            designSheetImage,
+            designSheetAnalysis,
+            searchResultsText: searchResultsText || undefined
+          },
+          {
+            initialQuestion: {
+              title: finalQuestionTitle,
+              content: finalQuestionContent
+            },
+            firstAnswer: answerContent,
+            conversationHistory: [...conversationHistory.slice(0, midInsertIndex + 1), {
+              role: 'customer',
+              content: midReviewContent,
+              step: 999 // 임시 step
+            }],
+            reviewMessage: midReviewContent,
+            productName
+          }
+        )
+        
+        const midResponseResult = await generateContentWithFallback(midResponsePrompt, designSheetImage, false)
+        let midResponseContent = midResponseResult.text
+        midResponseContent = midResponseContent.replace(/<ctrl\d+>/gi, '')
+        midResponseContent = midResponseContent.replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]/g, '')
+        midResponseContent = midResponseContent.replace(/```[\s\S]*?```/g, '').trim()
+        midResponseContent = midResponseContent.replace(/\[생성된 설계사 응답\]/g, '').trim()
+        midResponseContent = midResponseContent.trim()
+        
+        // 중간 위치에 삽입
+        const midReviewMessage: ConversationMessage = {
+          role: 'customer',
+          content: midReviewContent,
+          step: 999 // 대화 횟수에 포함되지 않음
+        }
+        const midResponseMessage: ConversationMessage = {
+          role: 'agent',
+          content: midResponseContent,
+          step: 1000 // 대화 횟수에 포함되지 않음
+        }
+        
+        conversationThread.splice(midInsertIndex + 1, 0, midReviewMessage, midResponseMessage)
+        conversationHistory.push(midReviewMessage, midResponseMessage)
+        
+        console.log('후기성 문구 1 (중간) 삽입 완료')
+      }
+      
+      // 마지막 후기성 문구 (설계사 마무리 직전)
+      console.log('후기성 문구 2 (마지막) 생성 중...')
+      
+      const lastReviewPrompt = generateReviewMessagePrompt(
+        {
+          productName,
+          targetPersona,
+          worryPoint,
+          sellingPoint,
+          feelingTone: feelingTone || '고민',
+          answerTone: answerTone || 'friendly',
+          customerStyle: customerStyle || 'curious',
+          designSheetImage,
+          designSheetAnalysis,
+          searchResultsText: searchResultsText || undefined
+        },
+        {
+          initialQuestion: {
+            title: finalQuestionTitle,
+            content: finalQuestionContent
+          },
+          firstAnswer: answerContent,
+          conversationHistory: conversationHistory,
+          productName
+        }
+      )
+      
+      const lastReviewResult = await generateContentWithFallback(lastReviewPrompt, designSheetImage, true)
+      let lastReviewContent = lastReviewResult.text
+      lastReviewContent = lastReviewContent.replace(/<ctrl\d+>/gi, '')
+      lastReviewContent = lastReviewContent.replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]/g, '')
+      lastReviewContent = lastReviewContent.replace(/```[\s\S]*?```/g, '').trim()
+      lastReviewContent = lastReviewContent.replace(/\[생성된 후기성 문구\]/g, '').trim()
+      lastReviewContent = lastReviewContent.trim()
+      
+      // 설계사 응답 생성
+      const lastResponsePrompt = generateReviewResponsePrompt(
+        {
+          productName,
+          targetPersona,
+          worryPoint,
+          sellingPoint,
+          feelingTone: feelingTone || '고민',
+          answerTone: answerTone || 'friendly',
+          customerStyle: customerStyle || 'curious',
+          designSheetImage,
+          designSheetAnalysis,
+          searchResultsText: searchResultsText || undefined
+        },
+        {
+          initialQuestion: {
+            title: finalQuestionTitle,
+            content: finalQuestionContent
+          },
+          firstAnswer: answerContent,
+          conversationHistory: [...conversationHistory, {
+            role: 'customer',
+            content: lastReviewContent,
+            step: 1999 // 임시 step
+          }],
+          reviewMessage: lastReviewContent,
+          productName
+        }
+      )
+      
+      const lastResponseResult = await generateContentWithFallback(lastResponsePrompt, designSheetImage, false)
+      let lastResponseContent = lastResponseResult.text
+      lastResponseContent = lastResponseContent.replace(/<ctrl\d+>/gi, '')
+      lastResponseContent = lastResponseContent.replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]/g, '')
+      lastResponseContent = lastResponseContent.replace(/```[\s\S]*?```/g, '').trim()
+      lastResponseContent = lastResponseContent.replace(/\[생성된 설계사 응답\]/g, '').trim()
+      lastResponseContent = lastResponseContent.trim()
+      
+      // 마지막 위치에 삽입 (설계사 마무리 직전)
+      const lastReviewMessage: ConversationMessage = {
+        role: 'customer',
+        content: lastReviewContent,
+        step: 1999 // 대화 횟수에 포함되지 않음
+      }
+      const lastResponseMessage: ConversationMessage = {
+        role: 'agent',
+        content: lastResponseContent,
+        step: 2000 // 대화 횟수에 포함되지 않음
+      }
+      
+      // 마지막 설계사 댓글 직전에 삽입
+      const lastAgentIndex = conversationThread.map((msg, idx) => ({ msg, idx }))
+        .filter(({ msg }) => msg.role === 'agent')
+        .pop()?.idx
+      
+      if (lastAgentIndex !== undefined && lastAgentIndex >= 0) {
+        conversationThread.splice(lastAgentIndex + 1, 0, lastReviewMessage, lastResponseMessage)
+      } else {
+        // 설계사 댓글이 없으면 맨 끝에 추가
+        conversationThread.push(lastReviewMessage, lastResponseMessage)
+      }
+      
+      conversationHistory.push(lastReviewMessage, lastResponseMessage)
+      
+      console.log('후기성 문구 2 (마지막) 삽입 완료')
       console.log('Step 3 완료:', { totalThreads: conversationThread.length })
     }
 

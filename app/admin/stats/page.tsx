@@ -15,14 +15,58 @@ export default async function AdminStatsPage() {
     redirect('/login')
   }
 
-  // 관리자 권한 확인 (필요한 필드만 선택)
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('id, role')
-    .eq('id', user.id)
-    .single()
+  // 관리자 권한 확인 (SERVICE_ROLE_KEY 사용 시도 - RLS 우회)
+  let profile: { id: string; role: string } | null = null
+  let profileError: any = null
+
+  try {
+    // SERVICE_ROLE_KEY 사용 시도
+    const rawServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+    if (rawServiceRoleKey) {
+      const serviceRoleKey = rawServiceRoleKey.trim().replace(/[\r\n\t]/g, '').replace(/\s+/g, '')
+      
+      if (serviceRoleKey && serviceRoleKey.length >= 50 && serviceRoleKey.startsWith('eyJ')) {
+        const { createClient: createAdminClient } = await import('@supabase/supabase-js')
+        const adminClient = createAdminClient(
+          process.env.NEXT_PUBLIC_SUPABASE_URL!,
+          serviceRoleKey
+        ) as any
+
+        const { data: profileData, error: err } = await adminClient
+          .from('profiles')
+          .select('id, role')
+          .eq('id', user.id)
+          .single()
+
+        if (!err && profileData) {
+          profile = profileData
+        } else {
+          profileError = err
+        }
+      }
+    }
+
+    // SERVICE_ROLE_KEY가 없거나 실패한 경우 일반 클라이언트 사용
+    if (!profile) {
+      const { data: profileData, error: err } = await supabase
+        .from('profiles')
+        .select('id, role')
+        .eq('id', user.id)
+        .single()
+
+      if (err) {
+        profileError = err
+      } else if (profileData) {
+        profile = profileData
+      }
+    }
+  } catch (error: any) {
+    console.error('프로필 조회 중 오류:', error)
+    profileError = error
+  }
 
   if (!profile || profile.role !== 'admin') {
+    console.error('관리자 권한 없음 또는 프로필 조회 실패:', { profile, profileError })
     redirect('/dashboard')
   }
 
