@@ -980,6 +980,58 @@ ${specialClauseInfo.length > 0 ? `- 설계서 특약: ${specialClauseInfo.join('
  * Step 3: 대화형 스레드 생성 프롬프트 (댓글 형식)
  * 첫 답변 이후 자연스러운 대화를 이어가는 댓글들을 생성
  */
+/**
+ * 맥락 요약 함수 (고급 최적화 전략)
+ * Step별로 다른 수준의 맥락 제공
+ */
+function formatInitialQuestionContext(
+  initialQuestion: { title: string; content: string },
+  currentStep: number
+): string {
+  // Step 3: 전체 맥락 (첫 댓글만)
+  if (currentStep === 3) {
+    return `제목: ${initialQuestion.title}
+본문: ${initialQuestion.content}`
+  }
+  
+  // Step 4-6: 요약 맥락 (150자)
+  if (currentStep <= 6) {
+    const summary = initialQuestion.content.length > 150
+      ? initialQuestion.content.slice(0, 150) + '...'
+      : initialQuestion.content
+    return `제목: ${initialQuestion.title}
+본문 요약: ${summary}`
+  }
+  
+  // Step 7-12: 최소 맥락 (제목만)
+  return `제목: ${initialQuestion.title}`
+}
+
+/**
+ * 첫 답변 요약 함수 (고급 최적화 전략)
+ */
+function formatFirstAnswerContext(
+  firstAnswer: string,
+  currentStep: number
+): string {
+  // Step 3: 전체 답변 (첫 댓글만)
+  if (currentStep === 3) {
+    return firstAnswer
+  }
+  
+  // Step 4-6: 300자 요약
+  if (currentStep <= 6) {
+    return firstAnswer.length > 300
+      ? firstAnswer.slice(0, 300) + '...'
+      : firstAnswer
+  }
+  
+  // Step 7-12: 200자 요약
+  return firstAnswer.length > 200
+    ? firstAnswer.slice(0, 200) + '...'
+    : firstAnswer
+}
+
 export function generateConversationThreadPrompt(
   data: QAPromptData,
   context: ConversationContext
@@ -1017,6 +1069,10 @@ export function generateConversationThreadPrompt(
   const premiumInfo = designSheetAnalysis?.premium || ''
   const coverageInfo = designSheetAnalysis?.coverages || []
   const specialClauseInfo = designSheetAnalysis?.specialClauses || []
+
+  // 고급 최적화: Step별 맥락 요약
+  const initialQuestionContext = formatInitialQuestionContext(initialQuestion, currentStep)
+  const firstAnswerContext = formatFirstAnswerContext(firstAnswer, currentStep)
 
   if (isCustomerTurn) {
     // 고객 스타일 가이드
@@ -1058,11 +1114,10 @@ export function generateConversationThreadPrompt(
 
 [이전 대화 맥락]
 초기 질문:
-제목: ${initialQuestion.title}
-본문: ${initialQuestion.content}
+${initialQuestionContext}
 
 설계사 첫 답변:
-${firstAnswer}
+${firstAnswerContext}
 
 ${previousMessages ? `이전 댓글들:\n${previousMessages}` : ''}
 
@@ -1083,6 +1138,7 @@ ${currentStyle.examples.map(ex => `     * "${ex}"`).join('\n')}
 2. **자연스러운 전환 문구 사용 (매우 중요!)**:
    - 이전 답변을 읽고 자연스럽게 이어지는 질문
    - **⚠️ 반복적인 전환 문구 절대 금지**: "아 그렇군요", "아 알겠습니다", "이해했습니다" 같은 반복적인 표현 사용 금지
+   - **⚠️ 반복적인 종결어미 절대 금지**: "궁금해요", "궁금햐요", "궁금합니다" 같은 표현을 연속으로 사용하지 마세요. 매번 다른 표현을 사용하세요 (예: "알고 싶어요", "확인하고 싶어요", "모르겠어요", "가능한지", "되는지", "맞나요", "적정한가요" 등)
    - **⚠️ 감사 인사나 정중함 최소화**: "감사합니다", "부탁드립니다" 같은 과도한 정중함은 피하세요 (${currentStyle.tone} 스타일에 맞게)
    - **전환 문구 다양화** (매번 다르게 선택, 총 25가지 패턴):
      * 패턴 A: "그렇다면..."
@@ -1141,8 +1197,8 @@ ${currentStyle.examples.map(ex => `     * "${ex}"`).join('\n')}
    - **자연스러운 맞춤법 오타 허용 (적절한 수준)**:
      * "했어요" → "햇어요" (가끔 허용)
      * "받았어요" → "받앗어요" (가끔 허용)
-     * "궁금해요" → "궁금햐요" (가끔 허용)
      * "알겠어요" → "알겟어요" (가끔 허용)
+   - **⚠️ "궁금해요", "궁금햐요" 같은 표현은 절대 반복하지 마세요**: 이전 댓글에서 사용했다면 다른 표현을 사용하세요
    - **주의**: 전체적으로 계속 오타를 사용하지 말고, 가끔 자연스러운 오타만 허용하세요
 
 5. **이전 답변 참조**:
@@ -1168,13 +1224,13 @@ ${currentStyle.examples.map(ex => `     * "${ex}"`).join('\n')}
        - 패턴 A: "[구체적 담보명] [금액] 적정한가요?"
        - 패턴 B: "[담보명]이 [조건]에도 적용되나요?"
        - 패턴 C: "[담보명] [금액]보다 더 추가 가입 가능한가요?"
-       - 패턴 D: "[담보명] [기간] 보장되는지 궁금해요"
+       - 패턴 D: "[담보명] [기간] 보장되는지 확인하고 싶어요"
        - 패턴 E: "[담보명] 특약 [조건] 맞나요?"
        - 패턴 F: "[담보명] [금액]으로 가입했는데 적정한가요?"
        - 패턴 G: "[담보명]이 [다른담보]에도 포함되나요?"
-       - 패턴 H: "[담보명] [기간]마다 보장되는지 확인하고 싶어요"
+       - 패턴 H: "[담보명] [기간]마다 보장되는지 알고 싶어요"
        - 패턴 I: "[담보명] [금액]보다 높게 가입할 수 있나요?"
-       - 패턴 J: "[담보명] [조건] 제한이 있는지 궁금해요"
+       - 패턴 J: "[담보명] [조건] 제한이 있는지 모르겠어요"
        - 패턴 K: "[담보명] [금액]이 ${age}대 ${gender === '남' ? '남성' : '여성'}에게 충분한가요?"
        - 패턴 L: "[담보명] [조건]에도 보장되나요?"
        - 패턴 M: "[담보명] [금액]으로 구성했는데 괜찮은가요?"
@@ -1197,10 +1253,11 @@ ${currentStyle.examples.map(ex => `     * "${ex}"`).join('\n')}
      * **전환 문구 있는 구조 (가끔만 사용, 10% 이하)**:
        - 구조 7: 전환 문구 → 구체적 질문 1개 (가끔만)
        - 구조 8: 전환 문구 → 구체적 질문 2개 (매우 가끔)
-   - **표현 방식 다양화**:
-     * "궁금해요" / "궁금합니다" / "알고 싶어요" / "확인하고 싶어요" / "모르겠어요"
-     * "가능한지" / "되는지" / "포함되는지" / "적용되는지"
-   - **절대 반복하지 마세요**: 이전에 생성한 댓글과 동일한 패턴이나 구조를 사용하지 마세요
+   - **표현 방식 다양화 (매우 중요!)**:
+     * **⚠️ "궁금해요", "궁금햐요", "궁금합니다" 같은 표현은 절대 반복하지 마세요**
+     * **다양한 표현 사용**: "알고 싶어요" / "확인하고 싶어요" / "모르겠어요" / "가능한지" / "되는지" / "포함되는지" / "적용되는지" / "맞나요" / "적정한가요" / "충분한가요" / "필요한가요" / "괜찮은가요" 등
+     * **매번 다른 종결어미 사용**: 이전 댓글에서 사용한 종결어미를 다시 사용하지 마세요
+   - **절대 반복하지 마세요**: 이전에 생성한 댓글과 동일한 패턴, 구조, 종결어미를 사용하지 마세요
 
 9. **⚠️ 마침표(.) 사용 절대 금지**: 
    - 문장 끝에 마침표를 사용하지 마세요
@@ -1240,11 +1297,10 @@ ${currentStyle.examples.map(ex => `     * "${ex}"`).join('\n')}
 
 [이전 대화 맥락]
 초기 질문:
-제목: ${initialQuestion.title}
-본문: ${initialQuestion.content}
+${initialQuestionContext}
 
 설계사 첫 답변:
-${firstAnswer}
+${firstAnswerContext}
 
 ${previousMessages ? `이전 댓글들:\n${previousMessages}` : ''}
 
