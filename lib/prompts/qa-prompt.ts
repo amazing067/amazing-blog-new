@@ -980,58 +980,6 @@ ${specialClauseInfo.length > 0 ? `- 설계서 특약: ${specialClauseInfo.join('
  * Step 3: 대화형 스레드 생성 프롬프트 (댓글 형식)
  * 첫 답변 이후 자연스러운 대화를 이어가는 댓글들을 생성
  */
-/**
- * 맥락 요약 함수 (고급 최적화 전략)
- * Step별로 다른 수준의 맥락 제공
- */
-function formatInitialQuestionContext(
-  initialQuestion: { title: string; content: string },
-  currentStep: number
-): string {
-  // Step 3: 전체 맥락 (첫 댓글만)
-  if (currentStep === 3) {
-    return `제목: ${initialQuestion.title}
-본문: ${initialQuestion.content}`
-  }
-  
-  // Step 4-6: 요약 맥락 (150자)
-  if (currentStep <= 6) {
-    const summary = initialQuestion.content.length > 150
-      ? initialQuestion.content.slice(0, 150) + '...'
-      : initialQuestion.content
-    return `제목: ${initialQuestion.title}
-본문 요약: ${summary}`
-  }
-  
-  // Step 7-12: 최소 맥락 (제목만)
-  return `제목: ${initialQuestion.title}`
-}
-
-/**
- * 첫 답변 요약 함수 (고급 최적화 전략)
- */
-function formatFirstAnswerContext(
-  firstAnswer: string,
-  currentStep: number
-): string {
-  // Step 3: 전체 답변 (첫 댓글만)
-  if (currentStep === 3) {
-    return firstAnswer
-  }
-  
-  // Step 4-6: 300자 요약
-  if (currentStep <= 6) {
-    return firstAnswer.length > 300
-      ? firstAnswer.slice(0, 300) + '...'
-      : firstAnswer
-  }
-  
-  // Step 7-12: 200자 요약
-  return firstAnswer.length > 200
-    ? firstAnswer.slice(0, 200) + '...'
-    : firstAnswer
-}
-
 export function generateConversationThreadPrompt(
   data: QAPromptData,
   context: ConversationContext
@@ -1069,10 +1017,6 @@ export function generateConversationThreadPrompt(
   const premiumInfo = designSheetAnalysis?.premium || ''
   const coverageInfo = designSheetAnalysis?.coverages || []
   const specialClauseInfo = designSheetAnalysis?.specialClauses || []
-
-  // 고급 최적화: Step별 맥락 요약
-  const initialQuestionContext = formatInitialQuestionContext(initialQuestion, currentStep)
-  const firstAnswerContext = formatFirstAnswerContext(firstAnswer, currentStep)
 
   if (isCustomerTurn) {
     // 고객 스타일 가이드
@@ -1114,10 +1058,11 @@ export function generateConversationThreadPrompt(
 
 [이전 대화 맥락]
 초기 질문:
-${initialQuestionContext}
+제목: ${initialQuestion.title}
+본문: ${initialQuestion.content}
 
 설계사 첫 답변:
-${firstAnswerContext}
+${firstAnswer}
 
 ${previousMessages ? `이전 댓글들:\n${previousMessages}` : ''}
 
@@ -1297,10 +1242,11 @@ ${currentStyle.examples.map(ex => `     * "${ex}"`).join('\n')}
 
 [이전 대화 맥락]
 초기 질문:
-${initialQuestionContext}
+제목: ${initialQuestion.title}
+본문: ${initialQuestion.content}
 
 설계사 첫 답변:
-${firstAnswerContext}
+${firstAnswer}
 
 ${previousMessages ? `이전 댓글들:\n${previousMessages}` : ''}
 
