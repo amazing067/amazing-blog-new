@@ -772,7 +772,7 @@ export async function POST(request: NextRequest) {
           }
         )
         
-        const midResponseResult = await generateContentWithFallback(midResponsePrompt, designSheetImage, false)
+        const midResponseResult = await generateContentWithFallback(midResponsePrompt, designSheetImage, true)
         let midResponseContent = midResponseResult.text
         midResponseContent = midResponseContent.replace(/<ctrl\d+>/gi, '')
         midResponseContent = midResponseContent.replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]/g, '')
@@ -863,7 +863,7 @@ export async function POST(request: NextRequest) {
         }
       )
       
-      const lastResponseResult = await generateContentWithFallback(lastResponsePrompt, designSheetImage, false)
+      const lastResponseResult = await generateContentWithFallback(lastResponsePrompt, designSheetImage, true)
       let lastResponseContent = lastResponseResult.text
       lastResponseContent = lastResponseContent.replace(/<ctrl\d+>/gi, '')
       lastResponseContent = lastResponseContent.replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]/g, '')
