@@ -719,12 +719,6 @@ export async function POST(request: NextRequest) {
           searchResultsText: searchResultsText || undefined
         },
         {
-          initialQuestion: {
-            title: finalQuestionTitle,
-            content: finalQuestionContent
-          },
-          firstAnswer: answerContent,
-          conversationHistory: conversationHistory,
           productName
         }
       )
@@ -752,16 +746,6 @@ export async function POST(request: NextRequest) {
           searchResultsText: searchResultsText || undefined
         },
         {
-          initialQuestion: {
-            title: finalQuestionTitle,
-            content: finalQuestionContent
-          },
-          firstAnswer: answerContent,
-          conversationHistory: [...conversationHistory, {
-            role: 'customer',
-            content: lastReviewContent,
-            step: 1999 // 임시 step
-          }],
           reviewMessage: lastReviewContent,
           productName
         }
