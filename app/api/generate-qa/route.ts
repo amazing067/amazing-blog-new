@@ -703,8 +703,23 @@ export async function POST(request: NextRequest) {
       
       // 후기성 문구 자동 삽입 (대화 횟수에 포함되지 않음)
       // 중간 위치: 4-5번째 댓글 이후에 삽입
+      // 삽입 위치 다음 댓글이 고객이면 안 되므로, 설계사 댓글 다음에 삽입하도록 조정
       const midInsertPosition = Math.min(5, Math.floor(totalSteps / 2))
-      const midInsertIndex = conversationThread.findIndex(msg => msg.step >= midInsertPosition)
+      let midInsertIndex = conversationThread.findIndex(msg => msg.step >= midInsertPosition)
+      
+      // 삽입 위치 다음 댓글이 고객이면, 그 다음 설계사 댓글 다음으로 이동
+      if (midInsertIndex >= 0 && midInsertIndex < conversationThread.length - 1) {
+        const nextMessage = conversationThread[midInsertIndex + 1]
+        if (nextMessage && nextMessage.role === 'customer') {
+          // 다음 댓글이 고객이면, 그 다음 설계사 댓글을 찾아서 그 다음에 삽입
+          const nextAgentIndex = conversationThread.findIndex((msg, idx) => 
+            idx > midInsertIndex && msg.role === 'agent'
+          )
+          if (nextAgentIndex > 0) {
+            midInsertIndex = nextAgentIndex
+          }
+        }
+      }
       
       if (midInsertIndex > 0 && midInsertIndex < conversationThread.length) {
         console.log('후기성 문구 1 (중간) 생성 중...')
@@ -907,7 +922,15 @@ export async function POST(request: NextRequest) {
     // ============================================
     const totalUsage = calculateTotalUsage()
     const costEstimate = estimateCost(tokenUsage)
+    const customSearchCost = customSearchCount * 0.0005 // 커스텀 서치 비용 (USD, $0.0005 per search)
+    
+    // 서치 비용을 총 비용에 포함
+    const totalCostWithSearch = costEstimate.totalCost !== null && customSearchCost > 0
+      ? costEstimate.totalCost + customSearchCost
+      : costEstimate.totalCost
+    
     console.log('📊 총 토큰 사용량:', totalUsage)
+    console.log('📊 서치 비용:', customSearchCost, '총 비용 (토큰 + 서치):', totalCostWithSearch)
 
     // 사용량 로그 (실패해도 응답은 진행)
     const usageLogMeta = {
@@ -915,9 +938,10 @@ export async function POST(request: NextRequest) {
       conversationMode,
       generateStep: requestedStep,
       tokenBreakdown: tokenUsage, // 모델별 토큰 사용량 (비용 계산용)
-      costEstimate: costEstimate.totalCost, // 총 비용 (USD)
+      costEstimate: totalCostWithSearch, // 총 비용 (토큰 + 서치, USD)
+      tokenCost: costEstimate.totalCost, // 토큰 비용만 (USD)
       customSearchCount: customSearchCount, // 커스텀 서치 횟수
-      customSearchCost: customSearchCount * 0.0005, // 커스텀 서치 비용 (USD, $0.0005 per search)
+      customSearchCost: customSearchCost, // 커스텀 서치 비용 (USD, $0.0005 per search)
     }
     
     console.log('[Q&A 생성] usage_logs 저장할 데이터:', {
@@ -964,7 +988,12 @@ export async function POST(request: NextRequest) {
         completionTokens: totalUsage.candidatesTokens,
         totalTokens: totalUsage.totalTokens,
         breakdown: tokenUsage,
-        costEstimate
+        costEstimate: {
+          ...costEstimate,
+          totalCost: totalCostWithSearch, // 서치 비용 포함
+          customSearchCost: customSearchCost,
+          customSearchCount: customSearchCount
+        }
       },
       metadata: {
         productName,
