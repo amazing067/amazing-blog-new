@@ -12,6 +12,13 @@ export async function GET(request: NextRequest) {
     tests: {}
   }
 
+  // 민감 키 전체 노출을 피하기 위한 마스킹
+  const maskKey = (key?: string | null) => {
+    if (!key) return null
+    if (key.length <= 12) return `${key.slice(0, 4)}...${key.slice(-2)}`
+    return `${key.slice(0, 8)}...${key.slice(-4)}`
+  }
+
   // 1. Gemini API 테스트
   try {
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '')
@@ -92,7 +99,13 @@ export async function GET(request: NextRequest) {
     hasGoogleApiKey: !!process.env.GOOGLE_API_KEY,
     hasCustomSearchApiKey: !!process.env.GOOGLE_CUSTOM_SEARCH_API_KEY,
     hasCustomSearchEngineId: !!process.env.GOOGLE_CUSTOM_SEARCH_ENGINE_ID,
-    hasSheetsId: !!process.env.GOOGLE_SHEETS_ID
+    hasSheetsId: !!process.env.GOOGLE_SHEETS_ID,
+    masked: {
+      geminiKey: maskKey(process.env.GEMINI_API_KEY),
+      googleApiKey: maskKey(process.env.GOOGLE_API_KEY),
+      customSearchKey: maskKey(process.env.GOOGLE_CUSTOM_SEARCH_API_KEY),
+      sheetsId: maskKey(process.env.GOOGLE_SHEETS_ID)
+    }
   }
 
   // 전체 상태 요약
