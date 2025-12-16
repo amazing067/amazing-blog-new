@@ -849,6 +849,12 @@ export async function POST(request: NextRequest) {
         threadContent = threadContent.replace(/\[생성된 댓글\]/g, '').trim()
         threadContent = threadContent.trim()
         
+        // 대화형 스레드 댓글 길이 제한
+        // 고객 댓글: 50-100자 목표, 최대 150자
+        // 설계사 댓글: 100-120자 목표 (초반), 80-120자 (중반), 60-120자 (후반), 최대 150자
+        const maxLength = isCustomerTurn ? 150 : 150 // 고객/설계사 모두 최대 150자
+        threadContent = enforceAnswerLength(threadContent, maxLength)
+        
         // 히스토리에 추가
         const newMessage: ConversationMessage = {
           role: isCustomerTurn ? 'customer' : 'agent',
