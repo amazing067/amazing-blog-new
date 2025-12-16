@@ -92,9 +92,9 @@ const formatSearchResultsForPrompt = (results: SearchResult[]): string => {
     .join('\n')
 }
 
-// 답변 길이 제한 함수 (문장 단위로 자르기 - 의미 보존)
+// 답변 길이 제한 함수 (정확히 maxLength로 맞추기 - 의미 보존, 문장 중간 끊김 방지)
 // 카페 답변은 마침표를 사용하지 않으므로, 줄바꿈과 자연스러운 구분점을 기준으로 자름
-const enforceAnswerLength = (content: string, maxLength: number = 200): string => {
+const enforceAnswerLength = (content: string, maxLength: number = 120): string => {
   if (!content || content.length <= maxLength) {
     return content
   }
@@ -102,12 +102,12 @@ const enforceAnswerLength = (content: string, maxLength: number = 200): string =
   // 1. 문단 단위로 분리
   const paragraphs = content.split(/\n\s*\n/).filter(p => p.trim().length > 0)
   
-  // 2. 문단 단위로 자르기 시도
+  // 2. 문단 단위로 자르기 시도 (정확히 maxLength 이하로)
   let result = ''
   for (const paragraph of paragraphs) {
     const testResult = result ? `${result}\n\n${paragraph}` : paragraph
     
-    if (testResult.length <= maxLength - 10) { // 10자 여유
+    if (testResult.length <= maxLength) {
       result = testResult
     } else {
       // 이 문단을 추가하면 초과하므로, 문장 단위로 자르기
@@ -122,20 +122,58 @@ const enforceAnswerLength = (content: string, maxLength: number = 200): string =
           ? (result.endsWith('\n\n') ? `${result}${sentence}` : `${result}\n\n${sentence}`)
           : sentence
         
-        if (testSentence.length <= maxLength - 10) {
+        if (testSentence.length <= maxLength) {
           result = testSentence
         } else {
-          // 이 문장을 추가하면 초과하므로, 단어 단위로 자르기 (최후의 수단)
+          // 이 문장을 추가하면 초과하므로, 문장 끝에서만 자르기 (문장 중간 끊김 방지)
           if (result) {
-            const remaining = maxLength - result.length - 10
-            if (remaining > 20) { // 최소 20자는 남겨야 의미가 있음
-              const truncated = sentence.slice(0, remaining).trim()
-              // 마지막 단어가 잘리지 않도록 공백 기준으로 자르기
-              const lastSpace = truncated.lastIndexOf(' ')
-              if (lastSpace > truncated.length * 0.7) { // 70% 이상이면 공백 기준으로 자르기
-                result = result + '\n\n' + truncated.slice(0, lastSpace)
+            // result에 이미 완성된 문장들이 있으므로 그대로 반환
+            // 단, result가 너무 짧으면(50자 미만) 문장을 단어 단위로 자르기 시도
+            if (result.length < 50 && sentence.length > 0) {
+              const remaining = maxLength - result.length
+              if (remaining > 20) {
+                const words = sentence.split(/\s+/)
+                let truncated = ''
+                
+                for (const word of words) {
+                  const testWord = truncated ? `${truncated} ${word}` : word
+                  const testResult = result ? `${result}\n\n${testWord}` : testWord
+                  if (testResult.length <= maxLength) {
+                    truncated = testWord
+                  } else {
+                    break
+                  }
+                }
+                
+                if (truncated.length > 0) {
+                  result = result ? `${result}\n\n${truncated}` : truncated
+                }
+              }
+            }
+            break
+          } else {
+            // result가 비어있으면, 문장을 단어 단위로 자르기
+            const remaining = maxLength
+            if (remaining > 20) {
+              // 문장을 단어 단위로 나누기 (공백 기준)
+              const words = sentence.split(/\s+/)
+              let truncated = ''
+              
+              for (const word of words) {
+                const testWord = truncated ? `${truncated} ${word}` : word
+                if (testWord.length <= remaining) {
+                  truncated = testWord
+                } else {
+                  // 이 단어를 추가하면 초과하므로, 이전까지로 자르기
+                  break
+                }
+              }
+              
+              if (truncated.length > 0) {
+                result = truncated
               } else {
-                result = result + '\n\n' + truncated
+                // 단어도 없으면 최소한 앞부분만
+                result = sentence.slice(0, remaining)
               }
             }
           }
@@ -154,10 +192,80 @@ const enforceAnswerLength = (content: string, maxLength: number = 200): string =
     result = ''
     for (const paragraph of paragraphs) {
       const testResult = result ? `${result}\n\n${paragraph}` : paragraph
-      if (testResult.length <= maxLength - 10) {
+      if (testResult.length <= maxLength) {
         result = testResult
       } else {
+        // 문단이 너무 길면 앞부분만 자르기 (단어 단위로)
+        const remaining = maxLength - result.length
+        if (remaining > 20) {
+          // 문장을 단어 단위로 나누기
+          const words = paragraph.split(/\s+/)
+          let truncated = ''
+          
+          for (const word of words) {
+            const testWord = truncated ? `${truncated} ${word}` : word
+            if (testWord.length <= remaining) {
+              truncated = testWord
+            } else {
+              break
+            }
+          }
+          
+          if (truncated.length > 0) {
+            result = result + '\n\n' + truncated
+          } else {
+            result = result + '\n\n' + paragraph.slice(0, remaining)
+          }
+        }
         break
+      }
+    }
+  }
+  
+  // 4. 최종 결과가 maxLength를 초과하면 강제로 자르기 (단어 단위로)
+  if (result.length > maxLength) {
+    // 단어 단위로 자르기 (문장 중간 끊김 방지)
+    const words = result.split(/\s+/)
+    let truncated = ''
+    
+    for (const word of words) {
+      const testWord = truncated ? `${truncated} ${word}` : word
+      if (testWord.length <= maxLength) {
+        truncated = testWord
+      } else {
+        break
+      }
+    }
+    
+    if (truncated.length > 0) {
+      result = truncated
+    } else {
+      // 단어도 없으면 최소한 앞부분만 (최후의 수단)
+      result = result.slice(0, maxLength).trim()
+      const lastSpace = result.lastIndexOf(' ')
+      if (lastSpace > result.length * 0.7) {
+        result = result.slice(0, lastSpace)
+      }
+    }
+  }
+  
+  // 5. 문장 완성 확인 및 미완성 문장 제거 (문장 중간 끊김 방지)
+  const lines = result.split('\n').filter(line => line.trim().length > 0)
+  if (lines.length > 0) {
+    const lastLine = lines[lines.length - 1].trim()
+    // 마지막 줄이 완전한 문장인지 확인 (한국어 문장 끝 패턴 체크)
+    const isCompleteSentence = /(습니다|해요|입니다|되나요|가요|나요|어요|아요|예요|이에요|세요|세요|^^|~|!|\?|수 있습니다|가능합니다|받으실 수 있습니다|보장받으실)$/.test(lastLine)
+    
+    if (!isCompleteSentence && lines.length > 1) {
+      // 마지막 줄이 완성되지 않았으면 제거 (이전 문장까지만 포함)
+      lines.pop()
+      result = lines.join('\n\n').trim()
+    } else if (!isCompleteSentence && lines.length === 1) {
+      // 문장이 하나뿐이고 미완성인 경우, 공백 기준으로 마지막 단어 제거 시도
+      const words = lastLine.split(/\s+/)
+      if (words.length > 1) {
+        words.pop() // 마지막 단어 제거
+        result = words.join(' ').trim()
       }
     }
   }
@@ -287,8 +395,12 @@ export async function POST(request: NextRequest) {
     
     console.log('[Q&A 생성] 최종 커스텀 서치 횟수:', customSearchCount)
     
-    // API 호출 헬퍼 함수 (재시도 및 폴백 로직 포함, 이미지 지원, 하이브리드 모델 선택)
+    // API 호출 헬퍼 함수 (재시도 및 폴백 로직 포함, 이미지 지원)
     // 
+    // 폴백 순서:
+    // 1. Gemini-2.5-Pro
+    // 2. Gemini-2.0-Flash (실패 시)
+    //
     // Flash 사용 위치 (비용 절감):
     // - 질문 생성 (Step 1)
     // - 고객 댓글 (대화형 모드, 홀수 step)
@@ -296,18 +408,16 @@ export async function POST(request: NextRequest) {
     // Pro 사용 위치 (품질 유지):
     // - 답변 생성 (Step 2)
     // - 설계사 댓글 (대화형 모드, 짝수 step)
-    //
-    // 폴백 로직: 할당량 초과 시에만 다른 모델로 폴백
     const generateContentWithFallback = async (
       prompt: string, 
       imageBase64?: string | null,
-      useFlash: boolean = false // true: Flash 사용, false: Pro 사용
-    ): Promise<{ text: string; usage?: TokenUsage }> => {
-      // 하이브리드 방식: useFlash가 true면 Flash 우선, false면 Pro 우선
-      // 할당량 초과 시에만 폴백 (일반 에러는 즉시 실패)
-      const models = useFlash 
-        ? ['gemini-2.0-flash', 'gemini-2.5-pro'] // Flash 우선 → 할당량 초과 시 Pro 폴백
-        : ['gemini-2.5-pro', 'gemini-2.0-flash'] // Pro 우선 → 할당량 초과 시 Flash 폴백
+      useFlash: boolean = false // true: Flash 우선, false: Pro 우선
+    ): Promise<{ text: string; usage?: TokenUsage; provider?: 'gemini' }> => {
+      // Gemini만 사용: Gemini-2.5-Pro → Gemini-2.0-Flash (항상 Pro 먼저 시도)
+      const models = [
+        { provider: 'gemini' as const, model: 'gemini-2.5-pro' },
+        { provider: 'gemini' as const, model: 'gemini-2.0-flash' }
+      ]
       
       // 이미지가 있으면 MIME 타입 감지
       let mimeType = 'image/png'
@@ -326,18 +436,29 @@ export async function POST(request: NextRequest) {
         }
       }
       
+      // Gemini 폴백 순서로 시도
+      console.log('[Q&A 생성] 🔄 Gemini 폴백 순서 시작: Gemini-2.5-Pro → Gemini-2.0-Flash')
+      
       for (let attempt = 0; attempt < models.length; attempt++) {
-        const modelName = models[attempt]
-        // 그라운딩 활성화 (Google Search 통합)
-        const model = genAI.getGenerativeModel({ 
-          model: modelName,
-          tools: [{ googleSearch: {} }] as any // Google Grounding 활성화 (타입 체크 우회)
-        })
+        const { provider, model: modelName } = models[attempt]
         
         try {
-          console.log(`모델 시도: ${modelName} (시도 ${attempt + 1}/${models.length}, 그라운딩: 활성화)`)
+          console.log(`[Q&A 생성] ${provider.toUpperCase()} 모델 시도: ${modelName} (시도 ${attempt + 1}/${models.length})`)
           
-          // 이미지가 있으면 이미지와 텍스트를 함께 전송
+          let text = ''
+          let usage: TokenUsage | undefined
+          
+          // Gemini만 사용
+          const model = genAI.getGenerativeModel({ 
+            model: modelName,
+            tools: [{ googleSearch: {} }] as any // Google Grounding 활성화
+          })
+          
+          // 프롬프트 길이 로깅 (할당량 초과 진단용)
+          const promptLength = prompt.length
+          const estimatedTokens = Math.ceil(promptLength / 4) // 대략적인 토큰 추정 (1 토큰 ≈ 4 문자)
+          console.log(`[Q&A 생성] [${modelName}] 프롬프트 길이: ${promptLength} 문자 (약 ${estimatedTokens} 토큰)`)
+          
           let result
           if (imageBase64 && base64Data) {
             result = await model.generateContent([
@@ -350,143 +471,83 @@ export async function POST(request: NextRequest) {
               prompt
             ])
           } else {
-            // 이미지가 없으면 텍스트만 전송
             result = await model.generateContent(prompt)
           }
           
           const response = await result.response
-          const text = response.text().trim()
+          text = response.text().trim()
           
-          // 그라운딩 결과 확인 및 로그 출력
+          // 그라운딩 결과 확인
           const groundingMetadata = response.candidates?.[0]?.groundingMetadata as any
           if (groundingMetadata) {
-            console.log(`[${modelName}] 🔍 그라운딩 결과:`)
+            console.log(`[Q&A 생성] [${modelName}] 🔍 그라운딩 결과:`)
             console.log(`  - 웹 검색 쿼리:`, groundingMetadata.webSearchQueries || [])
             const chunks = groundingMetadata.groundingChunks || groundingMetadata.groundingChuncks || []
             console.log(`  - 검색된 청크 수:`, chunks.length)
-            if (chunks.length > 0) {
-              console.log(`  - 검색된 청크 샘플:`)
-              chunks.slice(0, 3).forEach((chunk: any, idx: number) => {
-                console.log(`    [${idx + 1}] ${chunk.web?.uri || chunk.retrievalMetadata?.uri || '알 수 없음'}`)
-              })
-            }
-          } else {
-            console.log(`[${modelName}] ⚠️ 그라운딩 메타데이터가 없습니다. (그라운딩이 실행되지 않았을 수 있음)`)
           }
           
           // 토큰 사용량 추출
           const usageMetadata = response.usageMetadata
-          const usage: TokenUsage = {
+          usage = {
             model: modelName,
             promptTokens: usageMetadata?.promptTokenCount || 0,
             candidatesTokens: usageMetadata?.candidatesTokenCount || 0,
             totalTokens: usageMetadata?.totalTokenCount || 0
           }
           
-          if (usage.totalTokens > 0) {
-            console.log(`토큰 사용량 (${modelName}):`, usage)
-            tokenUsage.push(usage)
+          if (text) {
+            console.log(`[Q&A 생성] ✅ Gemini 성공! (${modelName})`)
+            if (usage && usage.totalTokens > 0) {
+              tokenUsage.push(usage)
+            }
+            // RPM 150 제한 대응: 성공 후 1초 지연 (동시 요청 방지)
+            await new Promise(resolve => setTimeout(resolve, 1000))
+            return { text, usage, provider: 'gemini' }
           }
-          
-          return { text, usage }
         } catch (error: any) {
           const errorMessage = error?.message || ''
           const errorString = JSON.stringify(error || {})
           
-          // 429 에러 또는 할당량 관련 에러 감지 (더 포괄적으로)
           const isQuotaError = 
             errorMessage.includes('429') || 
             errorMessage.includes('quota') || 
             errorMessage.includes('rate limit') ||
             errorMessage.includes('Too Many Requests') ||
             errorMessage.includes('exceeded') ||
+            errorMessage.includes('Resource has been exhausted') ||
             errorString.includes('free_tier') ||
-            errorString.includes('QuotaFailure')
+            errorString.includes('QuotaFailure') ||
+            errorMessage.includes('insufficient_quota')
           
-          const errorCode = error?.code || error?.status || 'unknown'
-          console.error(`${modelName} 모델 호출 실패:`, {
+          console.error(`[Q&A 생성] ${provider.toUpperCase()} ${modelName} 실패:`, {
+            provider,
             model: modelName,
-            error: errorMessage.substring(0, 500), // 처음 500자만
-            code: errorCode,
-            isQuotaError,
-            hasFreeTier: errorString.includes('free_tier')
+            error: errorMessage.substring(0, 500),
+            isQuotaError
           })
           
           // 할당량 에러이고 마지막 모델이 아니면 다음 모델로 시도
           if (isQuotaError && attempt < models.length - 1) {
             const nextModel = models[attempt + 1]
-            console.log(`⚠️ ${modelName} 할당량 초과 → ${nextModel} 모델로 폴백 시도...`)
-            // 지수 백오프: 2초, 4초, 8초... (최대 10초)
-            const backoffDelay = Math.min(2000 * Math.pow(2, attempt), 10000)
-            console.log(`⏳ ${backoffDelay / 1000}초 대기 후 재시도...`)
-            await new Promise(resolve => setTimeout(resolve, backoffDelay))
+            console.log(`[Q&A 생성] ⚠️ ${modelName} 할당량 초과 → ${nextModel.provider.toUpperCase()} ${nextModel.model} 모델로 폴백 시도...`)
+            // RPM 150 제한 대응: 할당량 초과 시 1초 지연 후 재시도
+            console.log(`[Q&A 생성] ⏳ 1초 대기 후 재시도...`)
+            await new Promise(resolve => setTimeout(resolve, 1000))
             continue
           }
           
-          // 할당량 에러이고 마지막 모델이면 더 긴 대기 후 재시도 (최대 3회)
-          if (isQuotaError && attempt === models.length - 1) {
-            const maxRetries = 3
-            for (let retry = 0; retry < maxRetries; retry++) {
-              const backoffDelay = Math.min(5000 * Math.pow(2, retry), 30000) // 5초, 10초, 20초 (최대 30초)
-              console.log(`⏳ 할당량 초과 - ${backoffDelay / 1000}초 대기 후 재시도... (${retry + 1}/${maxRetries})`)
-              await new Promise(resolve => setTimeout(resolve, backoffDelay))
-              
-              try {
-                // 이미지가 있으면 이미지와 텍스트를 함께 전송
-                let result
-                if (imageBase64 && base64Data) {
-                  result = await model.generateContent([
-                    {
-                      inlineData: {
-                        data: base64Data,
-                        mimeType: mimeType
-                      }
-                    },
-                    prompt
-                  ])
-                } else {
-                  result = await model.generateContent(prompt)
-                }
-                
-                const response = await result.response
-                const text = response.text().trim()
-                
-                const usageMetadata = response.usageMetadata
-                const usage: TokenUsage = {
-                  model: modelName,
-                  promptTokens: usageMetadata?.promptTokenCount || 0,
-                  candidatesTokens: usageMetadata?.candidatesTokenCount || 0,
-                  totalTokens: usageMetadata?.totalTokenCount || 0
-                }
-                
-                if (usage.totalTokens > 0) {
-                  console.log(`✅ 재시도 성공! 토큰 사용량 (${modelName}):`, usage)
-                  tokenUsage.push(usage)
-                }
-                
-                return { text, usage }
-              } catch (retryError: any) {
-                const retryErrorMessage = retryError?.message || ''
-                const isStillQuotaError = retryErrorMessage.includes('429') || retryErrorMessage.includes('quota')
-                
-                if (!isStillQuotaError || retry === maxRetries - 1) {
-                  // 할당량 에러가 아니거나 마지막 재시도면 에러 던지기
-                  throw retryError
-                }
-                // 계속 재시도
-                console.log(`⚠️ 재시도 실패, 계속 시도...`)
-              }
-            }
-          }
-          
-          // 마지막 모델이거나 할당량 에러가 아니면 에러 던지기
-          if (attempt === models.length - 1) {
-            throw error
+          // 마지막 모델이 아니면 다음 모델로 시도
+          if (attempt < models.length - 1) {
+            const nextModel = models[attempt + 1]
+            console.log(`[Q&A 생성] ⚠️ ${modelName} 실패 → ${nextModel.provider.toUpperCase()} ${nextModel.model} 모델로 폴백 시도...`)
+            // RPM 150 제한 대응: 실패 시 1초 지연 후 재시도
+            await new Promise(resolve => setTimeout(resolve, 1000))
+            continue
           }
         }
       }
       
-      throw new Error('모든 모델 시도 실패')
+      throw new Error('모든 모델 시도 실패 (Gemini-2.5-Pro → Gemini-2.0-Flash)')
     }
     
     // 토큰 사용량 합계 계산
@@ -508,7 +569,10 @@ export async function POST(request: NextRequest) {
 
     // Step 1: 질문 생성
     if (requestedStep === 'question' || requestedStep === 'all') {
-      if (!questionTitle || !questionContent) {
+      // generateStep이 'all'이면 항상 질문 생성, 'question'이면 기존 질문이 없을 때만 생성
+      const shouldGenerateQuestion = requestedStep === 'all' || !questionTitle || !questionContent
+      
+      if (shouldGenerateQuestion) {
         console.log('Step 1: 질문 생성 중...')
       const questionPrompt = generateQuestionPrompt({
         productName,
@@ -523,8 +587,15 @@ export async function POST(request: NextRequest) {
         searchResultsText
       })
 
+      // 프롬프트 길이 로깅 (할당량 초과 진단용)
+      const questionPromptLength = questionPrompt.length
+      const questionEstimatedTokens = Math.ceil(questionPromptLength / 4)
+      console.log(`[Q&A 생성] [Step 1] 질문 생성 프롬프트 길이: ${questionPromptLength} 문자 (약 ${questionEstimatedTokens} 토큰)`)
+
       // 하이브리드: 질문 생성은 Flash 사용 (비용 절감)
       const questionResult = await generateContentWithFallback(questionPrompt, designSheetImage, true)
+      // RPM 150 제한 대응: 질문 생성 후 1초 지연
+      await new Promise(resolve => setTimeout(resolve, 1000))
       let questionText = questionResult.text
 
       // 제어 문자 제거 (<ctrl63>, <ctrl*> 등)
@@ -607,9 +678,38 @@ export async function POST(request: NextRequest) {
 
       finalQuestionContent = formatQuestionContent(rawQuestionContent)
 
+        // 질문 생성 후 값이 제대로 설정되었는지 확인
+        if (!finalQuestionTitle || !finalQuestionContent || finalQuestionTitle.trim().length === 0 || finalQuestionContent.trim().length === 0) {
+          console.error('Step 1 실패: 생성된 질문이 비어있습니다', { 
+            finalQuestionTitle, 
+            finalQuestionContent,
+            questionTextLength: questionText?.length || 0
+          })
+          return NextResponse.json(
+            { error: '질문 생성에 실패했습니다. 다시 시도해주세요.' },
+            { status: 500 }
+          )
+        }
+
         console.log('Step 1 완료:', { questionTitle: finalQuestionTitle, questionContentLength: finalQuestionContent.length })
       } else {
+        // generateStep이 'question'이고 기존 질문이 있는 경우에만 생략
         console.log('Step 1 생략: 기존 질문 사용')
+        // 기존 질문을 finalQuestionTitle과 finalQuestionContent에 설정
+        finalQuestionTitle = questionTitle || ''
+        finalQuestionContent = questionContent || ''
+        
+        // 기존 질문도 유효한지 확인
+        if (!finalQuestionTitle || !finalQuestionContent || finalQuestionTitle.trim().length === 0 || finalQuestionContent.trim().length === 0) {
+          console.error('Step 1 실패: 기존 질문이 유효하지 않습니다', { 
+            finalQuestionTitle, 
+            finalQuestionContent 
+          })
+          return NextResponse.json(
+            { error: '질문이 필요합니다. 먼저 질문을 생성해주세요.' },
+            { status: 400 }
+          )
+        }
       }
     } else {
       console.log('Step 1 생략: requestedStep이 question이 아님')
@@ -649,8 +749,15 @@ export async function POST(request: NextRequest) {
         finalQuestionContent
       )
 
+      // 프롬프트 길이 로깅 (할당량 초과 진단용)
+      const answerPromptLength = answerPrompt.length
+      const answerEstimatedTokens = Math.ceil(answerPromptLength / 4)
+      console.log(`[Q&A 생성] [Step 2] 답변 생성 프롬프트 길이: ${answerPromptLength} 문자 (약 ${answerEstimatedTokens} 토큰)`)
+
       // 하이브리드: 답변 생성은 Pro 사용 (품질 유지)
       const answerResult = await generateContentWithFallback(answerPrompt, designSheetImage, false)
+      // RPM 150 제한 대응: 답변 생성 후 1초 지연
+      await new Promise(resolve => setTimeout(resolve, 1000))
       answerContent = answerResult.text
 
       // 제어 문자 제거 (<ctrl63>, <ctrl*> 등) - 이모티콘 보존
@@ -744,8 +851,14 @@ export async function POST(request: NextRequest) {
       // 6. 최종 정리 (앞뒤 공백 제거)
       answerContent = answerContent.trim()
       
-      // 7. 답변 길이 제한 제거 (첫 답변은 길게 작성 가능하도록)
-      // 첫 답변은 대화형 스레드에 포함되므로 길이 제한 없이 전체 내용 유지
+      // 7. 첫 답변 길이 제한: 200-300자 사이로 제한
+      if (answerContent.length > 300) {
+        // 300자 초과 시 300자로 제한 (문장 중간 끊김 방지)
+        answerContent = enforceAnswerLength(answerContent, 300)
+      } else if (answerContent.length < 200) {
+        // 200자 미만이면 그대로 유지 (프롬프트에서 최소 길이 보장하도록 함)
+        console.log('⚠️ 첫 답변이 200자 미만입니다:', answerContent.length)
+      }
 
       console.log('Step 2 완료:', { answerContentLength: answerContent.length })
     } else {
@@ -808,9 +921,10 @@ export async function POST(request: NextRequest) {
         const isCustomerTurn = step % 2 === 1 // 홀수: 고객, 짝수: 설계사
         const customerRole = isCustomerTurn ? getCustomerRole(step, totalSteps) : undefined
         
-        // 토큰 절감: 최근 대화만 포함 (최대 6개 메시지 = 최근 3턴)
+        // 토큰 절감: 최근 대화만 포함 (최대 4개 메시지 = 최근 2턴)
         // 전체 히스토리를 포함하면 토큰이 기하급수적으로 증가하므로 최근 대화만 사용
-        const recentHistory = conversationHistory.slice(-6) // 최근 6개 메시지만 사용
+        // RPM 150 제한 대응: 프롬프트 길이 최소화
+        const recentHistory = conversationHistory.slice(-4) // 최근 4개 메시지만 사용 (6개 → 4개로 감소)
         
         const conversationPrompt = generateConversationThreadPrompt(
           {
@@ -838,8 +952,15 @@ export async function POST(request: NextRequest) {
           }
         )
         
+        // 프롬프트 길이 로깅 (할당량 초과 진단용)
+        const promptLength = conversationPrompt.length
+        const estimatedTokens = Math.ceil(promptLength / 4)
+        console.log(`[Q&A 생성] [Step 3-${step}] 프롬프트 길이: ${promptLength} 문자 (약 ${estimatedTokens} 토큰), 히스토리: ${recentHistory.length}개 메시지`)
+        
         // 하이브리드: 고객 댓글은 Flash, 설계사 댓글은 Pro 사용
         const threadResult = await generateContentWithFallback(conversationPrompt, designSheetImage, isCustomerTurn)
+        // RPM 150 제한 대응: 각 댓글 생성 사이에 1초 지연
+        await new Promise(resolve => setTimeout(resolve, 1000))
         let threadContent = threadResult.text
         
         // 제어 문자 제거
@@ -849,11 +970,26 @@ export async function POST(request: NextRequest) {
         threadContent = threadContent.replace(/\[생성된 댓글\]/g, '').trim()
         threadContent = threadContent.trim()
         
-        // 대화형 스레드 댓글 길이 제한
-        // 고객 댓글: 50-100자 목표, 최대 150자
-        // 설계사 댓글: 100-120자 목표 (초반), 80-120자 (중반), 60-120자 (후반), 최대 150자
-        const maxLength = isCustomerTurn ? 150 : 150 // 고객/설계사 모두 최대 150자
+        // 대화형 스레드 댓글 길이 제한 - 약 120자 (100-130자 허용, 문장 완성 우선)
+        const maxLength = 130 // 최대 130자까지 허용 (문장 완성 우선)
         threadContent = enforceAnswerLength(threadContent, maxLength)
+        
+        // 문장이 완성되지 않았으면 (마지막 문장이 끝나지 않았으면) 이전 문장까지만 포함
+        // 마지막 문장이 완성되지 않은 경우 제거 (문장 중간 끊김 방지)
+        const lines = threadContent.split('\n').filter(line => line.trim().length > 0)
+        if (lines.length > 0) {
+          const lastLine = lines[lines.length - 1]
+          // 마지막 줄이 완전한 문장인지 확인 (한국어 문장 끝 패턴 체크)
+          // "습니다", "해요", "입니다", "되나요", "가요" 등으로 끝나거나, "^^", "~" 등으로 끝나는 경우 완성된 문장
+          const isCompleteSentence = /(습니다|해요|입니다|되나요|가요|나요|어요|아요|예요|이에요|세요|세요|^^|~|!|\?)$/.test(lastLine.trim())
+          
+          if (!isCompleteSentence && lines.length > 1) {
+            // 마지막 줄이 완성되지 않았으면 제거 (이전 문장까지만 포함)
+            lines.pop()
+            threadContent = lines.join('\n\n').trim()
+            console.log(`[Q&A 생성] [Step 3-${step}] 문장 완성 보장: 마지막 미완성 문장 제거`)
+          }
+        }
         
         // 히스토리에 추가
         const newMessage: ConversationMessage = {
@@ -898,6 +1034,8 @@ export async function POST(request: NextRequest) {
           )
           
           const reviewResult = await generateContentWithFallback(reviewPrompt, designSheetImage, true)
+          // RPM 150 제한 대응: 후기 생성 사이에 1초 지연
+          await new Promise(resolve => setTimeout(resolve, 1000))
           let reviewContent = reviewResult.text
           reviewContent = reviewContent.replace(/<ctrl\d+>/gi, '')
           reviewContent = reviewContent.replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]/g, '')

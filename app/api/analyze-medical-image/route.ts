@@ -15,24 +15,42 @@ export async function POST(request: NextRequest) {
     console.log('의료 이미지 분석 시작...')
 
     // Gemini Vision API 초기화
-    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!)
+    const apiKey = process.env.GEMINI_API_KEY
+    if (!apiKey) {
+      console.error('[의료 이미지 분석] GEMINI_API_KEY가 설정되지 않았습니다!')
+      return NextResponse.json(
+        { error: 'API 키가 설정되지 않았습니다. 서버 설정을 확인해주세요.' },
+        { status: 500 }
+      )
+    }
     
-    // Fallback 로직: gemini-2.5-pro 실패 시 gemini-2.0-flash로 전환
+    const genAI = new GoogleGenerativeAI(apiKey)
+    
+    // Fallback 로직: Gemini만 사용
+    // 순서: Gemini-2.5-Pro → Gemini-2.0-Flash
     const generateContentWithFallback = async (
       prompt: string,
       base64Data: string,
       mimeType: string
-    ): Promise<{ text: string }> => {
-      const models = ['gemini-2.5-pro', 'gemini-2.0-flash'] // Pro 우선 → 할당량 초과 시 Flash 폴백
+    ): Promise<{ text: string; provider: 'gemini' }> => {
+      // Gemini 폴백 순서: Gemini-2.5-Pro → Gemini-2.0-Flash
+      const models = [
+        { provider: 'gemini' as const, model: 'gemini-2.5-pro' },
+        { provider: 'gemini' as const, model: 'gemini-2.0-flash' }
+      ]
+      
+      console.log(`[의료 이미지 분석] 🔄 Gemini 폴백 순서 시작: Gemini-2.5-Pro → Gemini-2.0-Flash`)
       
       for (let attempt = 0; attempt < models.length; attempt++) {
-        const modelName = models[attempt]
-        const model = genAI.getGenerativeModel({ 
-          model: modelName
-        })
+        const { provider, model: modelName } = models[attempt]
         
         try {
-          console.log(`[의료 이미지 분석] 모델 시도: ${modelName} (시도 ${attempt + 1}/${models.length})`)
+          console.log(`[의료 이미지 분석] ${provider.toUpperCase()} 모델 시도: ${modelName} (시도 ${attempt + 1}/${models.length})`)
+          
+          // Gemini만 사용
+          const model = genAI.getGenerativeModel({ 
+            model: modelName
+          })
           
           const result = await model.generateContent([
             {
@@ -47,12 +65,16 @@ export async function POST(request: NextRequest) {
           const response = await result.response
           const text = response.text().trim()
           
-          return { text }
+          if (text) {
+            console.log(`[의료 이미지 분석] ✅ Gemini 성공! (${modelName})`)
+            // RPM 150 제한 대응: 성공 후 1초 지연 (동시 요청 방지)
+            await new Promise(resolve => setTimeout(resolve, 1000))
+            return { text, provider: 'gemini' }
+          }
         } catch (error: any) {
           const errorMessage = error?.message || ''
           const errorString = JSON.stringify(error || {})
           
-          // 429 에러 또는 할당량 관련 에러 감지
           const isQuotaError = 
             errorMessage.includes('429') || 
             errorMessage.includes('quota') || 
@@ -61,9 +83,11 @@ export async function POST(request: NextRequest) {
             errorMessage.includes('exceeded') ||
             errorMessage.includes('Resource has been exhausted') ||
             errorString.includes('free_tier') ||
-            errorString.includes('QuotaFailure')
+            errorString.includes('QuotaFailure') ||
+            errorMessage.includes('insufficient_quota')
           
-          console.error(`[의료 이미지 분석] ${modelName} 모델 호출 실패:`, {
+          console.error(`[의료 이미지 분석] ${provider.toUpperCase()} ${modelName} 실패:`, {
+            provider,
             model: modelName,
             error: errorMessage.substring(0, 500),
             isQuotaError
@@ -72,24 +96,25 @@ export async function POST(request: NextRequest) {
           // 할당량 에러이고 마지막 모델이 아니면 다음 모델로 시도
           if (isQuotaError && attempt < models.length - 1) {
             const nextModel = models[attempt + 1]
-            console.log(`[의료 이미지 분석] ⚠️ ${modelName} 할당량 초과 → ${nextModel} 모델로 폴백 시도...`)
-            const backoffDelay = Math.min(2000 * Math.pow(2, attempt), 10000)
-            console.log(`[의료 이미지 분석] ⏳ ${backoffDelay / 1000}초 대기 후 재시도...`)
-            await new Promise(resolve => setTimeout(resolve, backoffDelay))
+            console.log(`[의료 이미지 분석] ⚠️ ${modelName} 할당량 초과 → ${nextModel.provider.toUpperCase()} ${nextModel.model} 모델로 폴백 시도...`)
+            // RPM 150 제한 대응: 할당량 초과 시 1초 지연 후 재시도
+            console.log(`[의료 이미지 분석] ⏳ 1초 대기 후 재시도...`)
+            await new Promise(resolve => setTimeout(resolve, 1000))
             continue
           }
           
-          // 할당량 에러이고 마지막 모델이면 에러 throw
-          if (isQuotaError && attempt === models.length - 1) {
-            throw new Error(`${modelName} 할당량 초과: ${errorMessage}`)
+          // 마지막 모델이 아니면 다음 모델로 시도
+          if (attempt < models.length - 1) {
+            const nextModel = models[attempt + 1]
+            console.log(`[의료 이미지 분석] ⚠️ ${modelName} 실패 → ${nextModel.provider.toUpperCase()} ${nextModel.model} 모델로 폴백 시도...`)
+            // RPM 150 제한 대응: 실패 시 1초 지연 후 재시도
+            await new Promise(resolve => setTimeout(resolve, 1000))
+            continue
           }
-          
-          // 할당량 에러가 아니면 즉시 throw
-          throw error
         }
       }
       
-      throw new Error('모든 모델 시도 실패')
+      throw new Error('모든 모델 시도 실패 (Gemini-2.5-Pro → Gemini-2.0-Flash)')
     }
 
     // Base64에서 데이터 부분만 추출 (data:image/...;base64, 제거)
