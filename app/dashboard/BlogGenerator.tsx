@@ -3819,7 +3819,7 @@ function QAGenerator({
     feelingTone: '고민',
     answerTone: 'friendly',
     customerStyle: 'curious', // 고객 스타일: 'friendly' | 'cold' | 'brief' | 'curious'
-    answerLength: 'default' as 'short' | 'default', // 답변 길이: 'short' (150-250자) | 'default' (300-700자)
+    // answerLength 옵션 제거됨 (50-150자로 통일)
     designSheetImage: '' as string | null
   })
   
@@ -3832,6 +3832,7 @@ function QAGenerator({
   const [conversationThread, setConversationThread] = useState<Array<{ role: 'customer' | 'agent'; content: string; step: number }>>([])
   const [conversationMode, setConversationMode] = useState(true)
   const [conversationLength, setConversationLength] = useState(8)
+  const [reviewCount, setReviewCount] = useState<0 | 1 | 2>(0) // 후기성 댓글 개수 (0, 1, 2)
   // Q&A 3개 세트 기능 제거 - 단일 Q&A만 생성
   // const [qaCount, setQaCount] = useState<1 | 3>(3) // 제거됨
   // const [generatedQAs, setGeneratedQAs] = useState<Array<...>>([]) // 제거됨
@@ -4125,18 +4126,18 @@ function QAGenerator({
         throw new Error(data.error || '분석 오류')
       }
 
-      // targetPersona를 select 옵션과 매칭
+      // API에서 반환된 targetPersona를 옵션과 매칭
       const targetPersonaOptions = [
-        '30대 직장인 남성',
-        '30대 직장인 여성',
-        '40대 직장인 남성',
-        '40대 주부',
-        '신혼부부',
-        '50대 직장인',
-        '자녀 있는 가족'
+        '20대 직장인 남성', '30대 직장인 남성', '40대 직장인 남성', '50대 직장인 남성', '60대 직장인 남성',
+        '30대 자영업자 남성', '40대 자영업자 남성', '50대 자영업자 남성',
+        '40대 법인대표 남성', '50대 법인대표 남성', '60대 법인대표 남성',
+        '20대 직장인 여성', '30대 직장인 여성', '40대 직장인 여성', '50대 직장인 여성', '60대 직장인 여성',
+        '30대 주부', '40대 주부', '50대 주부',
+        '30대 자영업자 여성', '40대 자영업자 여성',
+        '30대 신혼부부', '40대 신혼부부',
+        '30대 자녀 있는 가족', '40대 자녀 있는 가족', '50대 자녀 있는 가족'
       ]
       
-      // API에서 반환된 targetPersona를 select 옵션과 매칭
       let matchedTargetPersona = data.data.targetPersona || qaFormData.targetPersona
       if (data.data.targetPersona) {
         // 정확히 일치하는 옵션이 있는지 확인
@@ -4144,18 +4145,23 @@ function QAGenerator({
         if (exactMatch) {
           matchedTargetPersona = exactMatch
         } else {
-          // 부분 일치로 찾기 (예: "30대 남성" -> "30대 직장인 남성")
+          // 부분 일치로 찾기
+          const apiValue = data.data.targetPersona.toLowerCase()
           const partialMatch = targetPersonaOptions.find(opt => {
-            const apiValue = data.data.targetPersona.toLowerCase()
             const optValue = opt.toLowerCase()
-            // 나이대와 성별이 일치하는지 확인
+            // 나이대와 성별/직업이 일치하는지 확인
             const hasAge = optValue.includes(apiValue.split('대')[0] + '대') || apiValue.includes(optValue.split('대')[0] + '대')
-            const hasGender = (optValue.includes('남성') && apiValue.includes('남')) || 
+            const hasGender = (optValue.includes('남성') && (apiValue.includes('남') || !apiValue.includes('여'))) || 
                              (optValue.includes('여성') && apiValue.includes('여')) ||
                              (optValue.includes('주부') && apiValue.includes('주부'))
-            return hasAge && (hasGender || optValue.includes('부부') || optValue.includes('가족'))
+            const hasJob = optValue.includes('직장인') && (apiValue.includes('직장') || !apiValue.includes('자영') && !apiValue.includes('법인')) ||
+                          optValue.includes('자영업자') && apiValue.includes('자영') ||
+                          optValue.includes('법인대표') && apiValue.includes('법인') ||
+                          optValue.includes('신혼부부') && apiValue.includes('신혼') ||
+                          optValue.includes('자녀 있는 가족') && (apiValue.includes('자녀') || apiValue.includes('가족'))
+            return hasAge && (hasGender || hasJob)
           })
-          matchedTargetPersona = partialMatch || data.data.targetPersona // 매칭 실패 시 원본 값 사용
+          matchedTargetPersona = partialMatch || data.data.targetPersona
         }
       }
 
@@ -4163,7 +4169,7 @@ function QAGenerator({
       setQAFormData(prev => ({
         ...prev,
         productName: data.data.productName || prev.productName,
-        targetPersona: matchedTargetPersona, // 매칭된 값 사용
+        targetPersona: matchedTargetPersona,
         worryPoint: data.data.worryPoint || prev.worryPoint,
         sellingPoint: data.data.sellingPoint || prev.sellingPoint,
         designSheetImage: imageToAnalyze,
@@ -4516,6 +4522,7 @@ function QAGenerator({
           ...qaFormData,
           conversationMode: conversationMode,
           conversationLength: conversationMode ? conversationLength : undefined,
+          reviewCount: conversationMode ? reviewCount : undefined, // 후기성 댓글 개수
           generateStep: 'all' // 전체 생성 (질문+답변+대화스레드)
         }),
       })
@@ -4615,7 +4622,8 @@ function QAGenerator({
         body: JSON.stringify({
           ...qaFormData,
           conversationMode: conversationMode,
-          conversationLength: conversationMode ? conversationLength : undefined
+          conversationLength: conversationMode ? conversationLength : undefined,
+          reviewCount: conversationMode ? reviewCount : undefined // 후기성 댓글 개수
         }),
       })
 
@@ -4903,27 +4911,83 @@ function QAGenerator({
               <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">
                 타겟 고객 *
               </label>
-              <select
-                name="targetPersona"
-                value={qaFormData.targetPersona}
-                onChange={handleQAChange}
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-800 text-black dark:text-white"
-              >
-                <option value="30대 직장인 남성">30대 직장인 남성</option>
-                <option value="30대 직장인 여성">30대 직장인 여성</option>
-                <option value="40대 직장인 남성">40대 직장인 남성</option>
-                <option value="40대 주부">40대 주부</option>
-                <option value="신혼부부">신혼부부</option>
-                <option value="50대 직장인">50대 직장인</option>
-                <option value="자녀 있는 가족">자녀 있는 가족</option>
-                {/* API에서 반환된 값이 옵션에 없을 경우를 대비해 동적으로 추가 */}
-                {qaFormData.targetPersona && 
-                 !['30대 직장인 남성', '30대 직장인 여성', '40대 직장인 남성', '40대 주부', '신혼부부', '50대 직장인', '자녀 있는 가족'].includes(qaFormData.targetPersona) && (
-                  <option value={qaFormData.targetPersona}>{qaFormData.targetPersona}</option>
-                )}
-              </select>
+              <div className="flex gap-2">
+                {/* 남성 선택 */}
+                <div className="flex-1">
+                  <select
+                    name="targetPersona"
+                    value={qaFormData.targetPersona}
+                    onChange={handleQAChange}
+                    className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-800 text-black dark:text-white"
+                  >
+                    <option value="">남성</option>
+                    <option value="20대 직장인 남성">20대 직장인 남성</option>
+                    <option value="30대 직장인 남성">30대 직장인 남성</option>
+                    <option value="40대 직장인 남성">40대 직장인 남성</option>
+                    <option value="50대 직장인 남성">50대 직장인 남성</option>
+                    <option value="60대 직장인 남성">60대 직장인 남성</option>
+                    <option value="30대 자영업자 남성">30대 자영업자 남성</option>
+                    <option value="40대 자영업자 남성">40대 자영업자 남성</option>
+                    <option value="50대 자영업자 남성">50대 자영업자 남성</option>
+                    <option value="40대 법인대표 남성">40대 법인대표 남성</option>
+                    <option value="50대 법인대표 남성">50대 법인대표 남성</option>
+                    <option value="60대 법인대표 남성">60대 법인대표 남성</option>
+                  </select>
+                </div>
+                {/* 여성 선택 */}
+                <div className="flex-1">
+                  <select
+                    name="targetPersona"
+                    value={qaFormData.targetPersona}
+                    onChange={handleQAChange}
+                    className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-800 text-black dark:text-white"
+                  >
+                    <option value="">여성</option>
+                    <option value="20대 직장인 여성">20대 직장인 여성</option>
+                    <option value="30대 직장인 여성">30대 직장인 여성</option>
+                    <option value="40대 직장인 여성">40대 직장인 여성</option>
+                    <option value="50대 직장인 여성">50대 직장인 여성</option>
+                    <option value="60대 직장인 여성">60대 직장인 여성</option>
+                    <option value="30대 주부">30대 주부</option>
+                    <option value="40대 주부">40대 주부</option>
+                    <option value="50대 주부">50대 주부</option>
+                    <option value="30대 자영업자 여성">30대 자영업자 여성</option>
+                    <option value="40대 자영업자 여성">40대 자영업자 여성</option>
+                  </select>
+                </div>
+                {/* 기타 선택 */}
+                <div className="flex-1">
+                  <select
+                    name="targetPersona"
+                    value={qaFormData.targetPersona}
+                    onChange={handleQAChange}
+                    className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-800 text-black dark:text-white"
+                  >
+                    <option value="">기타</option>
+                    <option value="30대 신혼부부">30대 신혼부부</option>
+                    <option value="40대 신혼부부">40대 신혼부부</option>
+                    <option value="30대 자녀 있는 가족">30대 자녀 있는 가족</option>
+                    <option value="40대 자녀 있는 가족">40대 자녀 있는 가족</option>
+                    <option value="50대 자녀 있는 가족">50대 자녀 있는 가족</option>
+                  </select>
+                </div>
+              </div>
+              
+              {/* 선택된 타겟 고객 표시 */}
+              {qaFormData.targetPersona && (
+                <div className="mt-2 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-lg p-2">
+                  <p className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">
+                    선택된 타겟 고객:
+                  </p>
+                  <p className="text-sm font-semibold text-blue-700 dark:text-blue-300">
+                    {qaFormData.targetPersona}
+                  </p>
+                </div>
+              )}
+              
+              {/* API에서 반환된 값이 옵션에 없을 경우를 대비해 동적으로 표시 */}
               {qaFormData.targetPersona && 
-               !['30대 직장인 남성', '30대 직장인 여성', '40대 직장인 남성', '40대 주부', '신혼부부', '50대 직장인', '자녀 있는 가족'].includes(qaFormData.targetPersona) && (
+               !['20대 직장인 남성', '30대 직장인 남성', '40대 직장인 남성', '50대 직장인 남성', '60대 직장인 남성', '30대 자영업자 남성', '40대 자영업자 남성', '50대 자영업자 남성', '40대 법인대표 남성', '50대 법인대표 남성', '60대 법인대표 남성', '20대 직장인 여성', '30대 직장인 여성', '40대 직장인 여성', '50대 직장인 여성', '60대 직장인 여성', '30대 주부', '40대 주부', '50대 주부', '30대 자영업자 여성', '40대 자영업자 여성', '30대 신혼부부', '40대 신혼부부', '30대 자녀 있는 가족', '40대 자녀 있는 가족', '50대 자녀 있는 가족'].includes(qaFormData.targetPersona) && (
                 <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
                   💡 이미지 분석 결과: {qaFormData.targetPersona}
                 </p>
@@ -5065,45 +5129,6 @@ function QAGenerator({
 
             <div>
               <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">
-                답변 길이
-              </label>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => setQAFormData(prev => ({ ...prev, answerLength: 'short' }))}
-                  disabled={isGenerating || isAnalyzing}
-                  className={`flex-1 px-4 py-2.5 rounded-lg font-semibold text-sm transition-all ${
-                    qaFormData.answerLength === 'short'
-                      ? 'bg-blue-600 text-white shadow-md'
-                      : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
-                  } disabled:opacity-50 disabled:cursor-not-allowed`}
-                >
-                  📝 짧은 답변
-                  <span className="block text-xs mt-0.5 opacity-90">(150-250자)</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setQAFormData(prev => ({ ...prev, answerLength: 'default' }))}
-                  disabled={isGenerating || isAnalyzing}
-                  className={`flex-1 px-4 py-2.5 rounded-lg font-semibold text-sm transition-all ${
-                    qaFormData.answerLength === 'default'
-                      ? 'bg-blue-600 text-white shadow-md'
-                      : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
-                  } disabled:opacity-50 disabled:cursor-not-allowed`}
-                >
-                  📄 기본 답변
-                  <span className="block text-xs mt-0.5 opacity-90">(300-700자)</span>
-                </button>
-              </div>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1.5">
-                {qaFormData.answerLength === 'short' 
-                  ? '핵심만 간결하게 전달하는 짧은 답변을 생성합니다'
-                  : '상세한 설명과 비교 분석을 포함한 기본 답변을 생성합니다'}
-              </p>
-            </div>
-
-            <div>
-              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">
                 고객 스타일
               </label>
               <select
@@ -5168,6 +5193,35 @@ function QAGenerator({
                 </div>
               )}
             </div>
+
+            {/* 후기성 댓글 옵션 */}
+            {conversationMode && (
+              <div className="bg-purple-50 dark:bg-purple-900/30 border border-purple-200 dark:border-purple-800 rounded-lg p-4">
+                <label className="block text-xs font-semibold text-gray-600 dark:text-gray-300 mb-2">
+                  후기성 댓글 개수 (고객만 생성, 설계사 응답 없음)
+                </label>
+                <div className="flex gap-2">
+                  {[0, 1, 2].map((count) => (
+                    <button
+                      key={count}
+                      type="button"
+                      onClick={() => setReviewCount(count as 0 | 1 | 2)}
+                      disabled={isGenerating || isAnalyzing}
+                      className={`flex-1 px-3 py-2 text-sm rounded-lg transition-colors ${
+                        reviewCount === count
+                          ? 'bg-purple-600 text-white font-semibold'
+                          : 'bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700'
+                      } disabled:opacity-50 disabled:cursor-not-allowed`}
+                    >
+                      {count}개
+                    </button>
+                  ))}
+                </div>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                  후기성 댓글은 고객만 생성되며 설계사 응답은 포함되지 않습니다.
+                </p>
+              </div>
+            )}
 
             {/* 설계서 이미지 (선택) - 작은 화면에서만 오른쪽에 표시 */}
             <div className="md:hidden">

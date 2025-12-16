@@ -92,6 +92,79 @@ const formatSearchResultsForPrompt = (results: SearchResult[]): string => {
     .join('\n')
 }
 
+// 답변 길이 제한 함수 (문장 단위로 자르기 - 의미 보존)
+// 카페 답변은 마침표를 사용하지 않으므로, 줄바꿈과 자연스러운 구분점을 기준으로 자름
+const enforceAnswerLength = (content: string, maxLength: number = 200): string => {
+  if (!content || content.length <= maxLength) {
+    return content
+  }
+  
+  // 1. 문단 단위로 분리
+  const paragraphs = content.split(/\n\s*\n/).filter(p => p.trim().length > 0)
+  
+  // 2. 문단 단위로 자르기 시도
+  let result = ''
+  for (const paragraph of paragraphs) {
+    const testResult = result ? `${result}\n\n${paragraph}` : paragraph
+    
+    if (testResult.length <= maxLength - 10) { // 10자 여유
+      result = testResult
+    } else {
+      // 이 문단을 추가하면 초과하므로, 문장 단위로 자르기
+      // 카페 답변은 마침표를 사용하지 않으므로, 줄바꿈이나 자연스러운 구분점을 기준으로
+      const sentences = paragraph
+        .split(/\n+/)
+        .map(line => line.trim())
+        .filter(line => line.length > 0)
+      
+      for (const sentence of sentences) {
+        const testSentence = result 
+          ? (result.endsWith('\n\n') ? `${result}${sentence}` : `${result}\n\n${sentence}`)
+          : sentence
+        
+        if (testSentence.length <= maxLength - 10) {
+          result = testSentence
+        } else {
+          // 이 문장을 추가하면 초과하므로, 단어 단위로 자르기 (최후의 수단)
+          if (result) {
+            const remaining = maxLength - result.length - 10
+            if (remaining > 20) { // 최소 20자는 남겨야 의미가 있음
+              const truncated = sentence.slice(0, remaining).trim()
+              // 마지막 단어가 잘리지 않도록 공백 기준으로 자르기
+              const lastSpace = truncated.lastIndexOf(' ')
+              if (lastSpace > truncated.length * 0.7) { // 70% 이상이면 공백 기준으로 자르기
+                result = result + '\n\n' + truncated.slice(0, lastSpace)
+              } else {
+                result = result + '\n\n' + truncated
+              }
+            }
+          }
+          break
+        }
+      }
+      break
+    }
+  }
+  
+  // 3. 결과가 비어있거나 너무 짧으면 원본의 앞부분을 문단 단위로 자르기
+  if (!result || result.length < 50) {
+    const allText = content.replace(/\n{3,}/g, '\n\n').trim()
+    const paragraphs = allText.split(/\n\s*\n/).filter(p => p.trim().length > 0)
+    
+    result = ''
+    for (const paragraph of paragraphs) {
+      const testResult = result ? `${result}\n\n${paragraph}` : paragraph
+      if (testResult.length <= maxLength - 10) {
+        result = testResult
+      } else {
+        break
+      }
+    }
+  }
+  
+  return result.trim()
+}
+
 export async function POST(request: NextRequest) {
   try {
     const supabase = await createClient()
@@ -112,13 +185,14 @@ export async function POST(request: NextRequest) {
       feelingTone, 
       answerTone,
       customerStyle, // 고객 스타일: 'friendly' | 'cold' | 'brief' | 'curious'
-      answerLength, // 답변 길이: 'short' (150-250자) | 'default' (300-700자)
+      // answerLength 옵션 제거됨 (50-150자로 통일)
       designSheetImage,
       designSheetAnalysis, // 설계서 분석 결과 (보험료, 담보, 특약 등)
       questionTitle, // 답변 재생성 시 사용
       questionContent, // 답변 재생성 시 사용
       conversationMode, // 대화형 모드 활성화 여부
       conversationLength, // 대화 횟수 (6, 8, 10, 12 - 짝수만 허용, 항상 설계사가 마무리)
+      reviewCount, // 후기성 댓글 개수 (0, 1, 2 - 고객만 생성, 설계사 응답 없음)
       generateStep // 생성 단계: 'question' | 'answer' | 'conversation' | 'all' (기본값: 'all')
     } = requestBody
 
@@ -337,9 +411,67 @@ export async function POST(request: NextRequest) {
           if (isQuotaError && attempt < models.length - 1) {
             const nextModel = models[attempt + 1]
             console.log(`⚠️ ${modelName} 할당량 초과 → ${nextModel} 모델로 폴백 시도...`)
-            // 짧은 대기 후 재시도
-            await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)))
+            // 지수 백오프: 2초, 4초, 8초... (최대 10초)
+            const backoffDelay = Math.min(2000 * Math.pow(2, attempt), 10000)
+            console.log(`⏳ ${backoffDelay / 1000}초 대기 후 재시도...`)
+            await new Promise(resolve => setTimeout(resolve, backoffDelay))
             continue
+          }
+          
+          // 할당량 에러이고 마지막 모델이면 더 긴 대기 후 재시도 (최대 3회)
+          if (isQuotaError && attempt === models.length - 1) {
+            const maxRetries = 3
+            for (let retry = 0; retry < maxRetries; retry++) {
+              const backoffDelay = Math.min(5000 * Math.pow(2, retry), 30000) // 5초, 10초, 20초 (최대 30초)
+              console.log(`⏳ 할당량 초과 - ${backoffDelay / 1000}초 대기 후 재시도... (${retry + 1}/${maxRetries})`)
+              await new Promise(resolve => setTimeout(resolve, backoffDelay))
+              
+              try {
+                // 이미지가 있으면 이미지와 텍스트를 함께 전송
+                let result
+                if (imageBase64 && base64Data) {
+                  result = await model.generateContent([
+                    {
+                      inlineData: {
+                        data: base64Data,
+                        mimeType: mimeType
+                      }
+                    },
+                    prompt
+                  ])
+                } else {
+                  result = await model.generateContent(prompt)
+                }
+                
+                const response = await result.response
+                const text = response.text().trim()
+                
+                const usageMetadata = response.usageMetadata
+                const usage: TokenUsage = {
+                  model: modelName,
+                  promptTokens: usageMetadata?.promptTokenCount || 0,
+                  candidatesTokens: usageMetadata?.candidatesTokenCount || 0,
+                  totalTokens: usageMetadata?.totalTokenCount || 0
+                }
+                
+                if (usage.totalTokens > 0) {
+                  console.log(`✅ 재시도 성공! 토큰 사용량 (${modelName}):`, usage)
+                  tokenUsage.push(usage)
+                }
+                
+                return { text, usage }
+              } catch (retryError: any) {
+                const retryErrorMessage = retryError?.message || ''
+                const isStillQuotaError = retryErrorMessage.includes('429') || retryErrorMessage.includes('quota')
+                
+                if (!isStillQuotaError || retry === maxRetries - 1) {
+                  // 할당량 에러가 아니거나 마지막 재시도면 에러 던지기
+                  throw retryError
+                }
+                // 계속 재시도
+                console.log(`⚠️ 재시도 실패, 계속 시도...`)
+              }
+            }
           }
           
           // 마지막 모델이거나 할당량 에러가 아니면 에러 던지기
@@ -503,7 +635,7 @@ export async function POST(request: NextRequest) {
           feelingTone: feelingTone || '고민',
           answerTone: answerTone || 'friendly',
           customerStyle: customerStyle || 'curious',
-          answerLength: answerLength || 'default', // 답변 길이 추가
+          // answerLength 옵션 제거됨 (50-150자로 통일)
           designSheetImage,
           designSheetAnalysis,
           searchResultsText
@@ -606,6 +738,9 @@ export async function POST(request: NextRequest) {
       
       // 6. 최종 정리 (앞뒤 공백 제거)
       answerContent = answerContent.trim()
+      
+      // 7. 답변 길이 제한 제거 (첫 답변은 길게 작성 가능하도록)
+      // 첫 답변은 대화형 스레드에 포함되므로 길이 제한 없이 전체 내용 유지
 
       console.log('Step 2 완료:', { answerContentLength: answerContent.length })
     } else {
@@ -644,9 +779,29 @@ export async function POST(request: NextRequest) {
         step: 1
       })
       
+      // 대화형 스레드는 나머지 댓글들만 포함 (질문과 첫 답변은 위에 따로 표시)
+      
       // 나머지 댓글들 생성 (3번째부터 시작)
+      // 고객 역할 다양화: 여러 사람이 댓글을 다는 것처럼
+      const customerRoles = ['customer1', 'customer2', 'customer3', 'customer4'] as const
+      type CustomerRole = typeof customerRoles[number]
+      
+      // 고객 역할 결정 함수
+      const getCustomerRole = (step: number, totalSteps: number): CustomerRole => {
+        // 첫 번째 고객 댓글은 항상 customer1 (질문자)
+        if (step === 3) return 'customer1'
+        
+        // 이후는 랜덤하게 결정 (하지만 customer1이 50% 확률로 나오도록)
+        const rand = Math.random()
+        if (rand < 0.5) return 'customer1' // 질문자가 계속 질문 (50%)
+        else if (rand < 0.7) return 'customer2' // 관심자 (20%)
+        else if (rand < 0.9) return 'customer3' // 비교자 (20%)
+        else return 'customer4' // 확인자 (10%)
+      }
+      
       for (let step = 3; step <= totalSteps; step++) {
         const isCustomerTurn = step % 2 === 1 // 홀수: 고객, 짝수: 설계사
+        const customerRole = isCustomerTurn ? getCustomerRole(step, totalSteps) : undefined
         
         // 토큰 절감: 최근 대화만 포함 (최대 6개 메시지 = 최근 3턴)
         // 전체 히스토리를 포함하면 토큰이 기하급수적으로 증가하므로 최근 대화만 사용
@@ -673,7 +828,8 @@ export async function POST(request: NextRequest) {
             firstAnswer: answerContent,
             conversationHistory: recentHistory, // 전체 히스토리 대신 최근 대화만 사용
             totalSteps: totalSteps,
-            currentStep: step
+            currentStep: step,
+            customerRole: customerRole // 고객 역할 추가
           }
         )
         
@@ -702,90 +858,69 @@ export async function POST(request: NextRequest) {
       }
       
       // 후기성 문구 자동 삽입 (대화 횟수에 포함되지 않음)
-      // 마지막 위치에만 1개씩 삽입 (고객 1개 + 설계사 1개 = 총 2개)
-      console.log('후기성 문구 (마지막) 생성 중...')
+      // reviewCount에 따라 고객 후기만 생성 (설계사 응답 없음)
+      const finalReviewCount = reviewCount !== undefined ? reviewCount : 0 // 기본값: 0 (생성 안 함)
       
-      const lastReviewPrompt = generateReviewMessagePrompt(
-        {
-          productName,
-          targetPersona,
-          worryPoint,
-          sellingPoint,
-          feelingTone: feelingTone || '고민',
-          answerTone: answerTone || 'friendly',
-          customerStyle: customerStyle || 'curious',
-          designSheetImage,
-          designSheetAnalysis,
-          searchResultsText: searchResultsText || undefined
-        },
-        {
-          productName
+      if (finalReviewCount > 0) {
+        console.log(`후기성 문구 생성 중... (${finalReviewCount}개)`)
+        
+        const reviewMessages: ConversationMessage[] = []
+        
+        // reviewCount만큼 고객 후기 생성 (1개 또는 2개)
+        for (let i = 0; i < finalReviewCount; i++) {
+          const reviewPrompt = generateReviewMessagePrompt(
+            {
+              productName,
+              targetPersona,
+              worryPoint,
+              sellingPoint,
+              feelingTone: feelingTone || '고민',
+              answerTone: answerTone || 'friendly',
+              customerStyle: customerStyle || 'curious',
+              designSheetImage,
+              designSheetAnalysis,
+              searchResultsText: searchResultsText || undefined
+            },
+            {
+              productName
+            }
+          )
+          
+          const reviewResult = await generateContentWithFallback(reviewPrompt, designSheetImage, true)
+          let reviewContent = reviewResult.text
+          reviewContent = reviewContent.replace(/<ctrl\d+>/gi, '')
+          reviewContent = reviewContent.replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]/g, '')
+          reviewContent = reviewContent.replace(/```[\s\S]*?```/g, '').trim()
+          reviewContent = reviewContent.replace(/\[생성된 후기성 문구\]/g, '').trim()
+          reviewContent = reviewContent.trim()
+          
+          const reviewMessage: ConversationMessage = {
+            role: 'customer',
+            content: reviewContent,
+            step: 1999 + i // 대화 횟수에 포함되지 않음
+          }
+          
+          reviewMessages.push(reviewMessage)
         }
-      )
-      
-      const lastReviewResult = await generateContentWithFallback(lastReviewPrompt, designSheetImage, true)
-      let lastReviewContent = lastReviewResult.text
-      lastReviewContent = lastReviewContent.replace(/<ctrl\d+>/gi, '')
-      lastReviewContent = lastReviewContent.replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]/g, '')
-      lastReviewContent = lastReviewContent.replace(/```[\s\S]*?```/g, '').trim()
-      lastReviewContent = lastReviewContent.replace(/\[생성된 후기성 문구\]/g, '').trim()
-      lastReviewContent = lastReviewContent.trim()
-      
-      // 설계사 응답 생성
-      const lastResponsePrompt = generateReviewResponsePrompt(
-        {
-          productName,
-          targetPersona,
-          worryPoint,
-          sellingPoint,
-          feelingTone: feelingTone || '고민',
-          answerTone: answerTone || 'friendly',
-          customerStyle: customerStyle || 'curious',
-          designSheetImage,
-          designSheetAnalysis,
-          searchResultsText: searchResultsText || undefined
-        },
-        {
-          reviewMessage: lastReviewContent,
-          productName
+        
+        // 마지막 설계사 댓글 직전에 삽입
+        const lastAgentIndex = conversationThread.map((msg, idx) => ({ msg, idx }))
+          .filter(({ msg }) => msg.role === 'agent')
+          .pop()?.idx
+        
+        if (lastAgentIndex !== undefined && lastAgentIndex >= 0) {
+          conversationThread.splice(lastAgentIndex + 1, 0, ...reviewMessages)
+        } else {
+          // 설계사 댓글이 없으면 맨 끝에 추가
+          conversationThread.push(...reviewMessages)
         }
-      )
-      
-      const lastResponseResult = await generateContentWithFallback(lastResponsePrompt, designSheetImage, true)
-      let lastResponseContent = lastResponseResult.text
-      lastResponseContent = lastResponseContent.replace(/<ctrl\d+>/gi, '')
-      lastResponseContent = lastResponseContent.replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]/g, '')
-      lastResponseContent = lastResponseContent.replace(/```[\s\S]*?```/g, '').trim()
-      lastResponseContent = lastResponseContent.replace(/\[생성된 설계사 응답\]/g, '').trim()
-      lastResponseContent = lastResponseContent.trim()
-      
-      // 마지막 위치에 삽입 (설계사 마무리 직전)
-      const lastReviewMessage: ConversationMessage = {
-        role: 'customer',
-        content: lastReviewContent,
-        step: 1999 // 대화 횟수에 포함되지 않음
-      }
-      const lastResponseMessage: ConversationMessage = {
-        role: 'agent',
-        content: lastResponseContent,
-        step: 2000 // 대화 횟수에 포함되지 않음
-      }
-      
-      // 마지막 설계사 댓글 직전에 삽입
-      const lastAgentIndex = conversationThread.map((msg, idx) => ({ msg, idx }))
-        .filter(({ msg }) => msg.role === 'agent')
-        .pop()?.idx
-      
-      if (lastAgentIndex !== undefined && lastAgentIndex >= 0) {
-        conversationThread.splice(lastAgentIndex + 1, 0, lastReviewMessage, lastResponseMessage)
+        
+        conversationHistory.push(...reviewMessages)
+        
+        console.log(`후기성 문구 ${finalReviewCount}개 삽입 완료`)
       } else {
-        // 설계사 댓글이 없으면 맨 끝에 추가
-        conversationThread.push(lastReviewMessage, lastResponseMessage)
+        console.log('후기성 문구 생성 안 함 (reviewCount: 0)')
       }
-      
-      conversationHistory.push(lastReviewMessage, lastResponseMessage)
-      
-      console.log('후기성 문구 2 (마지막) 삽입 완료')
       console.log('Step 3 완료:', { totalThreads: conversationThread.length })
     }
 
@@ -844,6 +979,9 @@ export async function POST(request: NextRequest) {
       })
       .catch((err) => console.error('[Q&A 생성] usage_logs insert 예외:', err))
 
+    // answer는 항상 설계사 첫 답변 반환 (대화형 스레드와 별개)
+    const finalAnswerContent = answerContent
+    
     return NextResponse.json({
       success: true,
       question: {
@@ -852,7 +990,7 @@ export async function POST(request: NextRequest) {
         generatedAt: new Date().toISOString()
       },
       answer: {
-        content: answerContent,
+        content: finalAnswerContent,
         generatedAt: new Date().toISOString()
       },
       conversation: conversationThread.length > 0 ? conversationThread : undefined,
