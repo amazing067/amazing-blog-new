@@ -30,10 +30,99 @@ export async function POST(request: NextRequest) {
 
     // Gemini Vision API 초기화
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!)
-    const model = genAI.getGenerativeModel({ 
-      model: 'gemini-2.5-pro',
-      tools: [{ googleSearch: {} }] as any // Google Grounding 활성화 (타입 체크 우회)
-    })
+    
+    // Fallback 로직: gemini-2.5-pro 실패 시 gemini-2.0-flash로 전환
+    const generateContentWithFallback = async (
+      prompt: string,
+      base64Data: string,
+      mimeType: string
+    ): Promise<{ text: string }> => {
+      const models = ['gemini-2.5-pro', 'gemini-2.0-flash'] // Pro 우선 → 할당량 초과 시 Flash 폴백
+      
+      for (let attempt = 0; attempt < models.length; attempt++) {
+        const modelName = models[attempt]
+        const model = genAI.getGenerativeModel({ 
+          model: modelName,
+          tools: [{ googleSearch: {} }] as any // Google Grounding 활성화 (타입 체크 우회)
+        })
+        
+        try {
+          console.log(`[설계서 분석] 모델 시도: ${modelName} (시도 ${attempt + 1}/${models.length})`)
+          
+          const result = await model.generateContent([
+            {
+              inlineData: {
+                data: base64Data,
+                mimeType: mimeType
+              }
+            },
+            prompt
+          ])
+          
+          const response = await result.response
+          const text = response.text().trim()
+          
+          // 그라운딩 결과 확인 및 로그 출력
+          const groundingMetadata = response.candidates?.[0]?.groundingMetadata as any
+          if (groundingMetadata) {
+            console.log(`[설계서 분석] [${modelName}] 🔍 그라운딩 결과:`)
+            console.log('  - 웹 검색 쿼리:', groundingMetadata.webSearchQueries || [])
+            const chunks = groundingMetadata.groundingChunks || groundingMetadata.groundingChuncks || []
+            console.log('  - 검색된 청크 수:', chunks.length)
+            if (chunks.length > 0) {
+              console.log('  - 검색된 청크 샘플:')
+              chunks.slice(0, 3).forEach((chunk: any, idx: number) => {
+                console.log(`    [${idx + 1}] ${chunk.web?.uri || chunk.retrievalMetadata?.uri || '알 수 없음'}`)
+              })
+            }
+          } else {
+            console.log(`[설계서 분석] [${modelName}] ⚠️ 그라운딩 메타데이터가 없습니다.`)
+          }
+          
+          return { text }
+        } catch (error: any) {
+          const errorMessage = error?.message || ''
+          const errorString = JSON.stringify(error || {})
+          
+          // 429 에러 또는 할당량 관련 에러 감지
+          const isQuotaError = 
+            errorMessage.includes('429') || 
+            errorMessage.includes('quota') || 
+            errorMessage.includes('rate limit') ||
+            errorMessage.includes('Too Many Requests') ||
+            errorMessage.includes('exceeded') ||
+            errorMessage.includes('Resource has been exhausted') ||
+            errorString.includes('free_tier') ||
+            errorString.includes('QuotaFailure')
+          
+          console.error(`[설계서 분석] ${modelName} 모델 호출 실패:`, {
+            model: modelName,
+            error: errorMessage.substring(0, 500),
+            isQuotaError
+          })
+          
+          // 할당량 에러이고 마지막 모델이 아니면 다음 모델로 시도
+          if (isQuotaError && attempt < models.length - 1) {
+            const nextModel = models[attempt + 1]
+            console.log(`[설계서 분석] ⚠️ ${modelName} 할당량 초과 → ${nextModel} 모델로 폴백 시도...`)
+            const backoffDelay = Math.min(2000 * Math.pow(2, attempt), 10000)
+            console.log(`[설계서 분석] ⏳ ${backoffDelay / 1000}초 대기 후 재시도...`)
+            await new Promise(resolve => setTimeout(resolve, backoffDelay))
+            continue
+          }
+          
+          // 할당량 에러이고 마지막 모델이면 에러 throw
+          if (isQuotaError && attempt === models.length - 1) {
+            throw new Error(`${modelName} 할당량 초과: ${errorMessage}`)
+          }
+          
+          // 할당량 에러가 아니면 즉시 throw
+          throw error
+        }
+      }
+      
+      throw new Error('모든 모델 시도 실패')
+    }
 
     // Base64에서 데이터 부분만 추출 (data:image/...;base64, 제거)
     const base64Data = imageBase64.includes(',') 
@@ -70,17 +159,8 @@ export async function POST(request: NextRequest) {
 
 ⚠️ 이미지에 명시된 정확한 정보만 추출하세요. 추정하지 마세요.`
 
-    const basicResult = await model.generateContent([
-      {
-        inlineData: {
-          data: base64Data,
-          mimeType: mimeType
-        }
-      },
-      basicInfoPrompt
-    ])
-
-    let basicAnalysisText = basicResult.response.text().trim()
+    const basicResult = await generateContentWithFallback(basicInfoPrompt, base64Data, mimeType)
+    let basicAnalysisText = basicResult.text
     basicAnalysisText = basicAnalysisText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()
     basicAnalysisText = basicAnalysisText.replace(/<ctrl\d+>/gi, '').replace(/[\x00-\x1F\x7F]/g, '')
 
@@ -230,37 +310,9 @@ ${searchResultsText ? `4단계: 검색 결과 활용
     console.log('[설계서 분석]   - 검색 결과 텍스트 길이:', searchResultsText.length, '글자')
     console.log('[설계서 분석]   - 그라운딩: 활성화')
     
-    // 이미지와 프롬프트를 함께 전송 (그라운딩 활성화)
-    const result = await model.generateContent([
-      {
-        inlineData: {
-          data: base64Data,
-          mimeType: mimeType
-        }
-      },
-      prompt
-    ])
-
-    const response = await result.response
-    
-    // 그라운딩 결과 확인 및 로그 출력
-    const groundingMetadata = response.candidates?.[0]?.groundingMetadata as any
-    if (groundingMetadata) {
-      console.log('[설계서 분석] 🔍 그라운딩 결과:')
-      console.log('  - 웹 검색 쿼리:', groundingMetadata.webSearchQueries || [])
-      const chunks = groundingMetadata.groundingChunks || groundingMetadata.groundingChuncks || []
-      console.log('  - 검색된 청크 수:', chunks.length)
-      if (chunks.length > 0) {
-        console.log('  - 검색된 청크 샘플:')
-        chunks.slice(0, 3).forEach((chunk: any, idx: number) => {
-          console.log(`    [${idx + 1}] ${chunk.web?.uri || chunk.retrievalMetadata?.uri || '알 수 없음'}`)
-        })
-      }
-    } else {
-      console.log('[설계서 분석] ⚠️ 그라운딩 메타데이터가 없습니다. (그라운딩이 실행되지 않았을 수 있음)')
-    }
-    
-    let analysisText = response.text().trim()
+    // 이미지와 프롬프트를 함께 전송 (그라운딩 활성화, fallback 포함)
+    const finalResult = await generateContentWithFallback(prompt, base64Data, mimeType)
+    let analysisText = finalResult.text
 
     // JSON 추출 (코드 블록 제거)
     analysisText = analysisText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()

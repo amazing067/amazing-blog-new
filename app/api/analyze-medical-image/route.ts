@@ -16,9 +16,81 @@ export async function POST(request: NextRequest) {
 
     // Gemini Vision API 초기화
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!)
-    const model = genAI.getGenerativeModel({ 
-      model: 'gemini-2.5-pro'
-    })
+    
+    // Fallback 로직: gemini-2.5-pro 실패 시 gemini-2.0-flash로 전환
+    const generateContentWithFallback = async (
+      prompt: string,
+      base64Data: string,
+      mimeType: string
+    ): Promise<{ text: string }> => {
+      const models = ['gemini-2.5-pro', 'gemini-2.0-flash'] // Pro 우선 → 할당량 초과 시 Flash 폴백
+      
+      for (let attempt = 0; attempt < models.length; attempt++) {
+        const modelName = models[attempt]
+        const model = genAI.getGenerativeModel({ 
+          model: modelName
+        })
+        
+        try {
+          console.log(`[의료 이미지 분석] 모델 시도: ${modelName} (시도 ${attempt + 1}/${models.length})`)
+          
+          const result = await model.generateContent([
+            {
+              inlineData: {
+                data: base64Data,
+                mimeType: mimeType
+              }
+            },
+            prompt
+          ])
+          
+          const response = await result.response
+          const text = response.text().trim()
+          
+          return { text }
+        } catch (error: any) {
+          const errorMessage = error?.message || ''
+          const errorString = JSON.stringify(error || {})
+          
+          // 429 에러 또는 할당량 관련 에러 감지
+          const isQuotaError = 
+            errorMessage.includes('429') || 
+            errorMessage.includes('quota') || 
+            errorMessage.includes('rate limit') ||
+            errorMessage.includes('Too Many Requests') ||
+            errorMessage.includes('exceeded') ||
+            errorMessage.includes('Resource has been exhausted') ||
+            errorString.includes('free_tier') ||
+            errorString.includes('QuotaFailure')
+          
+          console.error(`[의료 이미지 분석] ${modelName} 모델 호출 실패:`, {
+            model: modelName,
+            error: errorMessage.substring(0, 500),
+            isQuotaError
+          })
+          
+          // 할당량 에러이고 마지막 모델이 아니면 다음 모델로 시도
+          if (isQuotaError && attempt < models.length - 1) {
+            const nextModel = models[attempt + 1]
+            console.log(`[의료 이미지 분석] ⚠️ ${modelName} 할당량 초과 → ${nextModel} 모델로 폴백 시도...`)
+            const backoffDelay = Math.min(2000 * Math.pow(2, attempt), 10000)
+            console.log(`[의료 이미지 분석] ⏳ ${backoffDelay / 1000}초 대기 후 재시도...`)
+            await new Promise(resolve => setTimeout(resolve, backoffDelay))
+            continue
+          }
+          
+          // 할당량 에러이고 마지막 모델이면 에러 throw
+          if (isQuotaError && attempt === models.length - 1) {
+            throw new Error(`${modelName} 할당량 초과: ${errorMessage}`)
+          }
+          
+          // 할당량 에러가 아니면 즉시 throw
+          throw error
+        }
+      }
+      
+      throw new Error('모든 모델 시도 실패')
+    }
 
     // Base64에서 데이터 부분만 추출 (data:image/...;base64, 제거)
     const base64Data = imageBase64.includes(',') 
@@ -566,19 +638,9 @@ export async function POST(request: NextRequest) {
       mimeType = 'image/webp'
     }
 
-    // 이미지와 프롬프트를 함께 전송
-    const result = await model.generateContent([
-      {
-        inlineData: {
-          data: base64Data,
-          mimeType: mimeType
-        }
-      },
-      prompt
-    ])
-
-    const response = await result.response
-    let analysisText = response.text().trim()
+    // 이미지와 프롬프트를 함께 전송 (fallback 포함)
+    const result = await generateContentWithFallback(prompt, base64Data, mimeType)
+    let analysisText = result.text
 
     // JSON 추출 (코드 블록 제거)
     analysisText = analysisText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()

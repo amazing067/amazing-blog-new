@@ -236,11 +236,16 @@ export async function POST(request: NextRequest) {
     // ============================================
     let searchResultsText = ''
     try {
+      // 검색 쿼리: 가격 정보, 장점, 특징, 정보 등을 찾기 위한 다양한 쿼리 생성
       const searchQueries = Array.from(new Set([
+        `${productName} 보험료 가격`,
+        `${productName} 보험료 비교`,
+        `${productName} 장점 특징`,
+        `${productName} 특약 구성`,
+        `${productName} 보장 내용`,
         `${productName} 후기`,
-        `${productName} 특약`,
-        `${productName} 장점`,
-        `${productName} ${targetPersona}`,
+        `${productName} ${targetPersona} 보험료`,
+        `${productName} ${targetPersona} 추천`,
         `${productName} ${worryPoint}`,
         `${productName} ${sellingPoint}`
       ]))
