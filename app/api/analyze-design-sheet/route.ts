@@ -51,15 +51,24 @@ export async function POST(request: NextRequest) {
       prompt: string,
       base64Data: string,
       mimeType: string,
-      usePro: boolean = true // 기본값: Pro 우선
+      usePro: boolean = true // true: Pro 우선, false: Flash 우선
     ): Promise<{ text: string; provider: 'gemini' }> => {
-      // Gemini 폴백 순서: Gemini-2.5-Pro → Gemini-2.0-Flash
-      const models = [
-        { provider: 'gemini' as const, model: 'gemini-2.5-pro' },
-        { provider: 'gemini' as const, model: 'gemini-2.0-flash' }
-      ]
+      // usePro에 따라 모델 순서 결정
+      // true: Pro 우선 → Flash 폴백, false: Flash 우선 → Pro 폴백
+      const models = usePro
+        ? [
+            { provider: 'gemini' as const, model: 'gemini-2.5-pro' },
+            { provider: 'gemini' as const, model: 'gemini-2.0-flash' }
+          ]
+        : [
+            { provider: 'gemini' as const, model: 'gemini-2.0-flash' },
+            { provider: 'gemini' as const, model: 'gemini-2.5-pro' }
+          ]
       
-      console.log(`[설계서 분석] 🔄 Gemini 폴백 순서 시작: Gemini-2.5-Pro → Gemini-2.0-Flash`)
+      const modelOrder = usePro 
+        ? 'Gemini-2.5-Pro → Gemini-2.0-Flash' 
+        : 'Gemini-2.0-Flash → Gemini-2.5-Pro'
+      console.log(`[설계서 분석] 🔄 Gemini 폴백 순서 시작: ${modelOrder}`)
       
       for (let attempt = 0; attempt < models.length; attempt++) {
         const { provider, model: modelName } = models[attempt]

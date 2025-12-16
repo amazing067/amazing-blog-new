@@ -413,11 +413,17 @@ export async function POST(request: NextRequest) {
       imageBase64?: string | null,
       useFlash: boolean = false // true: Flash 우선, false: Pro 우선
     ): Promise<{ text: string; usage?: TokenUsage; provider?: 'gemini' }> => {
-      // Gemini만 사용: Gemini-2.5-Pro → Gemini-2.0-Flash (항상 Pro 먼저 시도)
-      const models = [
-        { provider: 'gemini' as const, model: 'gemini-2.5-pro' },
-        { provider: 'gemini' as const, model: 'gemini-2.0-flash' }
-      ]
+      // useFlash에 따라 모델 순서 결정
+      // true: Flash 우선 → Pro 폴백, false: Pro 우선 → Flash 폴백
+      const models = useFlash
+        ? [
+            { provider: 'gemini' as const, model: 'gemini-2.0-flash' },
+            { provider: 'gemini' as const, model: 'gemini-2.5-pro' }
+          ]
+        : [
+            { provider: 'gemini' as const, model: 'gemini-2.5-pro' },
+            { provider: 'gemini' as const, model: 'gemini-2.0-flash' }
+          ]
       
       // 이미지가 있으면 MIME 타입 감지
       let mimeType = 'image/png'
@@ -437,7 +443,10 @@ export async function POST(request: NextRequest) {
       }
       
       // Gemini 폴백 순서로 시도
-      console.log('[Q&A 생성] 🔄 Gemini 폴백 순서 시작: Gemini-2.5-Pro → Gemini-2.0-Flash')
+      const modelOrder = useFlash 
+        ? 'Gemini-2.0-Flash → Gemini-2.5-Pro' 
+        : 'Gemini-2.5-Pro → Gemini-2.0-Flash'
+      console.log(`[Q&A 생성] 🔄 Gemini 폴백 순서 시작: ${modelOrder}`)
       
       for (let attempt = 0; attempt < models.length; attempt++) {
         const { provider, model: modelName } = models[attempt]
