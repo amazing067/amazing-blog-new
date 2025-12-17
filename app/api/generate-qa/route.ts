@@ -796,34 +796,85 @@ export async function POST(request: NextRequest) {
       console.log('[Q&A 생성] [Step 1] titleSectionMatch:', titleSectionMatch ? '찾음' : '없음')
       console.log('[Q&A 생성] [Step 1] contentSectionMatch:', contentSectionMatch ? '찾음' : '없음')
       
-      // 제목 추출 (1-2줄, 최대 50자)
+      // 본문 시작 패턴 감지 함수
+      const findBodyStartPattern = (text: string): number => {
+        // 본문 시작 패턴들 (안녕하세요, 저는, 저는 XX세, 현재는 등)
+        const bodyStartPatterns = [
+          /안녕하세요/i,
+          /안녕/i,
+          /저는\s*\d+세/i,
+          /저는\s*\d+대/i,
+          /저는\s*\d+살/i,
+          /저는/i,
+          /현재는/i,
+          /지금은/i,
+          /이번에/i,
+          /요즘/i,
+          /최근/i,
+          /설계서를/i,
+          /제안서를/i,
+          /보험료가/i,
+          /보험을/i,
+        ]
+        
+        for (const pattern of bodyStartPatterns) {
+          const match = text.match(pattern)
+          if (match && match.index !== undefined) {
+            return match.index
+          }
+        }
+        
+        return -1
+      }
+      
+      // 제목 추출 (1줄, 최대 50자, 본문 시작 패턴 감지)
       if (titleSectionMatch && titleSectionMatch[1]) {
         // "제목:" 형식이 있으면 해당 부분만 추출
         let titleText = titleSectionMatch[1]
           .trim()
           .replace(/<ctrl\d+>/gi, '')
           .replace(/[\x00-\x1F\x7F]/g, '')
+          .replace(/본문[:\s]*/i, '') // "본문:" 접두사 제거
+          .trim()
         
-        // 제목은 최대 2줄 또는 50자로 제한
+        // "본문:" 이후의 내용이 있으면 제거
+        const 본문Index = titleText.search(/본문[:\s]/i)
+        if (본문Index > 0) {
+          titleText = titleText.substring(0, 본문Index).trim()
+        }
+        
+        // 본문 시작 패턴 감지
+        const bodyStartIndex = findBodyStartPattern(titleText)
+        if (bodyStartIndex > 0) {
+          titleText = titleText.substring(0, bodyStartIndex).trim()
+        }
+        
+        // 제목은 첫 줄만 사용 (최대 50자)
         const titleLines = titleText.split('\n').filter(line => line.trim().length > 0)
         if (titleLines.length > 0) {
-          // 첫 줄만 사용 (제목은 보통 한 줄)
           let titleCandidate = titleLines[0].trim()
           
-          // 첫 줄이 30자 미만이고 두 번째 줄이 있으면 포함 (최대 50자)
-          if (titleCandidate.length < 30 && titleLines.length > 1) {
-            const secondLine = titleLines[1].trim()
-            const combined = titleCandidate + ' ' + secondLine
-            if (combined.length <= 50) {
-              titleCandidate = combined
-            }
+          // 본문 시작 패턴이 첫 줄에 있으면 그 이전까지만
+          const bodyStartInLine = findBodyStartPattern(titleCandidate)
+          if (bodyStartInLine > 0) {
+            titleCandidate = titleCandidate.substring(0, bodyStartInLine).trim()
           }
           
-          // 50자 초과 시 자르기 (단어 단위로)
+          // 50자 초과 시 자르기 (단어 단위로, 물음표/느낌표 전까지만)
           if (titleCandidate.length > 50) {
-            const words = titleCandidate.substring(0, 50).split(/\s+/)
-            words.pop() // 마지막 단어 제거 (잘릴 수 있으므로)
-            titleCandidate = words.join(' ')
+            // 물음표나 느낌표가 있으면 그 전까지만
+            const questionMarkIndex = titleCandidate.lastIndexOf('?')
+            const exclamationMarkIndex = titleCandidate.lastIndexOf('!')
+            const lastMarkIndex = Math.max(questionMarkIndex, exclamationMarkIndex)
+            
+            if (lastMarkIndex > 0 && lastMarkIndex <= 50) {
+              titleCandidate = titleCandidate.substring(0, lastMarkIndex + 1).trim()
+            } else {
+              // 마크가 없거나 50자 초과면 단어 단위로 자르기
+              const words = titleCandidate.substring(0, 50).split(/\s+/)
+              words.pop() // 마지막 단어 제거 (잘릴 수 있으므로)
+              titleCandidate = words.join(' ')
+            }
           }
           
           finalQuestionTitle = titleCandidate.trim()
@@ -831,42 +882,60 @@ export async function POST(request: NextRequest) {
           finalQuestionTitle = titleText.substring(0, 50).trim()
         }
       } else {
-        // "제목:" 형식이 없으면 첫 줄 또는 첫 두 줄을 제목으로 사용
+        // "제목:" 형식이 없으면 첫 줄을 제목으로 사용 (본문 시작 패턴 감지)
         const lines = questionText.split('\n').filter(line => line.trim().length > 0)
         if (lines.length > 0) {
           let titleCandidate = lines[0]
             .replace(/<ctrl\d+>/gi, '')
             .replace(/[\x00-\x1F\x7F]/g, '')
+            .replace(/본문[:\s]*/i, '') // "본문:" 접두사 제거
             .trim()
           
-          // 첫 줄이 30자 미만이고 두 번째 줄이 있으면 포함 (최대 50자)
-          if (titleCandidate.length < 30 && lines.length > 1) {
-            const secondLine = lines[1]
-              .replace(/<ctrl\d+>/gi, '')
-              .replace(/[\x00-\x1F\x7F]/g, '')
-              .trim()
-            const combined = titleCandidate + ' ' + secondLine
-            if (combined.length <= 50) {
-              titleCandidate = combined
-            }
+          // "본문:" 이후의 내용이 있으면 제거
+          const 본문Index = titleCandidate.search(/본문[:\s]/i)
+          if (본문Index > 0) {
+            titleCandidate = titleCandidate.substring(0, 본문Index).trim()
           }
           
-          // 50자 초과 시 자르기
+          // 본문 시작 패턴 감지
+          const bodyStartIndex = findBodyStartPattern(titleCandidate)
+          if (bodyStartIndex > 0) {
+            titleCandidate = titleCandidate.substring(0, bodyStartIndex).trim()
+          }
+          
+          // 50자 초과 시 자르기 (물음표/느낌표 전까지만)
           if (titleCandidate.length > 50) {
-            const words = titleCandidate.substring(0, 50).split(/\s+/)
-            words.pop()
-            titleCandidate = words.join(' ')
+            // 물음표나 느낌표가 있으면 그 전까지만
+            const questionMarkIndex = titleCandidate.lastIndexOf('?')
+            const exclamationMarkIndex = titleCandidate.lastIndexOf('!')
+            const lastMarkIndex = Math.max(questionMarkIndex, exclamationMarkIndex)
+            
+            if (lastMarkIndex > 0 && lastMarkIndex <= 50) {
+              titleCandidate = titleCandidate.substring(0, lastMarkIndex + 1).trim()
+            } else {
+              // 마크가 없거나 50자 초과면 단어 단위로 자르기
+              const words = titleCandidate.substring(0, 50).split(/\s+/)
+              words.pop()
+              titleCandidate = words.join(' ')
+            }
           }
           
           finalQuestionTitle = titleCandidate.trim()
         } else {
-          // 줄이 없으면 전체를 제목으로 (최대 50자)
-          finalQuestionTitle = questionText
+          // 줄이 없으면 전체를 제목으로 (최대 50자, 본문 시작 패턴 감지)
+          let titleCandidate = questionText
             .replace(/<ctrl\d+>/gi, '')
             .replace(/[\x00-\x1F\x7F]/g, '')
+            .replace(/본문[:\s]*/i, '') // "본문:" 접두사 제거
             .trim()
-            .substring(0, 50)
-            .trim()
+          
+          // 본문 시작 패턴 감지
+          const bodyStartIndex = findBodyStartPattern(titleCandidate)
+          if (bodyStartIndex > 0) {
+            titleCandidate = titleCandidate.substring(0, bodyStartIndex).trim()
+          }
+          
+          finalQuestionTitle = titleCandidate.substring(0, 50).trim()
         }
       }
       
@@ -1375,36 +1444,45 @@ export async function POST(request: NextRequest) {
         threadContent = threadContent.replace(/\[생성된 댓글\]/g, '').trim()
         threadContent = threadContent.trim()
         
-        // 대화형 스레드 댓글 길이 제한: answerLength와 stepNumber에 따라 다르게 적용
+        // 대화형 스레드 댓글 길이 확인 및 로깅 (프롬프트에서 길이 제어, API에서는 최소한의 보호만)
         const stepNumber = Math.ceil(step / 2) // 몇 번째 댓글인지
-        let maxLength = 130 // 기본값 (짧은 답변)
+        let expectedMaxLength = 150 // 기본값 (짧은 답변)
         
         if (answerLength === 'default') {
           // 기본 답변: 단계별로 다른 길이
           if (stepNumber <= 2) {
-            maxLength = 300 // 초반: 200-300자
+            expectedMaxLength = 300 // 초반: 200-300자
           } else if (stepNumber <= 4) {
-            maxLength = 250 // 중반: 150-250자
+            expectedMaxLength = 250 // 중반: 150-250자
           } else {
-            maxLength = 200 // 후반: 100-200자
+            expectedMaxLength = 200 // 후반: 100-200자
           }
         } else {
           // 짧은 답변: 120-150자
-          maxLength = 150
+          expectedMaxLength = 150
         }
         
-        try {
-          threadContent = enforceAnswerLength(threadContent, maxLength)
-          console.log(`[Q&A 생성] [Step 3-${step}] 댓글 길이: ${threadContent.length}자 (최대 ${maxLength}자, ${answerLength === 'short' ? '짧은 답변' : `기본 답변 ${stepNumber <= 2 ? '초반' : stepNumber <= 4 ? '중반' : '후반'}`})`)
-        } catch (lengthError: any) {
-          console.error(`[Q&A 생성] [Step 3-${step}] 댓글 길이 제한 오류:`, lengthError)
-          // 에러 발생 시 원본 내용을 최대 길이로 단순 자르기
-          threadContent = threadContent.slice(0, maxLength).trim()
-          console.log(`[Q&A 생성] [Step 3-${step}] 댓글 길이 제한 (폴백): ${threadContent.length}자 (최대 ${maxLength}자)`)
-        }
+        // 프롬프트에서 길이를 제어하도록 했으므로, API에서는 매우 관대하게만 처리 (20% 여유)
+        // 단, 극단적으로 긴 경우(예상 길이의 150% 초과)에만 제한 적용
+        const warningThreshold = expectedMaxLength * 1.5 // 150% 초과 시에만 경고 및 제한
         
-        // 문장 완성 확인 로직 제거 - 중간에 잘리는 문제 방지
-        // maxLength 이하로만 자르고, 문장 완성 여부는 확인하지 않음
+        if (threadContent.length > warningThreshold) {
+          console.warn(`[Q&A 생성] [Step 3-${step}] 댓글이 예상 길이를 크게 초과합니다: ${threadContent.length}자 (예상: ${expectedMaxLength}자, 경고 임계값: ${warningThreshold}자)`)
+          console.warn(`[Q&A 생성] [Step 3-${step}] 프롬프트에서 길이 제어가 제대로 작동하지 않은 것 같습니다. 최소한의 보호를 위해 제한을 적용합니다.`)
+          
+          // 극단적으로 긴 경우에만 문장 끝을 찾아서 자르기
+          try {
+            threadContent = enforceAnswerLength(threadContent, expectedMaxLength)
+            console.log(`[Q&A 생성] [Step 3-${step}] 댓글 길이 제한 적용: ${threadContent.length}자 (원본: ${threadContent.length}자, 최대 ${expectedMaxLength}자)`)
+          } catch (lengthError: any) {
+            console.error(`[Q&A 생성] [Step 3-${step}] 댓글 길이 제한 오류:`, lengthError)
+            // 에러 발생 시 원본 내용 유지 (프롬프트가 제대로 작동했다고 가정)
+            console.warn(`[Q&A 생성] [Step 3-${step}] 길이 제한 실패, 원본 내용 유지: ${threadContent.length}자`)
+          }
+        } else {
+          // 정상 범위 내이면 그대로 사용 (프롬프트가 제대로 작동한 것으로 간주)
+          console.log(`[Q&A 생성] [Step 3-${step}] 댓글 길이: ${threadContent.length}자 (예상 범위: ${answerLength === 'short' ? '120-150자' : stepNumber <= 2 ? '200-300자' : stepNumber <= 4 ? '150-250자' : '100-200자'}, ${answerLength === 'short' ? '짧은 답변' : `기본 답변 ${stepNumber <= 2 ? '초반' : stepNumber <= 4 ? '중반' : '후반'}`})`)
+        }
         
         // 히스토리에 추가
         const newMessage: ConversationMessage = {
