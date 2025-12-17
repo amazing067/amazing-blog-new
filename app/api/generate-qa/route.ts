@@ -31,6 +31,7 @@ type CostRates = {
   [key: string]: CostRate
 } & {
   'gemini-2.0-flash': CostRate
+  'gemini-2.5-flash': CostRate
   'gemini-2.5-pro': CostRate
 }
 
@@ -44,6 +45,10 @@ const getCostRates = (): CostRates => {
     'gemini-2.0-flash': {
       prompt: toNumber(process.env.GEMINI_FLASH_2_0_INPUT_COST_PER_1M, 0.10),
       completion: toNumber(process.env.GEMINI_FLASH_2_0_OUTPUT_COST_PER_1M, 0.40)
+    },
+    'gemini-2.5-flash': {
+      prompt: toNumber(process.env.GEMINI_FLASH_2_5_INPUT_COST_PER_1M, 0.075),
+      completion: toNumber(process.env.GEMINI_FLASH_2_5_OUTPUT_COST_PER_1M, 0.30)
     },
     'gemini-2.5-pro': {
       prompt: toNumber(process.env.GEMINI_PRO_2_5_INPUT_COST_PER_1M, 1.25),
@@ -92,22 +97,96 @@ const formatSearchResultsForPrompt = (results: SearchResult[]): string => {
     .join('\n')
 }
 
+// 한국어 문장 끝 패턴 찾기 (자연스러운 문장 완성 지점)
+const findKoreanSentenceEnd = (text: string, maxPos: number, searchRange: number = 30): number | null => {
+  // 안전성 검사
+  if (!text || typeof text !== 'string' || text.length === 0) {
+    return null
+  }
+  
+  // maxPos가 text 길이보다 크면 text 길이로 제한
+  const actualMaxPos = Math.min(maxPos, text.length)
+  if (actualMaxPos <= 0) {
+    return null
+  }
+  
+  // maxPos 위치에서 앞으로 searchRange만큼 검색하여 문장 끝 패턴 찾기
+  const startPos = Math.max(0, actualMaxPos - searchRange)
+  const searchText = text.slice(startPos, actualMaxPos)
+  
+  if (!searchText || searchText.length === 0) {
+    return null
+  }
+  
+  // 한국어 문장 끝 패턴 (우선순위 순)
+  const patterns = [
+    /[?!.]\s*$/,  // 물음표, 느낌표, 마침표
+    /(요|니다|습니다|해요|어요|아요|죠|지요|에요|이에요|네요|군요|거예요|예요|까요|나요|다|어|아)\s*$/,  // 한국어 어미
+    /(되요|돼요|되나요|돼나요|되죠|돼죠)\s*$/,  // 특수 어미
+    /(입니다|입니까|입니다만|입니다요)\s*$/,  // 입니다 계열
+    /(겠어요|겠습니다|겠죠|겠네요)\s*$/,  // 겠 계열
+    /(할게요|할거예요|할거야|할거예요)\s*$/,  // 할 계열
+  ]
+  
+  // 뒤에서부터 패턴 검색 (가장 가까운 문장 끝 찾기)
+  try {
+    for (let i = searchText.length; i >= 0; i--) {
+      const substr = searchText.slice(0, i)
+      if (!substr) continue
+      
+      for (const pattern of patterns) {
+        try {
+          if (pattern.test(substr)) {
+            const foundPos = startPos + i
+            // 찾은 위치가 maxPos에 가깝고 (5자 이내 차이) 최소 길이(50자) 이상인 경우
+            if (foundPos >= 50 && foundPos <= actualMaxPos && (actualMaxPos - foundPos) <= 5) {
+              return foundPos
+            }
+            // 찾은 위치가 maxPos보다 작고 합리적인 거리(30자 이내)에 있는 경우
+            if (foundPos < actualMaxPos && (actualMaxPos - foundPos) <= searchRange) {
+              return foundPos
+            }
+          }
+        } catch (patternError) {
+          // 패턴 테스트 중 오류 발생 시 다음 패턴으로
+          continue
+        }
+      }
+    }
+  } catch (error) {
+    // 검색 중 오류 발생 시 null 반환
+    console.warn('findKoreanSentenceEnd 오류:', error)
+    return null
+  }
+  
+  return null
+}
+
 // 답변 길이 제한 함수 (정확히 maxLength로 맞추기 - 의미 보존, 문장 중간 끊김 방지)
 // 카페 답변은 마침표를 사용하지 않으므로, 줄바꿈과 자연스러운 구분점을 기준으로 자름
 const enforceAnswerLength = (content: string, maxLength: number = 120): string => {
-  if (!content || content.length <= maxLength) {
-    return content
-  }
+  try {
+    // 안전성 검사
+    if (!content || typeof content !== 'string') {
+      return content || ''
+    }
+    
+    if (content.length <= maxLength) {
+      return content
+    }
+    
+    // maxLength가 너무 작으면 최소값으로 제한
+    const safeMaxLength = Math.max(50, maxLength)
+    
+    // 1. 문단 단위로 분리
+    const paragraphs = content.split(/\n\s*\n/).filter(p => p.trim().length > 0)
   
-  // 1. 문단 단위로 분리
-  const paragraphs = content.split(/\n\s*\n/).filter(p => p.trim().length > 0)
-  
-  // 2. 문단 단위로 자르기 시도 (정확히 maxLength 이하로)
+  // 2. 문단 단위로 자르기 시도 (정확히 safeMaxLength 이하로)
   let result = ''
   for (const paragraph of paragraphs) {
     const testResult = result ? `${result}\n\n${paragraph}` : paragraph
     
-    if (testResult.length <= maxLength) {
+    if (testResult.length <= safeMaxLength) {
       result = testResult
     } else {
       // 이 문단을 추가하면 초과하므로, 문장 단위로 자르기
@@ -122,58 +201,87 @@ const enforceAnswerLength = (content: string, maxLength: number = 120): string =
           ? (result.endsWith('\n\n') ? `${result}${sentence}` : `${result}\n\n${sentence}`)
           : sentence
         
-        if (testSentence.length <= maxLength) {
+        if (testSentence.length <= safeMaxLength) {
           result = testSentence
         } else {
           // 이 문장을 추가하면 초과하므로, 문장 끝에서만 자르기 (문장 중간 끊김 방지)
           if (result) {
             // result에 이미 완성된 문장들이 있으므로 그대로 반환
-            // 단, result가 너무 짧으면(50자 미만) 문장을 단어 단위로 자르기 시도
+            // 단, result가 너무 짧으면(50자 미만) 문장을 단어 단위로 자르기 시도 (문장 끝 찾기 포함)
             if (result.length < 50 && sentence.length > 0) {
-              const remaining = maxLength - result.length
+              const remaining = safeMaxLength - result.length
               if (remaining > 20) {
-                const words = sentence.split(/\s+/)
-                let truncated = ''
+                // 문장 끝 패턴 찾기 시도
+                const combinedText = result + '\n\n' + sentence
+                const sentenceEndPos = findKoreanSentenceEnd(combinedText, safeMaxLength, 30)
                 
-                for (const word of words) {
-                  const testWord = truncated ? `${truncated} ${word}` : word
-                  const testResult = result ? `${result}\n\n${testWord}` : testWord
-                  if (testResult.length <= maxLength) {
-                    truncated = testWord
-                  } else {
-                    break
+                if (sentenceEndPos && sentenceEndPos > result.length) {
+                  // 문장 끝을 찾았으면 그 위치에서 자르기
+                  result = combinedText.slice(0, sentenceEndPos).trim()
+                } else {
+                  // 문장 끝을 찾지 못했으면 단어 단위로 자르기
+                  const words = sentence.split(/\s+/)
+                  let truncated = ''
+                  
+                  for (const word of words) {
+                    const testWord = truncated ? `${truncated} ${word}` : word
+                    const testResult = result ? `${result}\n\n${testWord}` : testWord
+                    if (testResult.length <= safeMaxLength) {
+                      truncated = testWord
+                    } else {
+                      // 이 단어를 추가하면 초과하므로, 이전까지의 텍스트에서 문장 끝 찾기
+                      const testText = result ? `${result}\n\n${truncated}` : truncated
+                      const endPos = findKoreanSentenceEnd(testText, safeMaxLength, 30)
+                      if (endPos && endPos >= 50) {
+                        truncated = testText.slice((result ? result.length + 2 : 0), endPos).trim()
+                      }
+                      break
+                    }
                   }
-                }
-                
-                if (truncated.length > 0) {
-                  result = result ? `${result}\n\n${truncated}` : truncated
+                  
+                  if (truncated.length > 0) {
+                    result = result ? `${result}\n\n${truncated}` : truncated
+                  }
                 }
               }
             }
             break
           } else {
-            // result가 비어있으면, 문장을 단어 단위로 자르기
-            const remaining = maxLength
+            // result가 비어있으면, 문장을 단어 단위로 자르기 (문장 끝 찾기 포함)
+            const remaining = safeMaxLength
             if (remaining > 20) {
-              // 문장을 단어 단위로 나누기 (공백 기준)
-              const words = sentence.split(/\s+/)
-              let truncated = ''
+              // 먼저 문장 끝 패턴 찾기 시도 (sentence의 실제 길이와 remaining 중 작은 값 사용)
+              const searchLength = Math.min(sentence.length, remaining)
+              const sentenceEndPos = findKoreanSentenceEnd(sentence, searchLength, 30)
               
-              for (const word of words) {
-                const testWord = truncated ? `${truncated} ${word}` : word
-                if (testWord.length <= remaining) {
-                  truncated = testWord
-                } else {
-                  // 이 단어를 추가하면 초과하므로, 이전까지로 자르기
-                  break
-                }
-              }
-              
-              if (truncated.length > 0) {
-                result = truncated
+              if (sentenceEndPos && sentenceEndPos >= 50) {
+                result = sentence.slice(0, sentenceEndPos).trim()
               } else {
-                // 단어도 없으면 최소한 앞부분만
-                result = sentence.slice(0, remaining)
+                // 문장 끝을 찾지 못했으면 단어 단위로 자르기
+                const words = sentence.split(/\s+/)
+                let truncated = ''
+                
+                for (const word of words) {
+                  const testWord = truncated ? `${truncated} ${word}` : word
+                  if (testWord.length <= remaining) {
+                    truncated = testWord
+                  } else {
+                    // 이 단어를 추가하면 초과하므로, 이전까지의 텍스트에서 문장 끝 찾기
+                    const searchLength = Math.min(truncated.length, remaining)
+                    const endPos = findKoreanSentenceEnd(truncated, searchLength, 30)
+                    if (endPos && endPos >= 50) {
+                      truncated = truncated.slice(0, endPos).trim()
+                    }
+                    break
+                  }
+                }
+                
+                if (truncated.length > 0) {
+                  result = truncated
+                } else {
+                  // 단어도 없으면 최소한 앞부분만
+                  result = sentence.slice(0, remaining)
+                }
               }
             }
           }
@@ -195,26 +303,41 @@ const enforceAnswerLength = (content: string, maxLength: number = 120): string =
       if (testResult.length <= maxLength) {
         result = testResult
       } else {
-        // 문단이 너무 길면 앞부분만 자르기 (단어 단위로)
-        const remaining = maxLength - result.length
+        // 문단이 너무 길면 앞부분만 자르기 (단어 단위로, 문장 끝 찾기 포함)
+        const remaining = safeMaxLength - result.length
         if (remaining > 20) {
-          // 문장을 단어 단위로 나누기
-          const words = paragraph.split(/\s+/)
-          let truncated = ''
+          // 먼저 문장 끝 패턴 찾기 시도
+          const combinedText = result ? `${result}\n\n${paragraph}` : paragraph
+          const sentenceEndPos = findKoreanSentenceEnd(combinedText, safeMaxLength, 30)
           
-          for (const word of words) {
-            const testWord = truncated ? `${truncated} ${word}` : word
-            if (testWord.length <= remaining) {
-              truncated = testWord
-            } else {
-              break
-            }
-          }
-          
-          if (truncated.length > 0) {
-            result = result + '\n\n' + truncated
+          if (sentenceEndPos && sentenceEndPos > (result ? result.length + 2 : 0) && sentenceEndPos >= 50) {
+            result = combinedText.slice(0, sentenceEndPos).trim()
           } else {
-            result = result + '\n\n' + paragraph.slice(0, remaining)
+            // 문장 끝을 찾지 못했으면 단어 단위로 자르기
+            const words = paragraph.split(/\s+/)
+            let truncated = ''
+            
+            for (const word of words) {
+              const testWord = truncated ? `${truncated} ${word}` : word
+              const testText = result ? `${result}\n\n${testWord}` : testWord
+              if (testText.length <= safeMaxLength) {
+                truncated = testWord
+              } else {
+                // 이 단어를 추가하면 초과하므로, 이전까지의 텍스트에서 문장 끝 찾기
+                const prevText = result ? `${result}\n\n${truncated}` : truncated
+                const endPos = findKoreanSentenceEnd(prevText, safeMaxLength, 30)
+                if (endPos && endPos > (result ? result.length + 2 : 0) && endPos >= 50) {
+                  truncated = prevText.slice((result ? result.length + 2 : 0), endPos).trim()
+                }
+                break
+              }
+            }
+            
+            if (truncated.length > 0) {
+              result = result ? `${result}\n\n${truncated}` : truncated
+            } else {
+              result = result ? `${result}\n\n${paragraph.slice(0, remaining)}` : paragraph.slice(0, remaining)
+            }
           }
         }
         break
@@ -222,55 +345,56 @@ const enforceAnswerLength = (content: string, maxLength: number = 120): string =
     }
   }
   
-  // 4. 최종 결과가 maxLength를 초과하면 강제로 자르기 (단어 단위로)
-  if (result.length > maxLength) {
-    // 단어 단위로 자르기 (문장 중간 끊김 방지)
-    const words = result.split(/\s+/)
-    let truncated = ''
+  // 4. 최종 결과가 safeMaxLength를 초과하면 강제로 자르기 (문장 끝 찾기 우선, 단어 단위로)
+  if (result.length > safeMaxLength) {
+    // 먼저 문장 끝 패턴 찾기 시도
+    const sentenceEndPos = findKoreanSentenceEnd(result, safeMaxLength, 30)
     
-    for (const word of words) {
-      const testWord = truncated ? `${truncated} ${word}` : word
-      if (testWord.length <= maxLength) {
-        truncated = testWord
-      } else {
-        break
-      }
-    }
-    
-    if (truncated.length > 0) {
-      result = truncated
+    if (sentenceEndPos && sentenceEndPos >= 50) {
+      result = result.slice(0, sentenceEndPos).trim()
     } else {
-      // 단어도 없으면 최소한 앞부분만 (최후의 수단)
-      result = result.slice(0, maxLength).trim()
-      const lastSpace = result.lastIndexOf(' ')
-      if (lastSpace > result.length * 0.7) {
-        result = result.slice(0, lastSpace)
+      // 문장 끝을 찾지 못했으면 단어 단위로 자르기
+      const words = result.split(/\s+/)
+      let truncated = ''
+      
+      for (const word of words) {
+        const testWord = truncated ? `${truncated} ${word}` : word
+        if (testWord.length <= safeMaxLength) {
+          truncated = testWord
+        } else {
+          // 이 단어를 추가하면 초과하므로, 이전까지의 텍스트에서 문장 끝 찾기
+          const searchLength = Math.min(truncated.length, safeMaxLength)
+          const endPos = findKoreanSentenceEnd(truncated, searchLength, 30)
+          if (endPos && endPos >= 50) {
+            truncated = truncated.slice(0, endPos).trim()
+          }
+          break
+        }
       }
-    }
-  }
-  
-  // 5. 문장 완성 확인 및 미완성 문장 제거 (문장 중간 끊김 방지)
-  const lines = result.split('\n').filter(line => line.trim().length > 0)
-  if (lines.length > 0) {
-    const lastLine = lines[lines.length - 1].trim()
-    // 마지막 줄이 완전한 문장인지 확인 (한국어 문장 끝 패턴 체크)
-    const isCompleteSentence = /(습니다|해요|입니다|되나요|가요|나요|어요|아요|예요|이에요|세요|세요|^^|~|!|\?|수 있습니다|가능합니다|받으실 수 있습니다|보장받으실)$/.test(lastLine)
-    
-    if (!isCompleteSentence && lines.length > 1) {
-      // 마지막 줄이 완성되지 않았으면 제거 (이전 문장까지만 포함)
-      lines.pop()
-      result = lines.join('\n\n').trim()
-    } else if (!isCompleteSentence && lines.length === 1) {
-      // 문장이 하나뿐이고 미완성인 경우, 공백 기준으로 마지막 단어 제거 시도
-      const words = lastLine.split(/\s+/)
-      if (words.length > 1) {
-        words.pop() // 마지막 단어 제거
-        result = words.join(' ').trim()
+      
+      if (truncated.length > 0) {
+        result = truncated
+      } else {
+        // 단어도 없으면 최소한 앞부분만 (최후의 수단)
+        result = result.slice(0, safeMaxLength).trim()
+        const lastSpace = result.lastIndexOf(' ')
+        if (lastSpace > result.length * 0.7) {
+          result = result.slice(0, lastSpace)
+        }
       }
     }
   }
   
   return result.trim()
+  } catch (error: any) {
+    // 에러 발생 시 원본 내용을 최대 길이로 단순 자르기
+    console.error('enforceAnswerLength 오류:', error)
+    if (content && typeof content === 'string') {
+      const safeMaxLength = Math.max(50, maxLength || 120)
+      return content.slice(0, safeMaxLength).trim()
+    }
+    return content || ''
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -284,7 +408,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '인증이 필요합니다' }, { status: 401 })
     }
 
-    const requestBody = await request.json()
+    let requestBody
+    try {
+      requestBody = await request.json()
+    } catch (jsonError: any) {
+      console.error('JSON 파싱 오류:', jsonError)
+      return NextResponse.json(
+        { error: '요청 데이터 형식이 올바르지 않습니다', details: jsonError?.message },
+        { status: 400 }
+      )
+    }
+    
     const { 
       productName, 
       targetPersona, 
@@ -293,7 +427,7 @@ export async function POST(request: NextRequest) {
       feelingTone, 
       answerTone,
       customerStyle, // 고객 스타일: 'friendly' | 'cold' | 'brief' | 'curious'
-      // answerLength 옵션 제거됨 (50-150자로 통일)
+      answerLength, // 답변 길이: 'short' (100-150자) | 'default' (단계별)
       designSheetImage,
       designSheetAnalysis, // 설계서 분석 결과 (보험료, 담보, 특약 등)
       questionTitle, // 답변 재생성 시 사용
@@ -414,14 +548,15 @@ export async function POST(request: NextRequest) {
       useFlash: boolean = false // true: Flash 우선, false: Pro 우선
     ): Promise<{ text: string; usage?: TokenUsage; provider?: 'gemini' }> => {
       // useFlash에 따라 모델 순서 결정
-      // true: Flash 우선 → Pro 폴백, false: Pro 우선 → Flash 폴백
+      // true: 2.5 Flash 우선 → 2.0 Flash 폴백, false: 2.5 Pro 우선 → 2.5 Flash → 2.0 Flash 폴백
       const models = useFlash
         ? [
-            { provider: 'gemini' as const, model: 'gemini-2.0-flash' },
-            { provider: 'gemini' as const, model: 'gemini-2.5-pro' }
+            { provider: 'gemini' as const, model: 'gemini-2.5-flash' },
+            { provider: 'gemini' as const, model: 'gemini-2.0-flash' }
           ]
         : [
             { provider: 'gemini' as const, model: 'gemini-2.5-pro' },
+            { provider: 'gemini' as const, model: 'gemini-2.5-flash' },
             { provider: 'gemini' as const, model: 'gemini-2.0-flash' }
           ]
       
@@ -444,8 +579,8 @@ export async function POST(request: NextRequest) {
       
       // Gemini 폴백 순서로 시도
       const modelOrder = useFlash 
-        ? 'Gemini-2.0-Flash → Gemini-2.5-Pro' 
-        : 'Gemini-2.5-Pro → Gemini-2.0-Flash'
+        ? 'Gemini-2.5-Flash → Gemini-2.0-Flash' 
+        : 'Gemini-2.5-Pro → Gemini-2.5-Flash → Gemini-2.0-Flash'
       console.log(`[Q&A 생성] 🔄 Gemini 폴백 순서 시작: ${modelOrder}`)
       
       for (let attempt = 0; attempt < models.length; attempt++) {
@@ -517,6 +652,15 @@ export async function POST(request: NextRequest) {
           const errorMessage = error?.message || ''
           const errorString = JSON.stringify(error || {})
           
+          // 모델 이름 오류 감지
+          const isModelNotFoundError = 
+            errorMessage.includes('404') ||
+            errorMessage.includes('not found') ||
+            errorMessage.includes('Model not found') ||
+            errorMessage.includes('Invalid model') ||
+            errorString.includes('404') ||
+            errorString.includes('not found')
+          
           const isQuotaError = 
             errorMessage.includes('429') || 
             errorMessage.includes('quota') || 
@@ -532,8 +676,18 @@ export async function POST(request: NextRequest) {
             provider,
             model: modelName,
             error: errorMessage.substring(0, 500),
-            isQuotaError
+            errorFull: errorString.substring(0, 1000),
+            isQuotaError,
+            isModelNotFoundError
           })
+          
+          // 모델이 존재하지 않으면 다음 모델로 즉시 폴백
+          if (isModelNotFoundError && attempt < models.length - 1) {
+            const nextModel = models[attempt + 1]
+            console.log(`[Q&A 생성] ⚠️ ${modelName} 모델을 찾을 수 없음 → ${nextModel.provider.toUpperCase()} ${nextModel.model} 모델로 폴백 시도...`)
+            await new Promise(resolve => setTimeout(resolve, 1000))
+            continue
+          }
           
           // 할당량 에러이고 마지막 모델이 아니면 다음 모델로 시도
           if (isQuotaError && attempt < models.length - 1) {
@@ -556,7 +710,8 @@ export async function POST(request: NextRequest) {
         }
       }
       
-      throw new Error('모든 모델 시도 실패 (Gemini-2.5-Pro → Gemini-2.0-Flash)')
+      const failedModels = models.map(m => m.model).join(' → ')
+      throw new Error(`모든 모델 시도 실패 (${failedModels})`)
     }
     
     // 토큰 사용량 합계 계산
@@ -583,60 +738,228 @@ export async function POST(request: NextRequest) {
       
       if (shouldGenerateQuestion) {
         console.log('Step 1: 질문 생성 중...')
-      const questionPrompt = generateQuestionPrompt({
-        productName,
-        targetPersona,
-        worryPoint,
-        sellingPoint,
-        feelingTone: feelingTone || '고민',
-        answerTone: answerTone || 'friendly',
-        customerStyle: customerStyle || 'curious',
-        designSheetImage,
-        designSheetAnalysis,
-        searchResultsText
-      })
+        try {
+          const questionPrompt = generateQuestionPrompt({
+            productName,
+            targetPersona,
+            worryPoint,
+            sellingPoint,
+            feelingTone: feelingTone || '고민',
+            answerTone: answerTone || 'friendly',
+            customerStyle: customerStyle || 'curious',
+            designSheetImage,
+            designSheetAnalysis,
+            searchResultsText
+          })
 
-      // 프롬프트 길이 로깅 (할당량 초과 진단용)
-      const questionPromptLength = questionPrompt.length
-      const questionEstimatedTokens = Math.ceil(questionPromptLength / 4)
-      console.log(`[Q&A 생성] [Step 1] 질문 생성 프롬프트 길이: ${questionPromptLength} 문자 (약 ${questionEstimatedTokens} 토큰)`)
+          // 프롬프트 길이 로깅 (할당량 초과 진단용)
+          const questionPromptLength = questionPrompt.length
+          const questionEstimatedTokens = Math.ceil(questionPromptLength / 4)
+          console.log(`[Q&A 생성] [Step 1] 질문 생성 프롬프트 길이: ${questionPromptLength} 문자 (약 ${questionEstimatedTokens} 토큰)`)
 
-      // 하이브리드: 질문 생성은 Flash 사용 (비용 절감)
-      const questionResult = await generateContentWithFallback(questionPrompt, designSheetImage, true)
-      // RPM 150 제한 대응: 질문 생성 후 1초 지연
-      await new Promise(resolve => setTimeout(resolve, 1000))
-      let questionText = questionResult.text
+          // 하이브리드: 질문 생성은 Flash 사용 (비용 절감)
+          let questionResult
+          try {
+            questionResult = await generateContentWithFallback(questionPrompt, designSheetImage, true)
+          } catch (genError: any) {
+            console.error('[Q&A 생성] [Step 1] 질문 생성 API 호출 오류:', {
+              error: genError,
+              message: genError?.message,
+              stack: genError?.stack,
+              name: genError?.name
+            })
+            throw new Error(`질문 생성 API 호출 실패: ${genError?.message || '알 수 없는 오류'}`)
+          }
+          
+          // RPM 150 제한 대응: 질문 생성 후 1초 지연
+          await new Promise(resolve => setTimeout(resolve, 1000))
+          
+          if (!questionResult || !questionResult.text) {
+            console.error('[Q&A 생성] [Step 1] 질문 생성 결과가 비어있습니다:', questionResult)
+            throw new Error('질문 생성 결과가 비어있습니다')
+          }
+          
+          let questionText = questionResult.text
 
       // 제어 문자 제거 (<ctrl63>, <ctrl*> 등)
       questionText = questionText.replace(/<ctrl\d+>/gi, '')
       questionText = questionText.replace(/[\x00-\x1F\x7F]/g, '') // 기타 제어 문자 제거
 
-      // 제목과 본문 분리
-      const titleMatch = questionText.match(/제목:\s*([\s\S]+?)(?:\n|본문:)/)
-      const contentMatch = questionText.match(/본문:\s*([\s\S]+?)$/)
+      // 제목과 본문 분리 (정확한 파싱)
+      console.log('[Q&A 생성] [Step 1] 원본 질문 텍스트 (처음 500자):', questionText.substring(0, 500))
+      console.log('[Q&A 생성] [Step 1] 원본 질문 텍스트 전체 길이:', questionText.length)
       
-      finalQuestionTitle = titleMatch 
-        ? titleMatch[1].trim().replace(/<ctrl\d+>/gi, '').replace(/[\x00-\x1F\x7F]/g, '')
-        : questionText.split('\n')[0].trim().replace(/<ctrl\d+>/gi, '').replace(/[\x00-\x1F\x7F]/g, '')
+      // "제목:"과 "본문:" 형식으로 명확히 구분되어 있는지 확인
+      const titleSectionMatch = questionText.match(/제목[:\s]*\n?([\s\S]*?)(?:\n\s*본문[:\s]*\n?|$)/i)
+      const contentSectionMatch = questionText.match(/본문[:\s]*\n?([\s\S]*?)$/i)
       
-      const rawQuestionContent = contentMatch 
-        ? contentMatch[1].trim().replace(/<ctrl\d+>/gi, '').replace(/[\x00-\x1F\x7F]/g, '')
-        : questionText.split('\n').slice(1).join('\n').trim().replace(/<ctrl\d+>/gi, '').replace(/[\x00-\x1F\x7F]/g, '')
+      console.log('[Q&A 생성] [Step 1] titleSectionMatch:', titleSectionMatch ? '찾음' : '없음')
+      console.log('[Q&A 생성] [Step 1] contentSectionMatch:', contentSectionMatch ? '찾음' : '없음')
+      
+      // 제목 추출 (1-2줄, 최대 50자)
+      if (titleSectionMatch && titleSectionMatch[1]) {
+        // "제목:" 형식이 있으면 해당 부분만 추출
+        let titleText = titleSectionMatch[1]
+          .trim()
+          .replace(/<ctrl\d+>/gi, '')
+          .replace(/[\x00-\x1F\x7F]/g, '')
+        
+        // 제목은 최대 2줄 또는 50자로 제한
+        const titleLines = titleText.split('\n').filter(line => line.trim().length > 0)
+        if (titleLines.length > 0) {
+          // 첫 줄만 사용 (제목은 보통 한 줄)
+          let titleCandidate = titleLines[0].trim()
+          
+          // 첫 줄이 30자 미만이고 두 번째 줄이 있으면 포함 (최대 50자)
+          if (titleCandidate.length < 30 && titleLines.length > 1) {
+            const secondLine = titleLines[1].trim()
+            const combined = titleCandidate + ' ' + secondLine
+            if (combined.length <= 50) {
+              titleCandidate = combined
+            }
+          }
+          
+          // 50자 초과 시 자르기 (단어 단위로)
+          if (titleCandidate.length > 50) {
+            const words = titleCandidate.substring(0, 50).split(/\s+/)
+            words.pop() // 마지막 단어 제거 (잘릴 수 있으므로)
+            titleCandidate = words.join(' ')
+          }
+          
+          finalQuestionTitle = titleCandidate.trim()
+        } else {
+          finalQuestionTitle = titleText.substring(0, 50).trim()
+        }
+      } else {
+        // "제목:" 형식이 없으면 첫 줄 또는 첫 두 줄을 제목으로 사용
+        const lines = questionText.split('\n').filter(line => line.trim().length > 0)
+        if (lines.length > 0) {
+          let titleCandidate = lines[0]
+            .replace(/<ctrl\d+>/gi, '')
+            .replace(/[\x00-\x1F\x7F]/g, '')
+            .trim()
+          
+          // 첫 줄이 30자 미만이고 두 번째 줄이 있으면 포함 (최대 50자)
+          if (titleCandidate.length < 30 && lines.length > 1) {
+            const secondLine = lines[1]
+              .replace(/<ctrl\d+>/gi, '')
+              .replace(/[\x00-\x1F\x7F]/g, '')
+              .trim()
+            const combined = titleCandidate + ' ' + secondLine
+            if (combined.length <= 50) {
+              titleCandidate = combined
+            }
+          }
+          
+          // 50자 초과 시 자르기
+          if (titleCandidate.length > 50) {
+            const words = titleCandidate.substring(0, 50).split(/\s+/)
+            words.pop()
+            titleCandidate = words.join(' ')
+          }
+          
+          finalQuestionTitle = titleCandidate.trim()
+        } else {
+          // 줄이 없으면 전체를 제목으로 (최대 50자)
+          finalQuestionTitle = questionText
+            .replace(/<ctrl\d+>/gi, '')
+            .replace(/[\x00-\x1F\x7F]/g, '')
+            .trim()
+            .substring(0, 50)
+            .trim()
+        }
+      }
+      
+      // 본문 추출
+      let rawQuestionContent = ''
+      if (contentSectionMatch && contentSectionMatch[1]) {
+        // "본문:" 형식이 있으면 해당 부분만 추출
+        rawQuestionContent = contentSectionMatch[1]
+          .trim()
+          .replace(/<ctrl\d+>/gi, '')
+          .replace(/[\x00-\x1F\x7F]/g, '')
+        
+        // "제목:" 접두사가 본문에 포함되어 있으면 제거
+        rawQuestionContent = rawQuestionContent.replace(/^제목[:\s]*/i, '').trim()
+        
+        // 본문의 첫 부분이 제목과 동일하면 제거
+        const titleTrimmed = finalQuestionTitle.trim()
+        if (titleTrimmed && rawQuestionContent.startsWith(titleTrimmed)) {
+          rawQuestionContent = rawQuestionContent.substring(titleTrimmed.length).trim()
+          // 제목 다음에 오는 구분자(줄바꿈, 공백 등)도 제거
+          rawQuestionContent = rawQuestionContent.replace(/^[\s\n]+/, '').trim()
+        }
+      } else {
+        // "본문:" 형식이 없으면 제목을 제외한 나머지 사용
+        const lines = questionText.split('\n')
+        if (lines.length > 1) {
+          // 첫 줄(제목)을 제외한 나머지
+          rawQuestionContent = lines.slice(1).join('\n')
+            .trim()
+            .replace(/<ctrl\d+>/gi, '')
+            .replace(/[\x00-\x1F\x7F]/g, '')
+          
+          // "제목:" 접두사가 본문에 포함되어 있으면 제거
+          rawQuestionContent = rawQuestionContent.replace(/^제목[:\s]*/i, '').trim()
+          
+          // 본문의 첫 부분이 제목과 동일하면 제거
+          const titleTrimmed = finalQuestionTitle.trim()
+          if (titleTrimmed && rawQuestionContent.startsWith(titleTrimmed)) {
+            rawQuestionContent = rawQuestionContent.substring(titleTrimmed.length).trim()
+            rawQuestionContent = rawQuestionContent.replace(/^[\s\n]+/, '').trim()
+          }
+        } else {
+          // 한 줄만 있으면 전체를 본문으로 사용 (제목은 비워두거나 첫 부분 사용)
+          rawQuestionContent = questionText
+            .trim()
+            .replace(/<ctrl\d+>/gi, '')
+            .replace(/[\x00-\x1F\x7F]/g, '')
+            .replace(/^제목[:\s]*/i, '') // "제목:" 접두사 제거
+            .trim()
+        }
+      }
+      
+      console.log('[Q&A 생성] [Step 1] 파싱된 제목:', finalQuestionTitle?.substring(0, 100))
+      console.log('[Q&A 생성] [Step 1] 파싱된 제목 길이:', finalQuestionTitle?.length)
+      console.log('[Q&A 생성] [Step 1] 파싱된 본문 (처음 200자):', rawQuestionContent?.substring(0, 200))
+      console.log('[Q&A 생성] [Step 1] 파싱된 본문 길이:', rawQuestionContent?.length)
 
       // 질문 본문 줄단락 자동 재배치 (문단 최소 3개 확보)
       const formatQuestionContent = (text: string): string => {
-        let cleaned = (text || '')
+        if (!text || typeof text !== 'string' || text.trim().length === 0) {
+          console.warn('[Q&A 생성] [Step 1] formatQuestionContent: 입력 텍스트가 비어있습니다')
+          return ''
+        }
+        
+        let cleaned = text
           .replace(/```[\s\S]*?```/g, '')
+          .replace(/^제목[:\s]*/i, '') // "제목:" 접두사 제거
+          .replace(/^본문[:\s]*/i, '') // "본문:" 접두사 제거 (혹시 모를 경우)
           .replace(/[ \t]+/g, ' ')
           .split('\n')
           .map(line => line.trim())
           .join('\n')
           .replace(/\n{3,}/g, '\n\n')
           .trim()
+        
+        // 제목과 중복되는 첫 부분 제거
+        const titleTrimmed = finalQuestionTitle.trim()
+        if (titleTrimmed && cleaned.startsWith(titleTrimmed)) {
+          cleaned = cleaned.substring(titleTrimmed.length).trim()
+          cleaned = cleaned.replace(/^[\s\n]+/, '').trim()
+        }
+        
+        if (!cleaned || cleaned.length === 0) {
+          console.warn('[Q&A 생성] [Step 1] formatQuestionContent: 정리 후 텍스트가 비어있습니다')
+          return text.trim() // 원본 반환
+        }
 
         const existingParagraphs = cleaned.split(/\n\s*\n/).filter(p => p.trim().length > 0)
         if (existingParagraphs.length >= 3) {
-          return existingParagraphs.join('\n\n').trim()
+          const result = existingParagraphs.join('\n\n').trim()
+          if (result.length > 0) {
+            return result
+          }
         }
 
         // 문장 단위 분리 (질문/감탄 위주 구두점)
@@ -682,25 +1005,83 @@ export async function POST(request: NextRequest) {
         }
 
         const finalParagraphs = paragraphs.filter(p => p.trim().length > 0)
-        return finalParagraphs.length > 0 ? finalParagraphs.join('\n\n').trim() : cleaned
+        const result = finalParagraphs.length > 0 ? finalParagraphs.join('\n\n').trim() : cleaned
+        
+        // 최종 결과가 비어있으면 원본 반환
+        if (!result || result.length === 0) {
+          console.warn('[Q&A 생성] [Step 1] formatQuestionContent: 최종 결과가 비어있어 원본 반환')
+          return text.trim()
+        }
+        
+        return result
       }
 
-      finalQuestionContent = formatQuestionContent(rawQuestionContent)
+          finalQuestionContent = formatQuestionContent(rawQuestionContent)
+          
+          console.log('[Q&A 생성] [Step 1] 포맷팅 후 제목 길이:', finalQuestionTitle?.length || 0)
+          console.log('[Q&A 생성] [Step 1] 포맷팅 후 본문 길이:', finalQuestionContent?.length || 0)
 
-        // 질문 생성 후 값이 제대로 설정되었는지 확인
-        if (!finalQuestionTitle || !finalQuestionContent || finalQuestionTitle.trim().length === 0 || finalQuestionContent.trim().length === 0) {
-          console.error('Step 1 실패: 생성된 질문이 비어있습니다', { 
-            finalQuestionTitle, 
-            finalQuestionContent,
-            questionTextLength: questionText?.length || 0
+          // 질문 생성 후 값이 제대로 설정되었는지 확인 (더 유연한 검증)
+          const titleValid = finalQuestionTitle && finalQuestionTitle.trim().length > 0
+          const contentValid = finalQuestionContent && finalQuestionContent.trim().length > 0
+          
+          if (!titleValid || !contentValid) {
+            console.error('[Q&A 생성] [Step 1] 생성된 질문이 비어있습니다', { 
+              titleValid,
+              contentValid,
+              finalQuestionTitle: finalQuestionTitle?.substring(0, 100), 
+              finalQuestionContent: finalQuestionContent?.substring(0, 200),
+              questionTextLength: questionText?.length || 0,
+              rawQuestionContent: rawQuestionContent?.substring(0, 300)
+            })
+            
+            // 원본 텍스트가 있으면 그것을 사용 (폴백)
+            if (questionText && questionText.trim().length > 0) {
+              console.warn('[Q&A 생성] [Step 1] 폴백: 원본 텍스트 사용')
+              const fallbackLines = questionText.trim().split('\n').filter(l => l.trim().length > 0)
+              if (fallbackLines.length > 0) {
+                finalQuestionTitle = fallbackLines[0].trim().substring(0, 100)
+                finalQuestionContent = fallbackLines.slice(1).join('\n\n').trim() || questionText.trim()
+                
+                // 다시 검증
+                if (finalQuestionTitle && finalQuestionTitle.trim().length > 0 && 
+                    finalQuestionContent && finalQuestionContent.trim().length > 0) {
+                  console.log('[Q&A 생성] [Step 1] 폴백 성공:', { 
+                    titleLength: finalQuestionTitle.length, 
+                    contentLength: finalQuestionContent.length 
+                  })
+                } else {
+                  throw new Error(`생성된 질문이 비어있습니다 (제목: ${titleValid}, 본문: ${contentValid})`)
+                }
+              } else {
+                throw new Error(`생성된 질문이 비어있습니다 (제목: ${titleValid}, 본문: ${contentValid})`)
+              }
+            } else {
+              throw new Error(`생성된 질문이 비어있습니다 (제목: ${titleValid}, 본문: ${contentValid})`)
+            }
+          }
+
+          console.log('Step 1 완료:', { questionTitle: finalQuestionTitle, questionContentLength: finalQuestionContent.length })
+        } catch (step1Error: any) {
+          console.error('[Q&A 생성] [Step 1] 질문 생성 중 오류 발생:', {
+            error: step1Error,
+            message: step1Error?.message,
+            stack: step1Error?.stack,
+            name: step1Error?.name,
+            cause: step1Error?.cause
           })
           return NextResponse.json(
-            { error: '질문 생성에 실패했습니다. 다시 시도해주세요.' },
+            { 
+              error: step1Error?.message || '질문 생성에 실패했습니다. 다시 시도해주세요.',
+              details: process.env.NODE_ENV === 'development' ? {
+                message: step1Error?.message,
+                stack: step1Error?.stack,
+                name: step1Error?.name
+              } : undefined
+            },
             { status: 500 }
           )
         }
-
-        console.log('Step 1 완료:', { questionTitle: finalQuestionTitle, questionContentLength: finalQuestionContent.length })
       } else {
         // generateStep이 'question'이고 기존 질문이 있는 경우에만 생략
         console.log('Step 1 생략: 기존 질문 사용')
@@ -749,7 +1130,7 @@ export async function POST(request: NextRequest) {
           feelingTone: feelingTone || '고민',
           answerTone: answerTone || 'friendly',
           customerStyle: customerStyle || 'curious',
-          // answerLength 옵션 제거됨 (50-150자로 통일)
+          answerLength: answerLength || 'default', // 답변 길이: 'short' (50-100자) | 'default' (100-150자)
           designSheetImage,
           designSheetAnalysis,
           searchResultsText
@@ -860,13 +1241,27 @@ export async function POST(request: NextRequest) {
       // 6. 최종 정리 (앞뒤 공백 제거)
       answerContent = answerContent.trim()
       
-      // 7. 첫 답변 길이 제한: 200-300자 사이로 제한
-      if (answerContent.length > 300) {
-        // 300자 초과 시 300자로 제한 (문장 중간 끊김 방지)
-        answerContent = enforceAnswerLength(answerContent, 300)
-      } else if (answerContent.length < 200) {
-        // 200자 미만이면 그대로 유지 (프롬프트에서 최소 길이 보장하도록 함)
-        console.log('⚠️ 첫 답변이 200자 미만입니다:', answerContent.length)
+      // 7. 첫 답변 길이 제한: answerLength에 따라 제한
+      if (answerLength === 'short') {
+        // 짧은 답변: 100-150자
+        const maxLength = 150
+        if (answerContent.length > maxLength) {
+          try {
+            answerContent = enforceAnswerLength(answerContent, maxLength)
+            console.log(`[Q&A 생성] [Step 2] 답변 길이 제한: ${answerContent.length}자 (최대 ${maxLength}자, 짧은 답변)`)
+          } catch (lengthError: any) {
+            console.error('[Q&A 생성] [Step 2] 답변 길이 제한 오류:', lengthError)
+            // 에러 발생 시 원본 내용을 최대 길이로 단순 자르기
+            answerContent = answerContent.slice(0, maxLength).trim()
+            console.log(`[Q&A 생성] [Step 2] 답변 길이 제한 (폴백): ${answerContent.length}자 (최대 ${maxLength}자)`)
+          }
+        } else {
+          console.log(`[Q&A 생성] [Step 2] 답변 길이: ${answerContent.length}자 (목표: 100-150자, 짧은 답변)`)
+        }
+      } else {
+        // 기본 답변: 첫 답변은 길이 제한 없음 (대화형 댓글 스레드 전)
+        // 프롬프트에서 200-300자 목표로 생성하지만, API에서는 제한하지 않음
+        console.log(`[Q&A 생성] [Step 2] 답변 길이: ${answerContent.length}자 (기본 답변 - 길이 제한 없음, 프롬프트 목표: 200-300자)`)
       }
 
       console.log('Step 2 완료:', { answerContentLength: answerContent.length })
@@ -944,6 +1339,7 @@ export async function POST(request: NextRequest) {
             feelingTone: feelingTone || '고민',
             answerTone: answerTone || 'friendly',
             customerStyle: customerStyle || 'curious',
+            answerLength: answerLength || 'default', // 답변 길이 전달
             designSheetImage,
             designSheetAnalysis,
             searchResultsText: searchResultsText || undefined // 검색 결과 전달 (설계사 댓글에서만 활용)
@@ -979,26 +1375,36 @@ export async function POST(request: NextRequest) {
         threadContent = threadContent.replace(/\[생성된 댓글\]/g, '').trim()
         threadContent = threadContent.trim()
         
-        // 대화형 스레드 댓글 길이 제한 - 약 120자 (100-130자 허용, 문장 완성 우선)
-        const maxLength = 130 // 최대 130자까지 허용 (문장 완성 우선)
-        threadContent = enforceAnswerLength(threadContent, maxLength)
+        // 대화형 스레드 댓글 길이 제한: answerLength와 stepNumber에 따라 다르게 적용
+        const stepNumber = Math.ceil(step / 2) // 몇 번째 댓글인지
+        let maxLength = 130 // 기본값 (짧은 답변)
         
-        // 문장이 완성되지 않았으면 (마지막 문장이 끝나지 않았으면) 이전 문장까지만 포함
-        // 마지막 문장이 완성되지 않은 경우 제거 (문장 중간 끊김 방지)
-        const lines = threadContent.split('\n').filter(line => line.trim().length > 0)
-        if (lines.length > 0) {
-          const lastLine = lines[lines.length - 1]
-          // 마지막 줄이 완전한 문장인지 확인 (한국어 문장 끝 패턴 체크)
-          // "습니다", "해요", "입니다", "되나요", "가요" 등으로 끝나거나, "^^", "~" 등으로 끝나는 경우 완성된 문장
-          const isCompleteSentence = /(습니다|해요|입니다|되나요|가요|나요|어요|아요|예요|이에요|세요|세요|^^|~|!|\?)$/.test(lastLine.trim())
-          
-          if (!isCompleteSentence && lines.length > 1) {
-            // 마지막 줄이 완성되지 않았으면 제거 (이전 문장까지만 포함)
-            lines.pop()
-            threadContent = lines.join('\n\n').trim()
-            console.log(`[Q&A 생성] [Step 3-${step}] 문장 완성 보장: 마지막 미완성 문장 제거`)
+        if (answerLength === 'default') {
+          // 기본 답변: 단계별로 다른 길이
+          if (stepNumber <= 2) {
+            maxLength = 300 // 초반: 200-300자
+          } else if (stepNumber <= 4) {
+            maxLength = 250 // 중반: 150-250자
+          } else {
+            maxLength = 200 // 후반: 100-200자
           }
+        } else {
+          // 짧은 답변: 120-150자
+          maxLength = 150
         }
+        
+        try {
+          threadContent = enforceAnswerLength(threadContent, maxLength)
+          console.log(`[Q&A 생성] [Step 3-${step}] 댓글 길이: ${threadContent.length}자 (최대 ${maxLength}자, ${answerLength === 'short' ? '짧은 답변' : `기본 답변 ${stepNumber <= 2 ? '초반' : stepNumber <= 4 ? '중반' : '후반'}`})`)
+        } catch (lengthError: any) {
+          console.error(`[Q&A 생성] [Step 3-${step}] 댓글 길이 제한 오류:`, lengthError)
+          // 에러 발생 시 원본 내용을 최대 길이로 단순 자르기
+          threadContent = threadContent.slice(0, maxLength).trim()
+          console.log(`[Q&A 생성] [Step 3-${step}] 댓글 길이 제한 (폴백): ${threadContent.length}자 (최대 ${maxLength}자)`)
+        }
+        
+        // 문장 완성 확인 로직 제거 - 중간에 잘리는 문제 방지
+        // maxLength 이하로만 자르고, 문장 완성 여부는 확인하지 않음
         
         // 히스토리에 추가
         const newMessage: ConversationMessage = {
@@ -1176,28 +1582,67 @@ export async function POST(request: NextRequest) {
       }
     })
   } catch (error: any) {
-    console.error('Q&A 생성 오류:', error)
-    console.error('오류 상세:', {
-      message: error?.message,
-      stack: error?.stack,
-      name: error?.name,
-      cause: error?.cause
-    })
+    // 에러 로깅 강화
+    console.error('========== Q&A 생성 오류 발생 ==========')
+    console.error('에러 타입:', typeof error)
+    console.error('에러 객체:', error)
+    console.error('에러 메시지:', error?.message)
+    console.error('에러 스택:', error?.stack)
+    console.error('에러 이름:', error?.name)
+    console.error('에러 원인:', error?.cause)
+    
+    // 에러를 JSON으로 변환 시도
+    try {
+      const errorString = JSON.stringify(error, Object.getOwnPropertyNames(error))
+      console.error('에러 JSON:', errorString.substring(0, 2000))
+    } catch (stringifyError) {
+      console.error('에러 JSON 변환 실패:', stringifyError)
+      console.error('에러 toString:', error?.toString())
+    }
+    console.error('==========================================')
     
     // 더 자세한 에러 메시지 제공
     let errorMessage = 'Q&A 생성 중 오류가 발생했습니다'
-    if (error?.message) {
-      errorMessage = error.message
+    
+    // 에러 메시지 추출 (여러 방법 시도)
+    if (error?.message && typeof error.message === 'string' && error.message.trim().length > 0) {
+      errorMessage = error.message.trim()
       // 할당량 에러인 경우 더 친절한 메시지
-      if (error.message.includes('429') || error.message.includes('quota')) {
+      if (errorMessage.includes('429') || errorMessage.includes('quota') || errorMessage.includes('할당량')) {
         errorMessage = 'API 할당량이 초과되었습니다. 잠시 후 다시 시도해주세요.'
+      }
+    } else if (error?.toString && typeof error.toString === 'function') {
+      try {
+        const errorString = error.toString()
+        if (errorString && errorString !== '[object Object]' && errorString.trim().length > 0) {
+          errorMessage = errorString.trim()
+        }
+      } catch (toStringError) {
+        // toString 실패 시 무시
+      }
+    }
+    
+    // 에러가 객체이지만 메시지가 없는 경우
+    if (errorMessage === 'Q&A 생성 중 오류가 발생했습니다' && typeof error === 'object' && error !== null) {
+      // 에러 객체의 속성들을 확인
+      const errorKeys = Object.keys(error)
+      if (errorKeys.length > 0) {
+        errorMessage = `Q&A 생성 중 오류가 발생했습니다 (${errorKeys.join(', ')})`
       }
     }
     
     return NextResponse.json(
       { 
         error: errorMessage,
-        details: process.env.NODE_ENV === 'development' ? error?.stack : undefined
+        message: errorMessage, // 호환성을 위해 message도 추가
+        details: process.env.NODE_ENV === 'development' ? {
+          message: error?.message,
+          stack: error?.stack,
+          name: error?.name,
+          type: typeof error,
+          string: error?.toString?.(),
+          keys: typeof error === 'object' && error !== null ? Object.keys(error) : undefined
+        } : undefined
       },
       { status: 500 }
     )

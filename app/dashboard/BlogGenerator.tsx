@@ -3819,7 +3819,7 @@ function QAGenerator({
     feelingTone: '고민',
     answerTone: 'friendly',
     customerStyle: 'curious', // 고객 스타일: 'friendly' | 'cold' | 'brief' | 'curious'
-    // answerLength 옵션 제거됨 (50-150자로 통일)
+    answerLength: 'default' as 'short' | 'default', // 답변 길이: 'short' (100-150자) | 'default' (단계별)
     designSheetImage: '' as string | null
   })
   
@@ -4527,17 +4527,34 @@ function QAGenerator({
         }),
       })
 
-      const data = await response.json()
+      // 응답 본문 읽기 시도 (JSON 파싱 실패 처리)
+      let data: any = {}
+      try {
+        const text = await response.text()
+        if (text) {
+          try {
+            data = JSON.parse(text)
+          } catch (parseError) {
+            console.error('JSON 파싱 오류:', parseError, '응답 본문:', text.substring(0, 500))
+            data = { error: `서버 응답 파싱 오류: ${text.substring(0, 200)}` }
+          }
+        }
+      } catch (readError) {
+        console.error('응답 읽기 오류:', readError)
+        data = { error: '서버 응답을 읽을 수 없습니다' }
+      }
 
       if (!response.ok) {
+        const errorMessage = data?.error || data?.message || `Q&A 생성 오류 (${response.status})`
         console.error('Q&A 생성 API 오류:', {
           status: response.status,
           statusText: response.statusText,
-          error: data.error,
-          details: data.details,
-          fullData: data
+          error: errorMessage,
+          details: data?.details,
+          fullData: data,
+          responseBody: data
         })
-        throw new Error(data.error || `Q&A 생성 오류 (${response.status})`)
+        throw new Error(errorMessage)
       }
 
       // 단일 Q&A 결과 저장
@@ -4575,7 +4592,13 @@ function QAGenerator({
       alert('Q&A 생성이 완료되었습니다!')
     } catch (error: any) {
       console.error('Q&A 생성 오류:', error)
-      alert('Q&A 생성 중 오류가 발생했습니다: ' + error.message)
+      const errorMessage = error?.message || error?.toString() || '알 수 없는 오류가 발생했습니다'
+      console.error('에러 상세:', {
+        message: errorMessage,
+        error: error,
+        stack: error?.stack
+      })
+      alert('Q&A 생성 중 오류가 발생했습니다: ' + errorMessage)
     } finally {
       setIsGenerating(false)
     }
@@ -5150,6 +5173,40 @@ function QAGenerator({
               </p>
             </div>
 
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">
+                답변 길이
+              </label>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setQAFormData(prev => ({ ...prev, answerLength: 'short' }))}
+                  className={`flex-1 px-4 py-2 rounded-lg font-semibold transition-colors ${
+                    qaFormData.answerLength === 'short'
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                  }`}
+                >
+                  짧은 답변 (100-150자)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setQAFormData(prev => ({ ...prev, answerLength: 'default' }))}
+                  className={`flex-1 px-4 py-2 rounded-lg font-semibold transition-colors ${
+                    qaFormData.answerLength === 'default'
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                  }`}
+                >
+                  기본 답변 (단계별)
+                </button>
+              </div>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                {qaFormData.answerLength === 'short' && '핵심 + 기본 + 상세 정보 포함 (100-150자)'}
+                {qaFormData.answerLength === 'default' && '초반 200-300자 / 중반 150-250자 / 후반 100-200자 (첫 답변은 길이 제한 없음)'}
+              </p>
+            </div>
+
             {/* 대화형 모드 옵션 */}
             <div className="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
               <div className="flex items-center gap-2 mb-3">
@@ -5432,27 +5489,65 @@ function QAGenerator({
                     <h4 className="font-bold text-gray-900 text-xl mb-6 pb-3 border-b border-gray-200">
                       {generatedQuestion.title}
                     </h4>
-                    {/* 본문 - 문단별로 깔끔하게 표시 */}
+                    {/* 본문 - 문단별로 깔끔하게 표시 (제목과 중복되는 첫 부분 제거) */}
                     <div className="space-y-5">
-                      {generatedQuestion.content.split(/\n\n+/).filter(p => p.trim()).map((paragraph, idx) => (
-                        <p
-                          key={idx}
-                          className="mb-5 last:mb-0"
-                          style={{
-                            whiteSpace: 'pre-wrap',
-                            wordBreak: 'break-word',
-                            overflowWrap: 'break-word',
-                            lineHeight: '1.95',
-                            fontSize: '15px',
-                            color: '#374151',
-                            maxWidth: '100%',
-                            letterSpacing: '0.01em',
-                            paddingBottom: '0'
-                          }}
-                        >
-                          {paragraph.trim()}
-                        </p>
-                      ))}
+                      {(() => {
+                        // 본문에서 "제목:" 접두사 제거
+                        let content = generatedQuestion.content
+                          .replace(/^제목[:\s]*/i, '')
+                          .trim()
+                        
+                        // 본문을 문단으로 분리
+                        const paragraphs = content.split(/\n\n+/).filter(p => p.trim())
+                        
+                        // 첫 문단이 제목과 동일하거나 제목을 포함하면 제거
+                        let filteredParagraphs = paragraphs
+                        if (paragraphs.length > 0) {
+                          const firstParagraph = paragraphs[0].trim()
+                          const titleTrimmed = generatedQuestion.title.trim()
+                          
+                          // 첫 문단이 제목과 동일하거나 제목으로 시작하면 제거
+                          if (titleTrimmed && (
+                              firstParagraph === titleTrimmed || 
+                              firstParagraph.startsWith(titleTrimmed) ||
+                              titleTrimmed.includes(firstParagraph.substring(0, Math.min(50, firstParagraph.length))) ||
+                              // 제목의 첫 30자와 본문 첫 부분이 유사하면 제거
+                              (titleTrimmed.length > 30 && firstParagraph.startsWith(titleTrimmed.substring(0, 30)))
+                          )) {
+                            filteredParagraphs = paragraphs.slice(1)
+                          }
+                        }
+                        
+                        // 필터링 후에도 문단이 없으면 원본 본문 사용 (단, 제목 부분은 제거)
+                        if (filteredParagraphs.length === 0 && content.trim().length > 0) {
+                          const titleTrimmed = generatedQuestion.title.trim()
+                          if (titleTrimmed && content.startsWith(titleTrimmed)) {
+                            content = content.substring(titleTrimmed.length).trim()
+                            content = content.replace(/^[\s\n]+/, '').trim()
+                          }
+                          filteredParagraphs = content.split(/\n\n+/).filter(p => p.trim())
+                        }
+                        
+                        return filteredParagraphs.map((paragraph, idx) => (
+                          <p
+                            key={idx}
+                            className="mb-5 last:mb-0"
+                            style={{
+                              whiteSpace: 'pre-wrap',
+                              wordBreak: 'break-word',
+                              overflowWrap: 'break-word',
+                              lineHeight: '1.95',
+                              fontSize: '15px',
+                              color: '#374151',
+                              maxWidth: '100%',
+                              letterSpacing: '0.01em',
+                              paddingBottom: '0'
+                            }}
+                          >
+                            {paragraph.trim()}
+                          </p>
+                        ))
+                      })()}
                     </div>
                   </div>
                 ) : (
