@@ -424,10 +424,8 @@ export async function POST(request: NextRequest) {
       targetPersona, 
       worryPoint, 
       sellingPoint, 
-      feelingTone, 
       answerTone,
-      customerStyle, // 고객 스타일: 'friendly' | 'cold' | 'brief' | 'curious'
-      answerLength, // 답변 길이: 'short' (100-150자) | 'default' (단계별)
+      answerLength, // 답변 길이: 'default' (단계별)
       designSheetImage,
       designSheetAnalysis, // 설계서 분석 결과 (보험료, 담보, 특약 등)
       questionTitle, // 답변 재생성 시 사용
@@ -744,9 +742,7 @@ export async function POST(request: NextRequest) {
             targetPersona,
             worryPoint,
             sellingPoint,
-            feelingTone: feelingTone || '고민',
             answerTone: answerTone || 'friendly',
-            customerStyle: customerStyle || 'curious',
             designSheetImage,
             designSheetAnalysis,
             searchResultsText
@@ -1196,10 +1192,8 @@ export async function POST(request: NextRequest) {
           targetPersona,
           worryPoint,
           sellingPoint,
-          feelingTone: feelingTone || '고민',
           answerTone: answerTone || 'friendly',
-          customerStyle: customerStyle || 'curious',
-          answerLength: answerLength || 'default', // 답변 길이: 'short' (50-100자) | 'default' (100-150자)
+          answerLength: answerLength || 'default', // 답변 길이: 'default' (단계별)
           designSheetImage,
           designSheetAnalysis,
           searchResultsText
@@ -1310,28 +1304,8 @@ export async function POST(request: NextRequest) {
       // 6. 최종 정리 (앞뒤 공백 제거)
       answerContent = answerContent.trim()
       
-      // 7. 첫 답변 길이 제한: answerLength에 따라 제한
-      if (answerLength === 'short') {
-        // 짧은 답변: 100-150자
-        const maxLength = 150
-        if (answerContent.length > maxLength) {
-          try {
-            answerContent = enforceAnswerLength(answerContent, maxLength)
-            console.log(`[Q&A 생성] [Step 2] 답변 길이 제한: ${answerContent.length}자 (최대 ${maxLength}자, 짧은 답변)`)
-          } catch (lengthError: any) {
-            console.error('[Q&A 생성] [Step 2] 답변 길이 제한 오류:', lengthError)
-            // 에러 발생 시 원본 내용을 최대 길이로 단순 자르기
-            answerContent = answerContent.slice(0, maxLength).trim()
-            console.log(`[Q&A 생성] [Step 2] 답변 길이 제한 (폴백): ${answerContent.length}자 (최대 ${maxLength}자)`)
-          }
-        } else {
-          console.log(`[Q&A 생성] [Step 2] 답변 길이: ${answerContent.length}자 (목표: 100-150자, 짧은 답변)`)
-        }
-      } else {
-        // 기본 답변: 첫 답변은 길이 제한 없음 (대화형 댓글 스레드 전)
-        // 프롬프트에서 200-300자 목표로 생성하지만, API에서는 제한하지 않음
-        console.log(`[Q&A 생성] [Step 2] 답변 길이: ${answerContent.length}자 (기본 답변 - 길이 제한 없음, 프롬프트 목표: 200-300자)`)
-      }
+      // 7. 첫 답변 길이: 프롬프트에서 200-300자 목표로 생성하지만, API에서는 제한하지 않음
+      console.log(`[Q&A 생성] [Step 2] 답변 길이: ${answerContent.length}자 (프롬프트 목표: 200-300자)`)
 
       console.log('Step 2 완료:', { answerContentLength: answerContent.length })
     } else {
@@ -1351,8 +1325,8 @@ export async function POST(request: NextRequest) {
       }
       console.log('Step 3: 대화형 스레드 생성 중...', { conversationLength })
 
-      // 짝수만 허용 (6, 8, 10, 12) - 항상 설계사가 마무리하도록
-      const validLengths = [6, 8, 10, 12]
+      // 짝수만 허용 (8, 10) - 항상 설계사가 마무리하도록
+      const validLengths = [8, 10]
       const totalSteps = validLengths.includes(conversationLength) 
         ? conversationLength 
         : 8 // 기본값: 8개
@@ -1373,26 +1347,9 @@ export async function POST(request: NextRequest) {
       // 대화형 스레드는 나머지 댓글들만 포함 (질문과 첫 답변은 위에 따로 표시)
       
       // 나머지 댓글들 생성 (3번째부터 시작)
-      // 고객 역할 다양화: 여러 사람이 댓글을 다는 것처럼
-      const customerRoles = ['customer1', 'customer2', 'customer3', 'customer4'] as const
-      type CustomerRole = typeof customerRoles[number]
-      
-      // 고객 역할 결정 함수
-      const getCustomerRole = (step: number, totalSteps: number): CustomerRole => {
-        // 첫 번째 고객 댓글은 항상 customer1 (질문자)
-        if (step === 3) return 'customer1'
-        
-        // 이후는 랜덤하게 결정 (하지만 customer1이 50% 확률로 나오도록)
-        const rand = Math.random()
-        if (rand < 0.5) return 'customer1' // 질문자가 계속 질문 (50%)
-        else if (rand < 0.7) return 'customer2' // 관심자 (20%)
-        else if (rand < 0.9) return 'customer3' // 비교자 (20%)
-        else return 'customer4' // 확인자 (10%)
-      }
-      
+      // 다중 화자 시스템: 페르소나 선택은 프롬프트 내부에서 코드 레벨로 자동 처리됨
       for (let step = 3; step <= totalSteps; step++) {
         const isCustomerTurn = step % 2 === 1 // 홀수: 고객, 짝수: 설계사
-        const customerRole = isCustomerTurn ? getCustomerRole(step, totalSteps) : undefined
         
         // 토큰 절감: 최근 대화만 포함 (최대 4개 메시지 = 최근 2턴)
         // 전체 히스토리를 포함하면 토큰이 기하급수적으로 증가하므로 최근 대화만 사용
@@ -1405,9 +1362,7 @@ export async function POST(request: NextRequest) {
             targetPersona,
             worryPoint,
             sellingPoint,
-            feelingTone: feelingTone || '고민',
             answerTone: answerTone || 'friendly',
-            customerStyle: customerStyle || 'curious',
             answerLength: answerLength || 'default', // 답변 길이 전달
             designSheetImage,
             designSheetAnalysis,
@@ -1421,8 +1376,8 @@ export async function POST(request: NextRequest) {
             firstAnswer: answerContent,
             conversationHistory: recentHistory, // 전체 히스토리 대신 최근 대화만 사용
             totalSteps: totalSteps,
-            currentStep: step,
-            customerRole: customerRole // 고객 역할 추가
+            currentStep: step
+            // customerRole 제거: 페르소나 시스템이 프롬프트 내부에서 자동 선택됨
           }
         )
         
@@ -1446,20 +1401,15 @@ export async function POST(request: NextRequest) {
         
         // 대화형 스레드 댓글 길이 확인 및 로깅 (프롬프트에서 길이 제어, API에서는 최소한의 보호만)
         const stepNumber = Math.ceil(step / 2) // 몇 번째 댓글인지
-        let expectedMaxLength = 150 // 기본값 (짧은 답변)
+        let expectedMaxLength = 300 // 기본값
         
-        if (answerLength === 'default') {
-          // 기본 답변: 단계별로 다른 길이
-          if (stepNumber <= 2) {
-            expectedMaxLength = 300 // 초반: 200-300자
-          } else if (stepNumber <= 4) {
-            expectedMaxLength = 250 // 중반: 150-250자
-          } else {
-            expectedMaxLength = 200 // 후반: 100-200자
-          }
+        // 단계별로 다른 길이
+        if (stepNumber <= 2) {
+          expectedMaxLength = 300 // 초반: 200-300자
+        } else if (stepNumber <= 4) {
+          expectedMaxLength = 250 // 중반: 150-250자
         } else {
-          // 짧은 답변: 120-150자
-          expectedMaxLength = 150
+          expectedMaxLength = 200 // 후반: 100-200자
         }
         
         // 프롬프트에서 길이를 제어하도록 했으므로, API에서는 매우 관대하게만 처리 (20% 여유)
@@ -1481,7 +1431,7 @@ export async function POST(request: NextRequest) {
           }
         } else {
           // 정상 범위 내이면 그대로 사용 (프롬프트가 제대로 작동한 것으로 간주)
-          console.log(`[Q&A 생성] [Step 3-${step}] 댓글 길이: ${threadContent.length}자 (예상 범위: ${answerLength === 'short' ? '120-150자' : stepNumber <= 2 ? '200-300자' : stepNumber <= 4 ? '150-250자' : '100-200자'}, ${answerLength === 'short' ? '짧은 답변' : `기본 답변 ${stepNumber <= 2 ? '초반' : stepNumber <= 4 ? '중반' : '후반'}`})`)
+          console.log(`[Q&A 생성] [Step 3-${step}] 댓글 길이: ${threadContent.length}자 (예상 범위: ${stepNumber <= 2 ? '200-300자' : stepNumber <= 4 ? '150-250자' : '100-200자'}, ${stepNumber <= 2 ? '초반' : stepNumber <= 4 ? '중반' : '후반'})`)
         }
         
         // 히스토리에 추가
@@ -1514,9 +1464,7 @@ export async function POST(request: NextRequest) {
               targetPersona,
               worryPoint,
               sellingPoint,
-              feelingTone: feelingTone || '고민',
               answerTone: answerTone || 'friendly',
-              customerStyle: customerStyle || 'curious',
               designSheetImage,
               designSheetAnalysis,
               searchResultsText: searchResultsText || undefined
@@ -1653,7 +1601,6 @@ export async function POST(request: NextRequest) {
         targetPersona,
         worryPoint,
         sellingPoint,
-        feelingTone: feelingTone || '고민',
         answerTone: answerTone || 'friendly',
         conversationMode: conversationMode || false,
         conversationLength: conversationLength || 0

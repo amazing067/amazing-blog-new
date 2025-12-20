@@ -3816,10 +3816,8 @@ function QAGenerator({
     targetPersona: '30대 직장인 남성',
     worryPoint: '',
     sellingPoint: '',
-    feelingTone: '고민',
     answerTone: 'friendly',
-    customerStyle: 'curious', // 고객 스타일: 'friendly' | 'cold' | 'brief' | 'curious'
-    answerLength: 'default' as 'short' | 'default', // 답변 길이: 'short' (100-150자) | 'default' (단계별)
+    answerLength: 'default' as 'default', // 답변 길이: 'default' (단계별)
     designSheetImage: '' as string | null
   })
   
@@ -4483,7 +4481,6 @@ function QAGenerator({
     setQAFormData(prev => ({
       ...prev,
       ...randomPreset,
-      feelingTone: ['고민', '급함', '궁금', '불안'][Math.floor(Math.random() * 4)],
       answerTone: ['friendly', 'expert', 'comparative', 'persuasive'][Math.floor(Math.random() * 4)]
     }))
 
@@ -5118,23 +5115,6 @@ function QAGenerator({
 
             <div>
               <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">
-                질문 감정 톤
-              </label>
-              <select
-                name="feelingTone"
-                value={qaFormData.feelingTone}
-                onChange={handleQAChange}
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-800 text-black dark:text-white"
-              >
-                <option value="고민">고민</option>
-                <option value="급함">급함</option>
-                <option value="궁금">궁금</option>
-                <option value="불안">불안</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">
                 답변 톤
               </label>
               <select
@@ -5152,59 +5132,16 @@ function QAGenerator({
 
             <div>
               <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">
-                고객 스타일
-              </label>
-              <select
-                name="customerStyle"
-                value={qaFormData.customerStyle}
-                onChange={handleQAChange}
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-800 text-black dark:text-white"
-              >
-                <option value="curious">궁금해서 물어보는 (추천)</option>
-                <option value="cold">차갑고 거리감 있는</option>
-                <option value="brief">간결하고 직설적인</option>
-                <option value="friendly">정중하지만 거리감 있는</option>
-              </select>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                {qaFormData.customerStyle === 'curious' && '정말 모르는 게 있어서 궁금해서 물어보는 자연스러운 톤'}
-                {qaFormData.customerStyle === 'cold' && '설계사에게 거리감을 두고 차갑게 질문하는 톤'}
-                {qaFormData.customerStyle === 'brief' && '불필요한 말 없이 핵심만 간결하게 물어보는 톤'}
-                {qaFormData.customerStyle === 'friendly' && '정중하지만 친근하지 않고 거리감을 두는 톤'}
-              </p>
-            </div>
-
-            <div>
-              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">
                 답변 길이
               </label>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => setQAFormData(prev => ({ ...prev, answerLength: 'short' }))}
-                  className={`flex-1 px-4 py-2 rounded-lg font-semibold transition-colors ${
-                    qaFormData.answerLength === 'short'
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
-                  }`}
-                >
-                  짧은 답변 (100-150자)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setQAFormData(prev => ({ ...prev, answerLength: 'default' }))}
-                  className={`flex-1 px-4 py-2 rounded-lg font-semibold transition-colors ${
-                    qaFormData.answerLength === 'default'
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
-                  }`}
-                >
+              <div className="px-4 py-2 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-lg">
+                <p className="text-sm font-semibold text-blue-700 dark:text-blue-300">
                   기본 답변 (단계별)
-                </button>
+                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  초반 200-300자 / 중반 150-250자 / 후반 100-200자 (첫 답변은 길이 제한 없음)
+                </p>
               </div>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                {qaFormData.answerLength === 'short' && '핵심 + 기본 + 상세 정보 포함 (100-150자)'}
-                {qaFormData.answerLength === 'default' && '초반 200-300자 / 중반 150-250자 / 후반 100-200자 (첫 답변은 길이 제한 없음)'}
-              </p>
             </div>
 
             {/* 대화형 모드 옵션 */}
@@ -5228,7 +5165,7 @@ function QAGenerator({
                     대화 횟수: {conversationLength}개
                   </label>
                   <div className="flex gap-2">
-                    {[6, 8, 10, 12].map((length) => (
+                    {[8, 10].map((length) => (
                       <button
                         key={length}
                         type="button"
