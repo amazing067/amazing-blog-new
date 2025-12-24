@@ -3663,7 +3663,16 @@ function ImageAnalyzer({ profile }: { profile: Profile | null }) {
                 <div>
                   <p className="text-sm text-gray-600 mb-1">진단명</p>
                   <p className="font-semibold text-gray-800">
-                    {analysisResult.medicalInfo.diagnosis.join(', ')}
+                    {analysisResult.medicalInfo.diagnosis.map((diag: any, idx: number) => {
+                      // 객체인 경우 mainDiagnosis 사용, 문자열인 경우 그대로 사용
+                      if (typeof diag === 'object' && diag !== null) {
+                        const mainDiag = diag.mainDiagnosis || diag.mainDiagnosisEnglish || ''
+                        const subDiags = diag.subDiagnosis || []
+                        const allDiags = [mainDiag, ...subDiags].filter(Boolean)
+                        return allDiags.join(', ')
+                      }
+                      return diag
+                    }).join(', ')}
                   </p>
                 </div>
               )}
