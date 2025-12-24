@@ -3715,14 +3715,22 @@ function ImageAnalyzer({ profile }: { profile: Profile | null }) {
                 <div className="mb-4">
                   <p className="text-sm text-gray-600 mb-2">적용 가능한 보험</p>
                   <div className="flex flex-wrap gap-2">
-                    {analysisResult.insuranceAnalysis.applicableInsurance.map((insurance: string, idx: number) => (
-                      <span
-                        key={idx}
-                        className="px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-sm font-semibold"
-                      >
-                        {insurance}
-                      </span>
-                    ))}
+                    {Array.isArray(analysisResult.insuranceAnalysis.applicableInsurance) 
+                      ? analysisResult.insuranceAnalysis.applicableInsurance.map((insurance: any, idx: number) => {
+                          // 객체인 경우 type 속성 사용, 문자열인 경우 그대로 사용
+                          const insuranceText = typeof insurance === 'object' && insurance !== null
+                            ? insurance.type || insurance.reason || JSON.stringify(insurance)
+                            : insurance
+                          return (
+                            <span
+                              key={idx}
+                              className="px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-sm font-semibold"
+                            >
+                              {insuranceText}
+                            </span>
+                          )
+                        })
+                      : null}
                   </div>
                 </div>
               )}
