@@ -5153,10 +5153,7 @@ function QAGenerator({
               </label>
               <div className="px-4 py-2 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-lg">
                 <p className="text-sm font-semibold text-blue-700 dark:text-blue-300">
-                  기본 답변 (단계별)
-                </p>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                  초반 200-300자 / 중반 150-250자 / 후반 100-200자 (첫 답변은 길이 제한 없음)
+                  기본 답변
                 </p>
               </div>
             </div>
