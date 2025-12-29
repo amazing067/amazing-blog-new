@@ -444,6 +444,21 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // 타겟고객 검증 (빈 값, 최소 길이)
+    const trimmedTargetPersona = targetPersona.trim()
+    if (trimmedTargetPersona.length === 0) {
+      return NextResponse.json(
+        { error: '타겟 고객을 입력해주세요' },
+        { status: 400 }
+      )
+    }
+    if (trimmedTargetPersona.length < 3) {
+      return NextResponse.json(
+        { error: '타겟 고객을 더 구체적으로 입력해주세요 (최소 3자 이상)' },
+        { status: 400 }
+      )
+    }
+
     console.log('Q&A 생성 시작:', { productName, targetPersona, worryPoint, sellingPoint })
     
     // 환경 변수 확인 (디버깅용)
@@ -954,6 +969,9 @@ export async function POST(request: NextRequest) {
           // 제목 다음에 오는 구분자(줄바꿈, 공백 등)도 제거
           rawQuestionContent = rawQuestionContent.replace(/^[\s\n]+/, '').trim()
         }
+        
+        // "본문:" 라벨 자체가 내용에 포함되어 있으면 제거
+        rawQuestionContent = rawQuestionContent.replace(/^본문[:\s]*/i, '').trim()
       } else {
         // "본문:" 형식이 없으면 제목을 제외한 나머지 사용
         const lines = questionText.split('\n')
@@ -1019,19 +1037,80 @@ export async function POST(request: NextRequest) {
           return text.trim() // 원본 반환
         }
 
+        // 단어 중간 줄바꿈 제거 (예: "실\n손" → "실손", "3대진단\n보장이" → "3대진단 보장이")
+        cleaned = cleaned.replace(/([가-힣])\n([가-힣])/g, '$1$2') // 한글-줄바꿈-한글 패턴 제거
+        cleaned = cleaned.replace(/([가-힣])\s+\n\s+([가-힣])/g, '$1 $2') // 한글-공백-줄바꿈-공백-한글 패턴을 공백으로 변경
+        
+        // 기존 단락 확인 (문장 중간에서 끊어진 단락 검증)
         const existingParagraphs = cleaned.split(/\n\s*\n/).filter(p => p.trim().length > 0)
-        if (existingParagraphs.length >= 3) {
+        
+        // 문장 중간에서 끊어진 단락이 있는지 확인
+        const hasBrokenParagraphs = existingParagraphs.some(p => {
+          const trimmed = p.trim()
+          // 문장 종결 어미 없이 끝나는 경우 (문장 중간이 잘린 경우)
+          // 단, 너무 짧은 단락(10자 미만)은 제외
+          if (trimmed.length >= 10 && !/[요네요어요습니다다?!]$/.test(trimmed)) {
+            // 마지막 단어가 조사로 끝나는 경우 (예: "이 통합보험에")
+            const lastWord = trimmed.split(/\s+/).pop() || ''
+            if (/[에의를가을로와과]$/.test(lastWord)) {
+              return true // 문장 중간에서 끊어진 것으로 판단
+            }
+            // 마지막 단어가 "다"로 끝나고 다음 문장이 조사나 동사로 시작할 가능성이 있는 경우
+            if (/다$/.test(trimmed) && trimmed.length < 25) {
+              return true
+            }
+          }
+          return false
+        })
+        
+        // 문장 중간에서 끊어진 단락이 없고, 단락이 3개 이상이면 그대로 사용
+        if (!hasBrokenParagraphs && existingParagraphs.length >= 3) {
           const result = existingParagraphs.join('\n\n').trim()
           if (result.length > 0) {
             return result
           }
         }
+        
+        // 문장 중간에서 끊어진 단락이 있으면 재구성 필요
+        if (hasBrokenParagraphs) {
+          console.log('[Q&A 생성] [Step 1] 문장 중간에서 끊어진 단락 감지, 재구성 필요')
+        }
 
-        // 문장 단위 분리 (질문/감탄 위주 구두점)
-        const sentenceCandidates = cleaned
-          .replace(/\n+/g, ' ')
+        // 문장 단위 분리 (문장이 완전히 끝난 경우만 분리)
+        // 한국어 문장 종결 어미: ~요, ~네요, ~어요, ~습니다, ~까요?, ~나요?, ~죠 등
+        // 주의: "다"는 문장 중간에도 나올 수 있으므로(예: "3대진단까지 다 포함된") 제외
+        const cleanedForSplit = cleaned.replace(/\n+/g, ' ')
+        
+        // 문장 종결 패턴: 확실한 종결 어미 또는 구두점 뒤에 공백이 있는 경우만 분리
+        // "다"는 제외 (문장 중간에도 나올 수 있으므로)
+        const sentenceCandidates = cleanedForSplit
+          // 물음표/느낌표 뒤 공백 → 분리
           .split(/(?<=[?!])\s+/)
-          .filter(s => s.trim().length > 0)
+          .flatMap(s => {
+            // 확실한 종결 어미(요, 네요, 어요, 습니다) 뒤 공백 → 분리
+            // "다"는 제외 (문장 중간에도 나올 수 있으므로)
+            return s.split(/(?<=[요네요어요습니다])\s+(?=[가-힣])/)
+          })
+          .map(s => s.trim())
+          .filter(s => s.length > 0)
+          // 문장 중간이 잘린 것 같은 조각 필터링
+          .filter(s => {
+            // 너무 짧은 조각 제거 (10자 미만이고 종결 어미가 없는 경우)
+            if (s.length < 10 && !/[?!]$/.test(s)) {
+              return false
+            }
+            // 마지막 단어가 조사로 끝나는 경우 제거 (문장 중간)
+            const lastWord = s.split(/\s+/).pop() || ''
+            if (/[에의를가을로와과]$/.test(lastWord) && !/[?!]$/.test(s)) {
+              return false
+            }
+            // "다"로 끝나는 경우는 문장 중간일 가능성이 높으므로 제거
+            // 예: "3대진단까지 다" → 문장 중간
+            if (/^[^?!]*다$/.test(s) && !/[?!]$/.test(s)) {
+              return false
+            }
+            return true
+          })
 
         const buildParagraphsFromSentences = (sentences: string[], target: number): string[] => {
           if (sentences.length === 0) return []
@@ -1082,6 +1161,19 @@ export async function POST(request: NextRequest) {
       }
 
           finalQuestionContent = formatQuestionContent(rawQuestionContent)
+          
+          // 질문 제목과 본문에서 마침표만 제거 (쉼표는 유지)
+          if (finalQuestionTitle) {
+            finalQuestionTitle = finalQuestionTitle
+              .replace(/\./g, '') // 마침표만 제거
+              .replace(/\s+/g, ' ') // 연속된 공백을 하나로
+              .trim()
+          }
+          
+          finalQuestionContent = finalQuestionContent
+            .replace(/\./g, '') // 마침표만 제거 (쉼표는 유지)
+            .replace(/\s+/g, ' ') // 연속된 공백을 하나로
+            .trim()
           
           console.log('[Q&A 생성] [Step 1] 포맷팅 후 제목 길이:', finalQuestionTitle?.length || 0)
           console.log('[Q&A 생성] [Step 1] 포맷팅 후 본문 길이:', finalQuestionContent?.length || 0)

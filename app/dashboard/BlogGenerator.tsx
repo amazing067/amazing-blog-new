@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { Shield, LogOut, Sparkles, Copy, Send, FileDown, Clock, BookOpen, TrendingUp, ArrowLeft, UserCheck, History, BarChart3, FileText, Save, MessageSquare, Image as ImageIcon, Link as LinkIcon, Crown, Building2, MapPin, Users, User } from 'lucide-react'
+import { Shield, LogOut, Sparkles, Copy, Send, FileDown, Clock, BookOpen, TrendingUp, ArrowLeft, UserCheck, History, BarChart3, FileText, Save, MessageSquare, Image as ImageIcon, Link as LinkIcon, Crown, Building2, MapPin, Users, User, RefreshCw, Wand2 } from 'lucide-react'
 import MembershipStatusBanner from './MembershipStatusBanner'
 import { createClient } from '@/lib/supabase/client'
 import type { BlogPost } from '@/types/blog.types'
@@ -3828,25 +3828,41 @@ function QAGenerator({
   showListOnly?: boolean
   onTabChange?: (tab: 'write' | 'history' | 'stats' | 'approval' | 'qa' | 'qa-history' | 'image-analysis' | 'kakao-link') => void
 }) {
-  const [qaFormData, setQAFormData] = useState({
+  const [qaFormData, setQAFormData] = useState<{
+    productName: string
+    targetPersona: string
+    worryPoint: string
+    sellingPoint: string
+    answerTone: string
+    answerLength: 'default'
+    designSheetImage: string | null
+    designSheetAnalysis?: {
+      premium?: string
+      coverages?: string[]
+      specialClauses?: string[]
+    } | null
+  }>({
     productName: '',
-    targetPersona: '30대 직장인 남성',
+    targetPersona: '',
     worryPoint: '',
     sellingPoint: '',
-    answerTone: 'friendly',
-    answerLength: 'default' as 'default', // 답변 길이: 'default' (단계별)
-    designSheetImage: '' as string | null
+    answerTone: 'expert',
+    answerLength: 'default',
+    designSheetImage: null,
+    designSheetAnalysis: null
   })
   
   const [isGenerating, setIsGenerating] = useState(false)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [isDraggingOverDesignSheet, setIsDraggingOverDesignSheet] = useState(false)
+  const [isGeneratingField, setIsGeneratingField] = useState<{ field: string | null; mode: string | null }>({ field: null, mode: null })
+  const [isGeneratingSellingPoint, setIsGeneratingSellingPoint] = useState(false)
   const [progress, setProgress] = useState(0)
   const [generatedQuestion, setGeneratedQuestion] = useState<{ title: string; content: string } | null>(null)
   const [generatedAnswer, setGeneratedAnswer] = useState<string | null>(null)
   const [conversationThread, setConversationThread] = useState<Array<{ role: 'customer' | 'agent'; content: string; step: number }>>([])
-  const [conversationMode, setConversationMode] = useState(true)
-  const [conversationLength, setConversationLength] = useState(8)
+  const conversationMode = true // 항상 대화형 모드 활성화
+  const DEFAULT_CONVERSATION_LENGTH = 8 // 대화 횟수 고정값
   const [reviewCount, setReviewCount] = useState<0 | 1 | 2>(0) // 후기성 댓글 개수 (0, 1, 2)
   // Q&A 3개 세트 기능 제거 - 단일 Q&A만 생성
   // const [qaCount, setQaCount] = useState<1 | 3>(3) // 제거됨
@@ -4219,6 +4235,84 @@ function QAGenerator({
     await handleAnalyzeDesignSheetOnly()
   }
 
+  // 필드 재생성/완성 핸들러
+  const handleGenerateField = async (field: 'worryPoint' | 'sellingPoint', mode: 'regenerate' | 'complete') => {
+    if (!qaFormData.productName || !qaFormData.targetPersona) {
+      alert('상품명과 타겟 고객을 먼저 입력해주세요')
+      return
+    }
+
+    setIsGeneratingField({ field, mode })
+
+    try {
+      // 핵심 고민 생성 시 답변 강조 포인트도 함께 생성할지 결정
+      const shouldAlsoGenerateSellingPoint = field === 'worryPoint'
+      const hasExistingSellingPoint = qaFormData.sellingPoint && qaFormData.sellingPoint.trim().length > 0
+      
+      // 답변 강조 포인트가 있으면 확인 팝업
+      let alsoGenerate = false
+      if (shouldAlsoGenerateSellingPoint) {
+        if (!hasExistingSellingPoint) {
+          // 비어있으면 자동 생성 (확인 없음)
+          alsoGenerate = true
+          setIsGeneratingSellingPoint(true) // 답변강조포인트도 로딩 상태로
+        } else {
+          // 있으면 확인 팝업
+          alsoGenerate = confirm('답변 강조 포인트도 핵심 고민에 맞춰 업데이트할까요?')
+          if (alsoGenerate) {
+            setIsGeneratingSellingPoint(true) // 확인 누르면 답변강조포인트도 로딩 상태로
+          }
+        }
+      }
+
+      const response = await fetch('/api/generate-qa-field', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          field,
+          mode,
+          productName: qaFormData.productName,
+          targetPersona: qaFormData.targetPersona,
+          currentValue: qaFormData[field],
+          designSheetImage: qaFormData.designSheetImage,
+          designSheetAnalysis: qaFormData.designSheetAnalysis,
+          alsoGenerateSellingPoint: alsoGenerate,
+          worryPointValue: field === 'worryPoint' ? (mode === 'complete' ? qaFormData.worryPoint : null) : null
+        }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || '필드 생성에 실패했습니다')
+      }
+
+      if (data.success && data.value) {
+        const updates: any = {
+          [field]: data.value
+        }
+
+        // 답변 강조 포인트도 함께 생성된 경우
+        if (data.sellingPoint) {
+          updates.sellingPoint = data.sellingPoint
+        }
+
+        setQAFormData(prev => ({
+          ...prev,
+          ...updates
+        }))
+      }
+    } catch (error: any) {
+      console.error('필드 생성 오류:', error)
+      alert('필드 생성 중 오류가 발생했습니다: ' + error.message)
+    } finally {
+      setIsGeneratingField({ field: null, mode: null })
+      setIsGeneratingSellingPoint(false) // 답변강조포인트 로딩 상태 해제
+    }
+  }
+
   // 드래그 앤 드롭 핸들러
   const handleDesignSheetDragOver = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault()
@@ -4523,6 +4617,17 @@ function QAGenerator({
     setTokenUsage(null)
     setCurrentStep('question')
 
+    // 타겟고객 검증
+    const trimmedTargetPersona = qaFormData.targetPersona?.trim() || ''
+    if (!trimmedTargetPersona) {
+      alert('타겟 고객을 입력해주세요')
+      return
+    }
+    if (trimmedTargetPersona.length < 3) {
+      alert('타겟 고객을 더 구체적으로 입력해주세요 (최소 3자 이상)')
+      return
+    }
+
     try {
       setProgress(30)
       setCurrentStep('question')
@@ -4535,7 +4640,7 @@ function QAGenerator({
         body: JSON.stringify({
           ...qaFormData,
           conversationMode: conversationMode,
-          conversationLength: conversationMode ? conversationLength : undefined,
+          conversationLength: conversationMode ? DEFAULT_CONVERSATION_LENGTH : undefined,
           reviewCount: conversationMode ? reviewCount : undefined, // 후기성 댓글 개수
           generateStep: 'all' // 전체 생성 (질문+답변+대화스레드)
         }),
@@ -4636,6 +4741,17 @@ function QAGenerator({
     
     setIsGenerating(true)
     setProgress(0)
+    // 타겟고객 검증
+    const trimmedTargetPersona = qaFormData.targetPersona?.trim() || ''
+    if (!trimmedTargetPersona) {
+      alert('타겟 고객을 입력해주세요')
+      return
+    }
+    if (trimmedTargetPersona.length < 3) {
+      alert('타겟 고객을 더 구체적으로 입력해주세요 (최소 3자 이상)')
+      return
+    }
+
     // ⚠️ 테스트용: 실제 운영 시 제거 필요
     setTokenUsage(null)
     setCurrentStep('question')
@@ -4659,7 +4775,7 @@ function QAGenerator({
         body: JSON.stringify({
           ...qaFormData,
           conversationMode: conversationMode,
-          conversationLength: conversationMode ? conversationLength : undefined,
+          conversationLength: conversationMode ? DEFAULT_CONVERSATION_LENGTH : undefined,
           reviewCount: conversationMode ? reviewCount : undefined // 후기성 댓글 개수
         }),
       })
@@ -4702,6 +4818,17 @@ function QAGenerator({
     setTokenUsage(null)
     setCurrentStep('answer')
 
+    // 타겟고객 검증
+    const trimmedTargetPersona = qaFormData.targetPersona?.trim() || ''
+    if (!trimmedTargetPersona) {
+      alert('타겟 고객을 입력해주세요')
+      return
+    }
+    if (trimmedTargetPersona.length < 3) {
+      alert('타겟 고객을 더 구체적으로 입력해주세요 (최소 3자 이상)')
+      return
+    }
+
     const progressInterval = setInterval(() => {
       setProgress((prev) => {
         if (prev >= 90) {
@@ -4724,7 +4851,7 @@ function QAGenerator({
           questionTitle: generatedQuestion.title,
           questionContent: generatedQuestion.content,
           conversationMode: conversationMode,
-          conversationLength: conversationMode ? conversationLength : undefined
+          conversationLength: conversationMode ? DEFAULT_CONVERSATION_LENGTH : undefined
         }),
       })
 
@@ -4940,109 +5067,103 @@ function QAGenerator({
                 value={qaFormData.productName}
                 onChange={handleQAChange}
                 className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500"
-                placeholder="예: 삼성생명 실손보험"
+                placeholder="예: KB손해보험 금쪽같은자녀보험 Plus"
               />
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                💡 검색 정확도를 위해 상품명, 상품명칭, 버전을 모두 포함해주세요 (예: KB손해보험 금쪽같은자녀보험 Plus)
+              </p>
             </div>
 
             <div>
               <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">
                 타겟 고객 *
               </label>
-              <div className="flex gap-2">
-                {/* 남성 선택 */}
-                <div className="flex-1">
-                  <select
-                    name="targetPersona"
-                    value={qaFormData.targetPersona}
-                    onChange={handleQAChange}
-                    className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-800 text-black dark:text-white"
-                  >
-                    <option value="">남성</option>
-                    <option value="20대 직장인 남성">20대 직장인 남성</option>
-                    <option value="30대 직장인 남성">30대 직장인 남성</option>
-                    <option value="40대 직장인 남성">40대 직장인 남성</option>
-                    <option value="50대 직장인 남성">50대 직장인 남성</option>
-                    <option value="60대 직장인 남성">60대 직장인 남성</option>
-                    <option value="30대 자영업자 남성">30대 자영업자 남성</option>
-                    <option value="40대 자영업자 남성">40대 자영업자 남성</option>
-                    <option value="50대 자영업자 남성">50대 자영업자 남성</option>
-                    <option value="40대 법인대표 남성">40대 법인대표 남성</option>
-                    <option value="50대 법인대표 남성">50대 법인대표 남성</option>
-                    <option value="60대 법인대표 남성">60대 법인대표 남성</option>
-                  </select>
-                </div>
-                {/* 여성 선택 */}
-                <div className="flex-1">
-                  <select
-                    name="targetPersona"
-                    value={qaFormData.targetPersona}
-                    onChange={handleQAChange}
-                    className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-800 text-black dark:text-white"
-                  >
-                    <option value="">여성</option>
-                    <option value="20대 직장인 여성">20대 직장인 여성</option>
-                    <option value="30대 직장인 여성">30대 직장인 여성</option>
-                    <option value="40대 직장인 여성">40대 직장인 여성</option>
-                    <option value="50대 직장인 여성">50대 직장인 여성</option>
-                    <option value="60대 직장인 여성">60대 직장인 여성</option>
-                    <option value="30대 주부">30대 주부</option>
-                    <option value="40대 주부">40대 주부</option>
-                    <option value="50대 주부">50대 주부</option>
-                    <option value="30대 자영업자 여성">30대 자영업자 여성</option>
-                    <option value="40대 자영업자 여성">40대 자영업자 여성</option>
-                  </select>
-                </div>
-                {/* 기타 선택 */}
-                <div className="flex-1">
-                  <select
-                    name="targetPersona"
-                    value={qaFormData.targetPersona}
-                    onChange={handleQAChange}
-                    className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-800 text-black dark:text-white"
-                  >
-                    <option value="">기타</option>
-                    <option value="30대 신혼부부">30대 신혼부부</option>
-                    <option value="40대 신혼부부">40대 신혼부부</option>
-                    <option value="30대 자녀 있는 가족">30대 자녀 있는 가족</option>
-                    <option value="40대 자녀 있는 가족">40대 자녀 있는 가족</option>
-                    <option value="50대 자녀 있는 가족">50대 자녀 있는 가족</option>
-                  </select>
-                </div>
-              </div>
-              
-              {/* 선택된 타겟 고객 표시 */}
-              {qaFormData.targetPersona && (
-                <div className="mt-2 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-lg p-2">
-                  <p className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">
-                    선택된 타겟 고객:
-                  </p>
-                  <p className="text-sm font-semibold text-blue-700 dark:text-blue-300">
-                    {qaFormData.targetPersona}
-                  </p>
-                </div>
-              )}
-              
-              {/* API에서 반환된 값이 옵션에 없을 경우를 대비해 동적으로 표시 */}
-              {qaFormData.targetPersona && 
-               !['20대 직장인 남성', '30대 직장인 남성', '40대 직장인 남성', '50대 직장인 남성', '60대 직장인 남성', '30대 자영업자 남성', '40대 자영업자 남성', '50대 자영업자 남성', '40대 법인대표 남성', '50대 법인대표 남성', '60대 법인대표 남성', '20대 직장인 여성', '30대 직장인 여성', '40대 직장인 여성', '50대 직장인 여성', '60대 직장인 여성', '30대 주부', '40대 주부', '50대 주부', '30대 자영업자 여성', '40대 자영업자 여성', '30대 신혼부부', '40대 신혼부부', '30대 자녀 있는 가족', '40대 자녀 있는 가족', '50대 자녀 있는 가족'].includes(qaFormData.targetPersona) && (
-                <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
-                  💡 이미지 분석 결과: {qaFormData.targetPersona}
+              <input
+                type="text"
+                name="targetPersona"
+                value={qaFormData.targetPersona}
+                onChange={handleQAChange}
+                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500"
+                placeholder="예: 30대 직장인 남성"
+              />
+              {qaFormData.targetPersona && qaFormData.targetPersona.trim().length < 5 && (
+                <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                  ⚠️ 타겟 고객을 더 구체적으로 입력해주세요 (최소 5자 이상 권장)
                 </p>
               )}
             </div>
 
             <div>
-              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">
-                핵심 고민 *
-              </label>
-              <textarea
-                name="worryPoint"
-                value={qaFormData.worryPoint}
-                onChange={handleQAChange}
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500"
-                rows={3}
-                placeholder="예: 보험료가 적당한지, 보장 범위가 충분한지 궁금합니다"
-              />
+              <div className="flex items-center justify-between mb-2">
+                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200">
+                  핵심 고민 *
+                </label>
+                <div className="flex gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => handleGenerateField('worryPoint', 'regenerate')}
+                    disabled={isGenerating || isAnalyzing || isGeneratingField.field === 'worryPoint'}
+                    className="px-2 py-1 text-xs bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                    title="기존 내용을 완전히 새로 생성"
+                  >
+                    {isGeneratingField.field === 'worryPoint' && isGeneratingField.mode === 'regenerate' ? (
+                      <>
+                        <Clock className="w-3 h-3 animate-spin" />
+                        생성 중...
+                      </>
+                    ) : (
+                      <>
+                        <RefreshCw className="w-3 h-3" />
+                        재생성
+                      </>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleGenerateField('worryPoint', 'complete')}
+                    disabled={isGenerating || isAnalyzing || isGeneratingField.field === 'worryPoint' || !qaFormData.worryPoint?.trim()}
+                    className="px-2 py-1 text-xs bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 rounded hover:bg-purple-100 dark:hover:bg-purple-900/50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                    title="현재 입력을 기반으로 확장/완성"
+                  >
+                    {isGeneratingField.field === 'worryPoint' && isGeneratingField.mode === 'complete' ? (
+                      <>
+                        <Clock className="w-3 h-3 animate-spin" />
+                        완성 중...
+                      </>
+                    ) : (
+                      <>
+                        <Wand2 className="w-3 h-3" />
+                        AI 완성
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+              <div className="relative">
+                <textarea
+                  name="worryPoint"
+                  value={qaFormData.worryPoint}
+                  onChange={handleQAChange}
+                  className={`w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 transition-all ${
+                    isGeneratingField.field === 'worryPoint' 
+                      ? 'border-blue-400 dark:border-blue-500 bg-blue-50/30 dark:bg-blue-900/20' 
+                      : 'border-gray-300 dark:border-gray-600'
+                  }`}
+                  rows={3}
+                  placeholder="예: 보험료가 적당한지, 보장 범위가 충분한지 궁금합니다"
+                  disabled={isGeneratingField.field === 'worryPoint'}
+                />
+                {isGeneratingField.field === 'worryPoint' && (
+                  <div className="absolute inset-0 bg-blue-50/50 dark:bg-blue-900/30 rounded-lg flex items-center justify-center backdrop-blur-sm">
+                    <div className="flex items-center gap-2 text-blue-600 dark:text-blue-400">
+                      <Clock className="w-5 h-5 animate-spin" />
+                      <span className="text-sm font-semibold">
+                        {isGeneratingField.mode === 'regenerate' ? '재생성 중...' : 'AI 완성 중...'}
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* 설계서 이미지 (선택) - 왼쪽 컬럼에 배치 */}
@@ -5117,17 +5238,76 @@ function QAGenerator({
 
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">
-                답변 강조 포인트 *
-              </label>
-              <textarea
-                name="sellingPoint"
-                value={qaFormData.sellingPoint}
-                onChange={handleQAChange}
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500"
-                rows={3}
-                placeholder="예: 보장 범위가 넓고, 보험료 대비 합리적이며, 특약 구성이 탄탄함"
-              />
+              <div className="flex items-center justify-between mb-2">
+                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200">
+                  답변 강조 포인트 *
+                </label>
+                <div className="flex gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => handleGenerateField('sellingPoint', 'regenerate')}
+                    disabled={isGenerating || isAnalyzing || isGeneratingField.field === 'sellingPoint' || isGeneratingSellingPoint}
+                    className="px-2 py-1 text-xs bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                    title="기존 내용을 완전히 새로 생성"
+                  >
+                    {(isGeneratingField.field === 'sellingPoint' && isGeneratingField.mode === 'regenerate') || isGeneratingSellingPoint ? (
+                      <>
+                        <Clock className="w-3 h-3 animate-spin" />
+                        생성 중...
+                      </>
+                    ) : (
+                      <>
+                        <RefreshCw className="w-3 h-3" />
+                        재생성
+                      </>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleGenerateField('sellingPoint', 'complete')}
+                    disabled={isGenerating || isAnalyzing || isGeneratingField.field === 'sellingPoint' || isGeneratingSellingPoint || !qaFormData.sellingPoint?.trim()}
+                    className="px-2 py-1 text-xs bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 rounded hover:bg-purple-100 dark:hover:bg-purple-900/50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                    title="현재 입력을 기반으로 확장/완성"
+                  >
+                    {(isGeneratingField.field === 'sellingPoint' && isGeneratingField.mode === 'complete') || isGeneratingSellingPoint ? (
+                      <>
+                        <Clock className="w-3 h-3 animate-spin" />
+                        완성 중...
+                      </>
+                    ) : (
+                      <>
+                        <Wand2 className="w-3 h-3" />
+                        AI 완성
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+              <div className="relative">
+                <textarea
+                  name="sellingPoint"
+                  value={qaFormData.sellingPoint}
+                  onChange={handleQAChange}
+                  className={`w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 transition-all ${
+                    (isGeneratingField.field === 'sellingPoint' || isGeneratingSellingPoint)
+                      ? 'border-purple-400 dark:border-purple-500 bg-purple-50/30 dark:bg-purple-900/20' 
+                      : 'border-gray-300 dark:border-gray-600'
+                  }`}
+                  rows={3}
+                  placeholder="예: 보장 범위가 넓고, 보험료 대비 합리적이며, 특약 구성이 탄탄함"
+                  disabled={isGeneratingField.field === 'sellingPoint' || isGeneratingSellingPoint}
+                />
+                {(isGeneratingField.field === 'sellingPoint' || isGeneratingSellingPoint) && (
+                  <div className="absolute inset-0 bg-purple-50/50 dark:bg-purple-900/30 rounded-lg flex items-center justify-center backdrop-blur-sm">
+                    <div className="flex items-center gap-2 text-purple-600 dark:text-purple-400">
+                      <Clock className="w-5 h-5 animate-spin" />
+                      <span className="text-sm font-semibold">
+                        {isGeneratingSellingPoint ? '재생성 중...' : (isGeneratingField.mode === 'regenerate' ? '재생성 중...' : 'AI 완성 중...')}
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
 
             <div>
@@ -5147,89 +5327,30 @@ function QAGenerator({
               </select>
             </div>
 
-            <div>
-              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">
-                답변 길이
+
+            {/* 후기성 댓글 옵션 (컴팩트) */}
+            <div className="flex items-center gap-3">
+              <label className="text-sm font-semibold text-gray-700 dark:text-gray-200 whitespace-nowrap">
+                후기성 댓글:
               </label>
-              <div className="px-4 py-2 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-lg">
-                <p className="text-sm font-semibold text-blue-700 dark:text-blue-300">
-                  기본 답변
-                </p>
+              <div className="flex gap-1.5">
+                {[0, 1, 2].map((count) => (
+                  <button
+                    key={count}
+                    type="button"
+                    onClick={() => setReviewCount(count as 0 | 1 | 2)}
+                    disabled={isGenerating || isAnalyzing}
+                    className={`px-2.5 py-1 text-xs rounded transition-colors ${
+                      reviewCount === count
+                        ? 'bg-purple-600 text-white font-semibold'
+                        : 'bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700'
+                    } disabled:opacity-50 disabled:cursor-not-allowed`}
+                  >
+                    {count}개
+                  </button>
+                ))}
               </div>
             </div>
-
-            {/* 대화형 모드 옵션 */}
-            <div className="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-              <div className="flex items-center gap-2 mb-3">
-                <input
-                  type="checkbox"
-                  id="conversationMode"
-                  checked={conversationMode}
-                  onChange={(e) => setConversationMode(e.target.checked)}
-                  disabled={isGenerating || isAnalyzing}
-                  className="w-4 h-4 text-blue-600 border-gray-300 dark:border-gray-600 rounded focus:ring-blue-500 dark:bg-gray-700"
-                />
-                <label htmlFor="conversationMode" className="text-sm font-semibold text-gray-700 dark:text-gray-200 cursor-pointer">
-                  💬 대화형 Q&A 생성 (댓글 형식)
-                </label>
-              </div>
-              {conversationMode && (
-                <div className="mt-3">
-                  <label className="block text-xs font-semibold text-gray-600 dark:text-gray-300 mb-2">
-                    대화 횟수: {conversationLength}개
-                  </label>
-                  <div className="flex gap-2">
-                    {[8, 10].map((length) => (
-                      <button
-                        key={length}
-                        type="button"
-                        onClick={() => setConversationLength(length)}
-                        disabled={isGenerating || isAnalyzing}
-                        className={`flex-1 px-3 py-2 text-sm rounded-lg transition-colors ${
-                          conversationLength === length
-                            ? 'bg-blue-600 text-white font-semibold'
-                            : 'bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700'
-                        } disabled:opacity-50 disabled:cursor-not-allowed`}
-                      >
-                        {length}개
-                      </button>
-                    ))}
-                  </div>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
-                    첫 답변 이후 {conversationLength - 2}개의 추가 댓글이 생성됩니다 (고객 질문 + 설계사 답변). 항상 설계사가 마무리합니다.
-                  </p>
-                </div>
-              )}
-            </div>
-
-            {/* 후기성 댓글 옵션 */}
-            {conversationMode && (
-              <div className="bg-purple-50 dark:bg-purple-900/30 border border-purple-200 dark:border-purple-800 rounded-lg p-4">
-                <label className="block text-xs font-semibold text-gray-600 dark:text-gray-300 mb-2">
-                  후기성 댓글 개수 (고객만 생성, 설계사 응답 없음)
-                </label>
-                <div className="flex gap-2">
-                  {[0, 1, 2].map((count) => (
-                    <button
-                      key={count}
-                      type="button"
-                      onClick={() => setReviewCount(count as 0 | 1 | 2)}
-                      disabled={isGenerating || isAnalyzing}
-                      className={`flex-1 px-3 py-2 text-sm rounded-lg transition-colors ${
-                        reviewCount === count
-                          ? 'bg-purple-600 text-white font-semibold'
-                          : 'bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700'
-                      } disabled:opacity-50 disabled:cursor-not-allowed`}
-                    >
-                      {count}개
-                    </button>
-                  ))}
-                </div>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
-                  후기성 댓글은 고객만 생성되며 설계사 응답은 포함되지 않습니다.
-                </p>
-              </div>
-            )}
 
             {/* 설계서 이미지 (선택) - 작은 화면에서만 오른쪽에 표시 */}
             <div className="md:hidden">
@@ -5437,9 +5558,11 @@ function QAGenerator({
                 {generatedQuestion ? (
                   <div className="text-gray-800">
                     {/* 제목 */}
-                    <h4 className="font-bold text-gray-900 text-xl mb-6 pb-3 border-b border-gray-200">
+                    <h4 className="font-bold text-gray-900 text-xl mb-4">
                       {generatedQuestion.title}
                     </h4>
+                    {/* 제목과 본문 구분선 */}
+                    <div className="mb-6 h-px bg-gradient-to-r from-transparent via-gray-300 to-transparent"></div>
                     {/* 본문 - 문단별로 깔끔하게 표시 (제목과 중복되는 첫 부분 제거) */}
                     <div className="space-y-5">
                       {(() => {
@@ -5580,9 +5703,14 @@ function QAGenerator({
               </h3>
               <button
                 onClick={() => {
-                  const allThreads = conversationThread.map(msg => 
-                    `${msg.role === 'customer' ? '👤 고객' : '👨‍💼 설계사'}: ${msg.content}`
-                  ).join('\n\n')
+                  const allThreads = conversationThread.map(msg => {
+                    if (msg.role === 'customer') {
+                      const isReviewComment = msg.step >= 1999
+                      const customerName = isReviewComment ? '타회원' : '질문자'
+                      return `👤 ${customerName}: ${msg.content}`
+                    }
+                    return `👨‍💼 설계사: ${msg.content}`
+                  }).join('\n\n')
                   navigator.clipboard.writeText(allThreads)
                   alert('전체 대화가 클립보드에 복사되었습니다!')
                 }}
@@ -5602,6 +5730,10 @@ function QAGenerator({
                   const nextMessage = idx < conversationThread.length - 1 ? conversationThread[idx + 1] : null
                   const showAvatar = !prevMessage || prevMessage.role !== message.role || idx === 0
                   const isGrouped = nextMessage && nextMessage.role === message.role
+                  
+                  // 고객 이름 결정: 후기성 댓글(step >= 1999)은 "타회원", 그 외 고객 댓글은 "질문자"
+                  const isReviewComment = isCustomer && message.step >= 1999
+                  const customerName = isReviewComment ? '타회원' : '질문자'
                   
                   return (
                     <div
@@ -5632,7 +5764,7 @@ function QAGenerator({
                             <div className={`text-sm font-bold ${
                               isCustomer ? 'text-blue-600' : 'text-indigo-600'
                             }`}>
-                              {isCustomer ? '고객' : '설계사'}
+                              {isCustomer ? customerName : '설계사'}
                             </div>
                             <div className="text-xs text-gray-500">
                               댓글 #{Math.ceil((message.step + 1) / 2)}

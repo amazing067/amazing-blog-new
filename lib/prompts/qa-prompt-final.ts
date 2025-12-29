@@ -338,6 +338,42 @@ const COMMENTER_PERSONAS = [
 ] as const
 
 /**
+ * 종신보험 환급률 데이터 (월별 업데이트)
+ * 업데이트 시기: 매월 초
+ * 형식: 5년 완납 시점 환급률 / 10년 비과세 환급률
+ */
+const WHOLE_LIFE_REFUND_RATES = {
+  month: '12월', // 업데이트 시 이 값만 변경
+  period: '5년납',
+  products: [
+    { name: '메트 백만종달러', rate5: '98.4%', rate10: '124.9%' },
+    { name: '하나 원!투!종신', rate5: '96.2%', rate10: '123.9%' },
+    { name: 'ABL THE드림', rate5: '98.1%', rate10: '122.7%' },
+    { name: '하나 하나로THE연결된', rate5: '96.0%', rate10: '122.7%' },
+    { name: '신한 모아더드림Plus', rate5: '90.0%', rate10: '122.7%' },
+    { name: '푸본 Max 원픽', rate5: '96.9%', rate10: '122.6%' },
+    { name: 'KDB 더블찬스', rate5: '95.0%', rate10: '122.7%' },
+    { name: 'KB 약속플러스', rate5: '99.9%', rate10: '122.5%' },
+    { name: '한화 H종신', rate5: '99.3%', rate10: '122.2%' },
+    { name: '교보 실속종신Plus', rate5: '99.6%', rate10: '122.2%' },
+    { name: 'iM 당당한인생S', rate5: '99.8%', rate10: '122.1%' },
+    { name: '신한 모아더드림', rate5: '99.9%', rate10: '121.0%' },
+    { name: '삼성 더행복', rate5: '98.0%', rate10: '119.4%' }
+  ]
+} as const
+
+/**
+ * 종신보험 환급률 데이터를 텍스트로 포맷팅
+ */
+function formatWholeLifeRefundRates(): string {
+  const header = `✅ ${WHOLE_LIFE_REFUND_RATES.month} ${WHOLE_LIFE_REFUND_RATES.period}\n(완납 / 10년시점 %)\n\n`
+  const products = WHOLE_LIFE_REFUND_RATES.products
+    .map(p => `▪${p.name}\n${p.rate5} / ${p.rate10}`)
+    .join('\n\n')
+  return header + products
+}
+
+/**
  * 답변 논리 구조
  */
 const ANSWER_STRUCTURES = [
@@ -444,9 +480,22 @@ const CORE_PRINCIPLES = `
 1. 문장 보존: 문장이 완전히 끝나기 전에 절대 줄바꿈하지 마세요
    - (X) "보험료가 비싸서\\n고민입니다"
    - (O) "보험료가 비싸서 고민입니다"
-2. 마침표 금지: 문장 끝에 마침표(.) 대신 줄바꿈 또는 ?!~요 사용
-3. 자연스러움: 부여된 페르소나에 100% 빙의. AI 티 나면 실패
-4. 예시 베끼기 금지: 프롬프트에 있는 문장을 그대로 쓰지 마세요
+   - (X) "이 통합보험에\\n이렇게 암 보장이"
+   - (O) "이 통합보험에 이렇게 암 보장이 많은 게 맞나 싶기도 하고요"
+2. 단락 무결성: 문장 중간(주어, 목적어, 보어, 부사, 조사 사이)에서 절대 단락을 나누지 마세요
+   - 문장이 완전히 끝난 후(구두점 뒤)에만 단락을 변경하세요
+   - 각 문단은 하나의 완전한 생각이나 주제를 담아야 합니다
+3. 마침표/쉼표 절대 금지: 질문글에는 마침표(.)와 쉼표(,)를 절대 사용하지 마세요
+   - 일반 사람들은 질문글에 마침표를 쓰지 않습니다
+   - 문장 구분은 줄바꿈이나 물음표(?)로만 하세요
+   - 예: "월 60,079원이더라고요." → (X) 마침표 제거
+   - 예: "사망후유, 3대진단까지" → (X) 쉼표 제거 → "사망후유 3대진단까지"
+4. 외국어 절대 금지: 일본어, 영어 등 외국어를 절대 사용하지 마세요
+   - (X) "しっかり 보장되니" → (O) "제대로 보장되니" 또는 "확실히 보장되니"
+   - (X) "OK", "good" 등 영어 단어 사용 금지
+   - 순수 한국어만 사용하세요
+5. 자연스러움: 부여된 페르소나에 100% 빙의. AI 티 나면 실패
+6. 예시 베끼기 금지: 프롬프트에 있는 문장을 그대로 쓰지 마세요
 `
 
 const OUTPUT_RULES = `
@@ -502,18 +551,35 @@ export function generateQuestionPrompt(data: QAPromptData): string {
 
 [본문 작성 가이드]
 1. 위 [심리 상태 시드]를 자연스럽게 녹여서 왜 이 글을 썼는지 표현
-2. 설계서 정보 언급: ${designSheetAnalysis?.premium || '보험료'}, ${designSheetAnalysis?.coverages?.slice(0, 2).join(', ') || '보장내용'}
+2. 설계서 정보 언급: ${designSheetAnalysis?.premium || '보험료'} ${designSheetAnalysis?.coverages?.slice(0, 2).join(' ') || '보장내용'}
 3. [말투 시드]와 [텍스트 패턴]을 반영한 자연스러운 문체
 4. **무조건 존댓말(해요체/하십시오체) 사용** (반말 금지)
 5. 2-3문단, 300-500자 내외
+6. **⚠️ 마침표/쉼표 절대 금지**:
+   - 마침표(.)와 쉼표(,)를 절대 사용하지 마세요
+   - 일반 사람들은 질문글에 마침표를 쓰지 않습니다
+   - 문장 구분은 줄바꿈이나 물음표(?)로만 하세요
+7. **⚠️ 외국어 절대 금지**:
+   - 일본어(히라가나, 가타카나, 한자), 영어 등 외국어를 절대 사용하지 마세요
+   - 순수 한국어만 사용하세요
+   - 예: "しっかり" → (X) → "제대로" 또는 "확실히" (O)
+8. **⚠️ 단락 구분 규칙 (매우 중요)**:
+   - 문장이 완전히 끝난 후에만 단락을 나누세요
+   - 문장 중간(주어, 목적어, 보어, 부사, 조사 사이)에서 절대 줄바꿈하지 마세요
+   - "다"라는 단어가 문장 중간에 있으면(예: "3대진단까지 다 포함된") 절대 줄바꿈하지 마세요
+   - 각 문단은 완전한 생각이나 주제를 담아야 합니다
+   - 예: "3대진단까지 다\\n포함된" → (X) 절대 안 됨
+   - 예: "3대진단까지 다 포함된 금액 맞죠?" → (O) 문장이 끝난 후에만 단락 변경
 
 ${CORE_PRINCIPLES}
 ${OUTPUT_RULES}
 
 ---
 [제목]:
+(제목만 출력하세요. 본문 내용을 포함하지 마세요.)
 
-[본문]:`
+[본문]:
+(본문만 출력하세요. 제목을 반복하지 마세요.)`
 }
 
 
@@ -536,6 +602,20 @@ export function generateAnswerPrompt(
     'persuasive': '확신 있게, 하지만 과하지 않게'
   }[answerTone] || '친근하고 따뜻하게'
 
+  // 종신보험 관련 질문인지 확인
+  const isWholeLifeRelated = 
+    productName.includes('종신') || 
+    productName.includes('종신보험') ||
+    questionTitle.includes('종신') ||
+    questionContent.includes('종신') ||
+    questionContent.includes('환급률') ||
+    questionContent.includes('해지환급금')
+
+  // 종신보험 환급률 데이터 (필요시만 포함)
+  const wholeLifeData = isWholeLifeRelated 
+    ? `\n[종신보험 환급률 참고 자료]\n${formatWholeLifeRefundRates()}\n\n⚠️ 위 데이터는 ${WHOLE_LIFE_REFUND_RATES.month} 기준 ${WHOLE_LIFE_REFUND_RATES.period} 상품의 환급률입니다.\n- 앞 숫자: 5년 완납 시점 환급률\n- 뒤 숫자: 10년 비과세 환급률\n\n답변 시 이 데이터를 참고하여 객관적으로 비교 설명하되, 특정 상품을 강요하지 마세요.`
+    : ''
+
   return `당신은 15년차 베테랑 보험설계사입니다. 고객의 질문에 답변하세요.
 
 [고객 질문]
@@ -552,7 +632,7 @@ ${toneGuide}
 - 상품: ${productName}
 - 장점: ${sellingPoint}
 - 보험료: ${designSheetAnalysis?.premium || '합리적인 수준'}
-- 주요 보장: ${designSheetAnalysis?.coverages?.slice(0, 3).join(', ') || '암진단비, 수술비 등'}
+- 주요 보장: ${designSheetAnalysis?.coverages?.slice(0, 3).join(', ') || '암진단비, 수술비 등'}${wholeLifeData}
 
 [작성 지침]
 1. 고객의 말투와 감정 상태를 파악해서 그에 맞는 톤으로 시작
@@ -561,7 +641,9 @@ ${toneGuide}
 4. 장점 언급 시 광고처럼 보이지 않게 객관적으로
 5. 마지막에 자연스럽게 쪽지/상담 유도 (강요 아닌 제안)
 6. **친절하고 정중한 존댓말 사용** ("~님", "~요" 사용)
-7. 2-3문단, 300-500자 내외
+7. **⚠️ 외국어 절대 금지**: 일본어, 영어 등 외국어를 절대 사용하지 마세요. 순수 한국어만 사용하세요
+8. 2-3문단, 300-500자 내외
+${isWholeLifeRelated ? '9. 종신보험 관련 질문이면 환급률 데이터를 참고하여 객관적으로 비교 설명하되, 특정 상품을 강요하지 마세요' : ''}
 
 ${CORE_PRINCIPLES}
 ${OUTPUT_RULES}
@@ -589,8 +671,18 @@ export function generateConversationThreadPrompt(
   const ageStyle = getAgeStyle(decade)
   
   // 이전 대화 텍스트화
+  // 고객 댓글은 "질문자", 후기성 댓글(step >= 1999)은 "타회원"
   const historyText = conversationHistory
-    .map(m => `[${m.role === 'customer' ? '회원' : '설계사'}]: ${m.content}`)
+    .map(m => {
+      if (m.role === 'customer') {
+        // 후기성 댓글은 step이 1999 이상
+        if (m.step >= 1999) {
+          return `[타회원]: ${m.content}`
+        }
+        return `[질문자]: ${m.content}`
+      }
+      return `[설계사]: ${m.content}`
+    })
     .join('\n')
   
   // 쪽지/상담 요청이 이미 있었는지 확인
