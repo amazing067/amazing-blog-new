@@ -198,7 +198,76 @@
 
 ---
 
+---
+
+## 🎯 상품명 자동완성 기능 (내일 개별 PDF 준비 후 구현)
+
+### 목표
+상품명을 더 다양하고 정확하게 자동으로 채워넣는 기능
+
+### 선택된 아이디어: 하이브리드 방식 (아이디어 3)
+
+**구조**:
+1. 로컬 DB에 인기 상품명 저장 (빠른 자동완성)
+2. DB에 없으면 웹 검색으로 보완
+3. 검색 결과를 DB에 자동 저장 (학습)
+
+**장점**:
+- 빠른 응답 + 최신 정보
+- 점진적 데이터 축적
+- 비용 절감
+
+### 구현 단계
+
+#### 1단계: Supabase 테이블 생성
+```sql
+CREATE TABLE insurance_products (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL UNIQUE,
+  company TEXT,
+  category TEXT,  -- 'damage' | 'life'
+  keywords TEXT[],
+  search_count INT DEFAULT 0,  -- 인기도 추적
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX idx_products_name ON insurance_products(name);
+CREATE INDEX idx_products_company ON insurance_products(company);
+CREATE INDEX idx_products_category ON insurance_products(category);
+```
+
+#### 2단계: 자동완성 API 생성
+- `/api/products/search?q=KB손해보험` → 상품명 목록 반환
+- DB에서 먼저 검색, 없으면 웹 검색으로 보완
+
+#### 3단계: UI에 자동완성 드롭다운 추가
+- 상품명 입력 필드에 실시간 자동완성
+- 선택 시 자동 입력
+
+#### 4단계: 관리자 페이지에 상품명 관리 기능
+- 상품명 추가/수정/삭제
+- CSV 일괄 업로드
+
+#### 5단계: 소식지 PDF 연동
+- 개별 PDF 업로드 시 상품명 자동 추출
+- 추출된 상품명을 DB에 자동 저장
+
+### 관련 파일
+- `app/api/products/search/route.ts` - 상품명 검색 API (신규)
+- `app/api/products/route.ts` - 상품명 CRUD API (신규)
+- `app/admin/products/page.tsx` - 상품명 관리 페이지 (신규)
+- `app/dashboard/BlogGenerator.tsx` - 자동완성 UI 추가
+
+### 참고 아이디어 (미선택)
+- 아이디어 1: 웹 검색 기반 실시간 자동완성 (비용 높음)
+- 아이디어 2: DB 기반만 (최신 정보 부족)
+- 아이디어 4: Google Sheets 연동 (추가 설정 필요)
+- 아이디어 5: 보험사 공식 API (제공 여부 불확실)
+
+---
+
 **마지막 업데이트**: 2025-01-XX
 **작성자**: AI Assistant
-**상태**: 대기 중
+**상태**: 대기 중 (내일 개별 PDF 준비 후 구현 예정)
 

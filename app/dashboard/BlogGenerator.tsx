@@ -1588,7 +1588,7 @@ h2 {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900">
       {/* 그라데이션 애니메이션 스타일 */}
       <style dangerouslySetInnerHTML={{
         __html: `
@@ -2354,13 +2354,13 @@ h2 {
       <main className="container mx-auto px-4 py-2">
         {/* 탭 네비게이션 */}
         <div className="max-w-7xl mx-auto mb-3">
-          <div className="bg-white rounded-xl shadow-lg p-1.5 flex gap-1.5">
+          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-lg p-1.5 flex gap-1.5">
             <button
               onClick={() => setActiveTab('write')}
               className={`flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-semibold transition-all ${
                 activeTab === 'write'
                   ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md'
-                  : 'text-gray-600 hover:bg-gray-100'
+                  : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700'
               }`}
             >
               <Sparkles className="w-4 h-4" />
@@ -2371,7 +2371,7 @@ h2 {
               className={`flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-semibold transition-all ${
                 activeTab === 'history'
                   ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md'
-                  : 'text-gray-600 hover:bg-gray-100'
+                  : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700'
               }`}
             >
               <History className="w-4 h-4" />
@@ -2382,7 +2382,7 @@ h2 {
               className={`flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-semibold transition-all ${
                 activeTab === 'qa'
                   ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md'
-                  : 'text-gray-600 hover:bg-gray-100'
+                  : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700'
               }`}
             >
               <MessageSquare className="w-4 h-4" />
@@ -2393,7 +2393,7 @@ h2 {
               className={`flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-semibold transition-all ${
                 activeTab === 'qa-history'
                   ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md'
-                  : 'text-gray-600 hover:bg-gray-100'
+                  : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700'
               }`}
             >
               <History className="w-4 h-4" />
@@ -2404,7 +2404,7 @@ h2 {
               className={`flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-semibold transition-all ${
                 activeTab === 'stats'
                   ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md'
-                  : 'text-gray-600 hover:bg-gray-100'
+                  : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700'
               }`}
             >
               <BarChart3 className="w-4 h-4" />
@@ -2415,7 +2415,7 @@ h2 {
               className={`flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-semibold transition-all ${
                 activeTab === 'approval'
                   ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md'
-                  : 'text-gray-600 hover:bg-gray-100'
+                  : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700'
               }`}
             >
               <FileText className="w-4 h-4" />
@@ -2426,7 +2426,7 @@ h2 {
               className={`flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-semibold transition-all ${
                 activeTab === 'image-analysis'
                   ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md'
-                  : 'text-gray-600 hover:bg-gray-100'
+                  : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700'
               }`}
             >
               <ImageIcon className="w-4 h-4" />
@@ -2437,7 +2437,7 @@ h2 {
               className={`flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-semibold transition-all ${
                 activeTab === 'kakao-link'
                   ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md'
-                  : 'text-gray-600 hover:bg-gray-100'
+                  : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700'
               }`}
             >
               <LinkIcon className="w-4 h-4" />
@@ -2460,8 +2460,8 @@ h2 {
           <div className="lg:col-span-2 space-y-4 flex flex-col">
             
             {/* 템플릿 선택 */}
-            <div className="bg-white rounded-xl shadow-lg p-4">
-              <h3 className="text-base font-bold text-[#1e293b] mb-3 flex items-center gap-2">
+            <div className="bg-white dark:bg-slate-800 rounded-xl shadow-lg p-4">
+              <h3 className="text-base font-bold text-[#1e293b] dark:text-white mb-3 flex items-center gap-2">
                 <BookOpen className="w-4 h-4 text-blue-500" />
                 템플릿 선택
               </h3>
@@ -2477,15 +2477,15 @@ h2 {
                     }`}
                   >
                     <div className="text-2xl mb-1 flex-shrink-0">{template.icon}</div>
-                    <div className="text-[10px] font-semibold text-gray-700 text-center leading-tight break-words px-0.5">{template.name}</div>
+                    <div className="text-[10px] font-semibold text-gray-700 dark:text-gray-200 text-center leading-tight break-words px-0.5">{template.name}</div>
                   </button>
                 ))}
               </div>
             </div>
 
             {/* 입력 폼 */}
-            <div className="bg-white rounded-xl shadow-lg p-6">
-              <h3 className="text-lg font-bold text-[#1e293b] mb-4 flex items-center gap-2">
+            <div className="bg-white dark:bg-slate-800 rounded-xl shadow-lg p-6">
+              <h3 className="text-lg font-bold text-[#1e293b] dark:text-white mb-4 flex items-center gap-2">
                 <TrendingUp className="w-5 h-5 text-green-500" />
                 글 생성 조건
               </h3>
@@ -2493,7 +2493,7 @@ h2 {
               <div className="space-y-4">
                 {/* 주제 */}
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">
                     주제 (Topic) *
                   </label>
                   <input
@@ -2501,14 +2501,14 @@ h2 {
                     name="topic"
                     value={formData.topic}
                     onChange={handleChange}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-slate-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-400"
                     placeholder="예: 40세 뇌혈관 진단비 비교"
                   />
                 </div>
 
                 {/* 키워드 */}
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">
                     핵심 키워드
                   </label>
                   <input
@@ -2516,21 +2516,21 @@ h2 {
                     name="keywords"
                     value={formData.keywords}
                     onChange={handleChange}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-slate-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-400"
                     placeholder="예: 비갱신형, 100세만기, 무해지환급형"
                   />
                 </div>
 
                 {/* 상품 선택 */}
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">
                     강조할 상품
                   </label>
                   <select
                     name="product"
                     value={formData.product}
                     onChange={handleChange}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
                   >
                     <option value="auto">자동 추천 (AI)</option>
                     <option value="a">A사 (가성비)</option>
@@ -2541,11 +2541,11 @@ h2 {
 
                 {/* 톤 선택 */}
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-3">
+                  <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-3">
                     글의 톤
                   </label>
                   <div className="space-y-2">
-                    <label className="flex items-center gap-3 p-3 border-2 rounded-lg cursor-pointer hover:bg-gray-50 transition">
+                    <label className="flex items-center gap-3 p-3 border-2 dark:border-gray-600 rounded-lg cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-700 transition bg-white dark:bg-slate-700">
                       <input
                         type="radio"
                         name="tone"
@@ -2554,9 +2554,9 @@ h2 {
                         onChange={handleChange}
                         className="w-4 h-4"
                       />
-                      <span className="text-sm font-medium">😊 친절한 상담사 톤</span>
+                      <span className="text-sm font-medium text-gray-900 dark:text-white">😊 친절한 상담사 톤</span>
                     </label>
-                    <label className="flex items-center gap-3 p-3 border-2 rounded-lg cursor-pointer hover:bg-gray-50 transition">
+                    <label className="flex items-center gap-3 p-3 border-2 dark:border-gray-600 rounded-lg cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-700 transition bg-white dark:bg-slate-700">
                       <input
                         type="radio"
                         name="tone"
@@ -2565,9 +2565,9 @@ h2 {
                         onChange={handleChange}
                         className="w-4 h-4"
                       />
-                      <span className="text-sm font-medium">👨‍💼 냉철한 전문가 톤</span>
+                      <span className="text-sm font-medium text-gray-900 dark:text-white">👨‍💼 냉철한 전문가 톤</span>
                     </label>
-                    <label className="flex items-center gap-3 p-3 border-2 rounded-lg cursor-pointer hover:bg-gray-50 transition">
+                    <label className="flex items-center gap-3 p-3 border-2 dark:border-gray-600 rounded-lg cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-700 transition bg-white dark:bg-slate-700">
                       <input
                         type="radio"
                         name="tone"
@@ -2576,14 +2576,14 @@ h2 {
                         onChange={handleChange}
                         className="w-4 h-4"
                       />
-                      <span className="text-sm font-medium">⚠️ 경각심 주는 톤</span>
+                      <span className="text-sm font-medium text-gray-900 dark:text-white">⚠️ 경각심 주는 톤</span>
                     </label>
                   </div>
                 </div>
 
                 {/* 제안서 이미지 업로드 (선택) */}
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">
                     제안서 이미지 (선택)
                   </label>
                   
@@ -2699,12 +2699,12 @@ h2 {
                       ) : (
                         <div className="space-y-2">
                           <div className="text-4xl">📎</div>
-                          <div className="text-sm text-gray-600">
+                          <div className="text-sm text-gray-600 dark:text-gray-300">
                             {isDraggingOverDesignSheet 
                               ? '여기에 놓으세요' 
                               : '파일을 드래그하거나 클릭하여 업로드'}
                           </div>
-                          <div className="text-xs text-gray-500">
+                          <div className="text-xs text-gray-500 dark:text-gray-400">
                             이미지 파일만 업로드 가능
                           </div>
                         </div>
@@ -2767,7 +2767,7 @@ h2 {
           </div>
 
           {/* 오른쪽 패널 - 결과 미리보기 (60%) */}
-          <div className="lg:col-span-3 bg-white rounded-xl shadow-lg flex flex-col" style={{ 
+          <div className="lg:col-span-3 bg-white dark:bg-slate-800 rounded-xl shadow-lg flex flex-col" style={{ 
             contain: 'layout style paint',
             isolation: 'isolate',
             position: 'relative',
@@ -2776,8 +2776,8 @@ h2 {
             maxHeight: '100%'
           }}>
             {/* 액션 버튼 바 */}
-            <div className="bg-gradient-to-r from-gray-50 to-gray-100 px-4 py-2 border-b flex justify-between items-center flex-shrink-0">
-              <h3 className="text-base font-bold text-gray-800">결과 미리보기</h3>
+            <div className="bg-gradient-to-r from-gray-50 to-gray-100 dark:from-slate-700 dark:to-slate-600 px-4 py-2 border-b dark:border-gray-600 flex justify-between items-center flex-shrink-0">
+              <h3 className="text-base font-bold text-gray-800 dark:text-white">결과 미리보기</h3>
               {generatedHTML && (
                 <div className="flex gap-1.5 flex-wrap">
                   <button
@@ -3234,15 +3234,15 @@ h2 {
         {/* 히스토리 탭 */}
         {activeTab === 'history' && (
           <div className="max-w-7xl mx-auto">
-            <div className="bg-white rounded-xl shadow-lg p-8">
+            <div className="bg-white dark:bg-slate-800 rounded-xl shadow-lg p-8">
               <div className="flex justify-between items-center mb-6">
-                <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-3">
+                <h2 className="text-2xl font-bold text-gray-800 dark:text-white flex items-center gap-3">
                   <History className="w-7 h-7 text-blue-600" />
                   내가 작성한 글
                 </h2>
                 <button
                   onClick={loadBlogPosts}
-                  className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors text-sm"
+                  className="px-4 py-2 bg-gray-100 dark:bg-slate-700 text-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-200 dark:hover:bg-slate-600 transition-colors text-sm"
                 >
                   🔄 새로고침
                 </button>
@@ -3251,14 +3251,14 @@ h2 {
               {isLoadingPosts ? (
                 <div className="text-center py-12">
                   <Clock className="w-12 h-12 animate-spin text-blue-600 mx-auto mb-4" />
-                  <p className="text-gray-500">로딩 중...</p>
+                  <p className="text-gray-500 dark:text-gray-400">로딩 중...</p>
                 </div>
               ) : blogPosts.length > 0 ? (
                 <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
                   {blogPosts.map((post) => (
                     <div
                       key={post.id}
-                      className="bg-gradient-to-br from-white to-gray-50 border-2 border-gray-200 rounded-xl p-6 hover:shadow-xl transition-all hover:scale-[1.02]"
+                      className="bg-gradient-to-br from-white to-gray-50 dark:from-slate-700 dark:to-slate-800 border-2 border-gray-200 dark:border-gray-700 rounded-xl p-6 hover:shadow-xl transition-all hover:scale-[1.02]"
                     >
                       {/* 아이콘 */}
                       <div className="text-4xl mb-3">
@@ -3266,25 +3266,25 @@ h2 {
                       </div>
 
                       {/* 제목 */}
-                      <h3 className="text-lg font-bold text-gray-800 mb-2 line-clamp-2">
+                      <h3 className="text-lg font-bold text-gray-800 dark:text-white mb-2 line-clamp-2">
                         {post.title || post.topic}
                       </h3>
 
                       {/* 메타 정보 */}
-                      <div className="flex items-center gap-3 text-xs text-gray-500 mb-4">
+                      <div className="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400 mb-4">
                         <span>{new Date(post.created_at).toLocaleDateString('ko-KR')}</span>
                         <span>•</span>
                         <span>{post.word_count || 0}자</span>
                         {post.status === 'published' && (
                           <>
                             <span>•</span>
-                            <span className="text-green-600 font-semibold">발행됨</span>
+                            <span className="text-green-600 dark:text-green-400 font-semibold">발행됨</span>
                           </>
                         )}
                       </div>
 
                       {/* 미리보기 텍스트 */}
-                      <p className="text-sm text-gray-600 mb-4 line-clamp-2">
+                      <p className="text-sm text-gray-600 dark:text-gray-300 mb-4 line-clamp-2">
                         {post.plain_text || '내용 없음'}
                       </p>
 
@@ -3298,7 +3298,7 @@ h2 {
                         </button>
                         <button
                           onClick={() => handleDeletePost(post.id)}
-                          className="px-3 py-2 bg-red-100 text-red-600 rounded-lg hover:bg-red-200 transition-colors text-xs font-semibold"
+                          className="px-3 py-2 bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded-lg hover:bg-red-200 dark:hover:bg-red-900/50 transition-colors text-xs font-semibold"
                         >
                           🗑️
                         </button>
@@ -3309,10 +3309,10 @@ h2 {
               ) : (
                 <div className="text-center py-20">
                   <div className="text-8xl mb-4">📝</div>
-                  <h3 className="text-2xl font-bold text-gray-800 mb-2">
+                  <h3 className="text-2xl font-bold text-gray-800 dark:text-white mb-2">
                     아직 작성한 글이 없습니다
                   </h3>
-                  <p className="text-gray-500 mb-6">
+                  <p className="text-gray-500 dark:text-gray-400 mb-6">
                     [✨ 새 글 쓰기] 탭에서 첫 번째 블로그를 만들어보세요!
                   </p>
                   <button
@@ -3330,8 +3330,8 @@ h2 {
         {/* 통계 탭 */}
         {activeTab === 'stats' && (
           <div className="max-w-5xl mx-auto">
-            <div className="bg-white rounded-xl shadow-lg p-8">
-              <h2 className="text-2xl font-bold text-gray-800 mb-8 flex items-center gap-3">
+            <div className="bg-white dark:bg-slate-800 rounded-xl shadow-lg p-8">
+              <h2 className="text-2xl font-bold text-gray-800 dark:text-white mb-8 flex items-center gap-3">
                 <BarChart3 className="w-7 h-7 text-blue-600" />
                 통계 대시보드
               </h2>
@@ -3357,25 +3357,25 @@ h2 {
                 </div>
               </div>
 
-              <div className="mt-8 bg-gray-50 rounded-xl p-6">
-                <h3 className="text-lg font-bold text-gray-800 mb-4">최근 활동</h3>
+              <div className="mt-8 bg-gray-50 dark:bg-slate-700 rounded-xl p-6">
+                <h3 className="text-lg font-bold text-gray-800 dark:text-white mb-4">최근 활동</h3>
                 {blogPosts.slice(0, 5).map((post) => (
                   <div
                     key={post.id}
-                    className="flex items-center justify-between py-3 border-b border-gray-200 last:border-0"
+                    className="flex items-center justify-between py-3 border-b border-gray-200 dark:border-gray-600 last:border-0"
                   >
                     <div className="flex items-center gap-3">
-                      <FileText className="w-5 h-5 text-gray-400" />
+                      <FileText className="w-5 h-5 text-gray-400 dark:text-gray-500" />
                       <div>
-                        <div className="font-medium text-gray-800">{post.title || post.topic}</div>
-                        <div className="text-xs text-gray-500">
+                        <div className="font-medium text-gray-800 dark:text-white">{post.title || post.topic}</div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400">
                           {new Date(post.created_at).toLocaleDateString('ko-KR')}
                         </div>
                       </div>
                     </div>
                     <button
                       onClick={() => handleViewPost(post)}
-                      className="text-blue-600 hover:text-blue-700 text-sm font-semibold"
+                      className="text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 text-sm font-semibold"
                     >
                       보기 →
                     </button>
@@ -3541,14 +3541,14 @@ function ImageAnalyzer({ profile }: { profile: Profile | null }) {
   }
 
   return (
-    <div className="bg-white rounded-xl shadow-lg p-8">
-      <h2 className="text-2xl font-bold text-gray-800 mb-6 flex items-center gap-3">
+    <div className="bg-white dark:bg-slate-800 rounded-xl shadow-lg p-8">
+      <h2 className="text-2xl font-bold text-gray-800 dark:text-white mb-6 flex items-center gap-3">
         <ImageIcon className="w-7 h-7 text-blue-600" />
         전문 이미지 분석기
       </h2>
 
       <div className="mb-6">
-        <p className="text-gray-600 mb-4">
+        <p className="text-gray-600 dark:text-gray-300 mb-4">
           의료 영수증(진료비 세부산정내역서) 또는 병리 검사 보고서 이미지를 업로드하면, 
           질병명, 보험금 계산, 고객 설명 가이드를 자동으로 생성해드립니다.
         </p>
@@ -3557,8 +3557,8 @@ function ImageAnalyzer({ profile }: { profile: Profile | null }) {
         <div 
           className={`border-2 border-dashed rounded-lg p-8 text-center transition-all ${
             isDragging 
-              ? 'border-blue-500 bg-blue-50 scale-[1.02]' 
-              : 'border-gray-300 hover:border-blue-400 bg-white'
+              ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30 scale-[1.02]' 
+              : 'border-gray-300 dark:border-gray-600 hover:border-blue-400 dark:hover:border-blue-500 bg-white dark:bg-slate-700'
           }`}
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
@@ -3578,7 +3578,7 @@ function ImageAnalyzer({ profile }: { profile: Profile | null }) {
                 isDragging ? 'text-blue-500' : 'text-gray-400'
               }`} />
               <p className={`mb-2 transition-colors ${
-                isDragging ? 'text-blue-700 font-semibold' : 'text-gray-600'
+                isDragging ? 'text-blue-700 dark:text-blue-300 font-semibold' : 'text-gray-600 dark:text-gray-300'
               }`}>
                 {isDragging ? '📎 여기에 이미지를 놓아주세요' : '이미지를 드래그 앤 드롭하거나 선택하세요'}
               </p>
@@ -3599,7 +3599,7 @@ function ImageAnalyzer({ profile }: { profile: Profile | null }) {
               <div className="flex gap-3 justify-center">
                 <button
                   onClick={handleImageSelect}
-                  className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
+                  className="px-4 py-2 bg-gray-200 dark:bg-slate-600 text-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-300 dark:hover:bg-slate-500 transition-colors"
                 >
                   🔄 다른 이미지 선택
                 </button>
@@ -3619,18 +3619,18 @@ function ImageAnalyzer({ profile }: { profile: Profile | null }) {
 
       {/* 분석 중 */}
       {isAnalyzing && (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-6 text-center">
+        <div className="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-lg p-6 text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-blue-700 font-semibold">이미지를 분석하고 있습니다...</p>
-          <p className="text-blue-600 text-sm mt-2">잠시만 기다려주세요.</p>
+          <p className="text-blue-700 dark:text-blue-300 font-semibold">이미지를 분석하고 있습니다...</p>
+          <p className="text-blue-600 dark:text-blue-400 text-sm mt-2">잠시만 기다려주세요.</p>
         </div>
       )}
 
       {/* 오류 메시지 */}
       {error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
-          <p className="text-red-700 font-semibold">오류 발생</p>
-          <p className="text-red-600 text-sm mt-1">{error}</p>
+        <div className="bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-lg p-4 mb-6">
+          <p className="text-red-700 dark:text-red-300 font-semibold">오류 발생</p>
+          <p className="text-red-600 dark:text-red-400 text-sm mt-1">{error}</p>
         </div>
       )}
 
@@ -3638,31 +3638,31 @@ function ImageAnalyzer({ profile }: { profile: Profile | null }) {
       {analysisResult && !isAnalyzing && (
         <div className="space-y-6">
           {/* 문서 정보 */}
-          <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-lg p-6">
-            <h3 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+          <div className="bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-900/30 dark:to-indigo-900/30 rounded-lg p-6">
+            <h3 className="text-xl font-bold text-gray-800 dark:text-white mb-4 flex items-center gap-2">
               📄 문서 정보
             </h3>
             <div className="grid md:grid-cols-2 gap-4">
               <div>
-                <p className="text-sm text-gray-600 mb-1">문서 종류</p>
-                <p className="font-semibold text-gray-800">{analysisResult.documentType || '미확인'}</p>
+                <p className="text-sm text-gray-600 dark:text-gray-300 mb-1">문서 종류</p>
+                <p className="font-semibold text-gray-800 dark:text-white">{analysisResult.documentType || '미확인'}</p>
               </div>
               {analysisResult.patientInfo?.name && (
                 <div>
-                  <p className="text-sm text-gray-600 mb-1">환자명</p>
-                  <p className="font-semibold text-gray-800">{analysisResult.patientInfo.name}</p>
+                  <p className="text-sm text-gray-600 dark:text-gray-300 mb-1">환자명</p>
+                  <p className="font-semibold text-gray-800 dark:text-white">{analysisResult.patientInfo.name}</p>
                 </div>
               )}
               {analysisResult.medicalInfo?.hospitalName && (
                 <div>
-                  <p className="text-sm text-gray-600 mb-1">병원명</p>
-                  <p className="font-semibold text-gray-800">{analysisResult.medicalInfo.hospitalName}</p>
+                  <p className="text-sm text-gray-600 dark:text-gray-300 mb-1">병원명</p>
+                  <p className="font-semibold text-gray-800 dark:text-white">{analysisResult.medicalInfo.hospitalName}</p>
                 </div>
               )}
               {analysisResult.medicalInfo?.diagnosis && analysisResult.medicalInfo.diagnosis.length > 0 && (
                 <div>
-                  <p className="text-sm text-gray-600 mb-1">진단명</p>
-                  <p className="font-semibold text-gray-800">
+                  <p className="text-sm text-gray-600 dark:text-gray-300 mb-1">진단명</p>
+                  <p className="font-semibold text-gray-800 dark:text-white">
                     {analysisResult.medicalInfo.diagnosis.map((diag: any, idx: number) => {
                       // 객체인 경우 mainDiagnosis 사용, 문자열인 경우 그대로 사용
                       if (typeof diag === 'object' && diag !== null) {
@@ -3681,31 +3681,31 @@ function ImageAnalyzer({ profile }: { profile: Profile | null }) {
 
           {/* 진료비 정보 */}
           {analysisResult.expenses && Object.keys(analysisResult.expenses).length > 0 && (
-            <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-lg p-6">
-              <h3 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+            <div className="bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-900/30 dark:to-emerald-900/30 rounded-lg p-6">
+              <h3 className="text-xl font-bold text-gray-800 dark:text-white mb-4 flex items-center gap-2">
                 💰 진료비 정보
               </h3>
               <div className="grid md:grid-cols-3 gap-4">
                 {analysisResult.expenses.totalAmount && (
                   <div>
-                    <p className="text-sm text-gray-600 mb-1">총 진료비</p>
-                    <p className="text-2xl font-bold text-gray-800">
+                    <p className="text-sm text-gray-600 dark:text-gray-300 mb-1">총 진료비</p>
+                    <p className="text-2xl font-bold text-gray-800 dark:text-white">
                       {parseInt(analysisResult.expenses.totalAmount).toLocaleString()}원
                     </p>
                   </div>
                 )}
                 {analysisResult.expenses.patientShare && (
                   <div>
-                    <p className="text-sm text-gray-600 mb-1">본인부담금</p>
-                    <p className="text-2xl font-bold text-red-600">
+                    <p className="text-sm text-gray-600 dark:text-gray-300 mb-1">본인부담금</p>
+                    <p className="text-2xl font-bold text-red-600 dark:text-red-400">
                       {parseInt(analysisResult.expenses.patientShare).toLocaleString()}원
                     </p>
                   </div>
                 )}
                 {analysisResult.expenses.coveredAmount && (
                   <div>
-                    <p className="text-sm text-gray-600 mb-1">급여 총액 (공단 부담)</p>
-                    <p className="text-2xl font-bold text-blue-600">
+                    <p className="text-sm text-gray-600 dark:text-gray-300 mb-1">급여 총액 (공단 부담)</p>
+                    <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">
                       {parseInt(analysisResult.expenses.coveredAmount).toLocaleString()}원
                     </p>
                   </div>
@@ -3716,13 +3716,13 @@ function ImageAnalyzer({ profile }: { profile: Profile | null }) {
 
           {/* 보험금 분석 */}
           {analysisResult.insuranceAnalysis && Object.keys(analysisResult.insuranceAnalysis).length > 0 && (
-            <div className="bg-gradient-to-br from-purple-50 to-pink-50 rounded-lg p-6">
-              <h3 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+            <div className="bg-gradient-to-br from-purple-50 to-pink-50 dark:from-purple-900/30 dark:to-pink-900/30 rounded-lg p-6">
+              <h3 className="text-xl font-bold text-gray-800 dark:text-white mb-4 flex items-center gap-2">
                 🏥 보험금 분석
               </h3>
               {analysisResult.insuranceAnalysis.applicableInsurance && (
                 <div className="mb-4">
-                  <p className="text-sm text-gray-600 mb-2">적용 가능한 보험</p>
+                  <p className="text-sm text-gray-600 dark:text-gray-300 mb-2">적용 가능한 보험</p>
                   <div className="flex flex-wrap gap-2">
                     {Array.isArray(analysisResult.insuranceAnalysis.applicableInsurance) 
                       ? analysisResult.insuranceAnalysis.applicableInsurance.map((insurance: any, idx: number) => {
@@ -3733,7 +3733,7 @@ function ImageAnalyzer({ profile }: { profile: Profile | null }) {
                           return (
                             <span
                               key={idx}
-                              className="px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-sm font-semibold"
+                              className="px-3 py-1 bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300 rounded-full text-sm font-semibold"
                             >
                               {insuranceText}
                             </span>
@@ -3745,8 +3745,8 @@ function ImageAnalyzer({ profile }: { profile: Profile | null }) {
               )}
               {analysisResult.insuranceAnalysis.estimatedInsuranceAmount && (
                 <div className="mb-4">
-                  <p className="text-sm text-gray-600 mb-1">예상 보험금</p>
-                  <p className="text-3xl font-bold text-purple-700">
+                  <p className="text-sm text-gray-600 dark:text-gray-300 mb-1">예상 보험금</p>
+                  <p className="text-3xl font-bold text-purple-700 dark:text-purple-400">
                     {typeof analysisResult.insuranceAnalysis.estimatedInsuranceAmount === 'string' 
                       ? analysisResult.insuranceAnalysis.estimatedInsuranceAmount
                       : parseInt(analysisResult.insuranceAnalysis.estimatedInsuranceAmount).toLocaleString() + '원'}
@@ -3755,14 +3755,14 @@ function ImageAnalyzer({ profile }: { profile: Profile | null }) {
               )}
               {analysisResult.insuranceAnalysis.calculationBasis && (
                 <div className="mb-4">
-                  <p className="text-sm text-gray-600 mb-1">계산 근거</p>
-                  <p className="text-gray-800">{analysisResult.insuranceAnalysis.calculationBasis}</p>
+                  <p className="text-sm text-gray-600 dark:text-gray-300 mb-1">계산 근거</p>
+                  <p className="text-gray-800 dark:text-white">{analysisResult.insuranceAnalysis.calculationBasis}</p>
                 </div>
               )}
               {analysisResult.insuranceAnalysis.notes && (
                 <div>
-                  <p className="text-sm text-gray-600 mb-1">특이사항</p>
-                  <p className="text-gray-800">{analysisResult.insuranceAnalysis.notes}</p>
+                  <p className="text-sm text-gray-600 dark:text-gray-300 mb-1">특이사항</p>
+                  <p className="text-gray-800 dark:text-white">{analysisResult.insuranceAnalysis.notes}</p>
                 </div>
               )}
             </div>
@@ -3770,20 +3770,20 @@ function ImageAnalyzer({ profile }: { profile: Profile | null }) {
 
           {/* 고객 설명 가이드 */}
           {analysisResult.customerGuidance && Object.keys(analysisResult.customerGuidance).length > 0 && (
-            <div className="bg-gradient-to-br from-yellow-50 to-orange-50 rounded-lg p-6">
-              <h3 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+            <div className="bg-gradient-to-br from-yellow-50 to-orange-50 dark:from-yellow-900/30 dark:to-orange-900/30 rounded-lg p-6">
+              <h3 className="text-xl font-bold text-gray-800 dark:text-white mb-4 flex items-center gap-2">
                 💬 고객 설명 가이드
               </h3>
               {analysisResult.customerGuidance.explanation && (
                 <div className="mb-4">
-                  <p className="text-sm text-gray-600 mb-2">설명 내용</p>
-                  <div className="bg-white rounded-lg p-4 border border-yellow-200">
-                    <p className="text-gray-800 whitespace-pre-wrap leading-relaxed">
+                  <p className="text-sm text-gray-600 dark:text-gray-300 mb-2">설명 내용</p>
+                  <div className="bg-white dark:bg-slate-700 rounded-lg p-4 border border-yellow-200 dark:border-yellow-800">
+                    <p className="text-gray-800 dark:text-white whitespace-pre-wrap leading-relaxed">
                       {analysisResult.customerGuidance.explanation}
                     </p>
                     <button
                       onClick={() => handleCopy(analysisResult.customerGuidance.explanation)}
-                      className="mt-3 px-3 py-1 bg-yellow-100 text-yellow-700 rounded text-sm hover:bg-yellow-200 transition-colors"
+                      className="mt-3 px-3 py-1 bg-yellow-100 dark:bg-yellow-900/50 text-yellow-700 dark:text-yellow-300 rounded text-sm hover:bg-yellow-200 dark:hover:bg-yellow-900/70 transition-colors"
                     >
                       📋 복사
                     </button>
@@ -4886,9 +4886,9 @@ function QAGenerator({
   if (showListOnly) {
     return (
       <div className="max-w-7xl mx-auto">
-        <div className="bg-white rounded-xl shadow-lg p-6">
+        <div className="bg-white dark:bg-slate-800 rounded-xl shadow-lg p-6">
           <div className="flex justify-between items-center mb-6">
-            <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
+            <h2 className="text-xl font-bold text-gray-800 dark:text-white flex items-center gap-2">
               <History className="w-6 h-6 text-indigo-600" />
               📝 저장된 Q&A 목록 ({qaSets.length})
             </h2>
@@ -4905,7 +4905,7 @@ function QAGenerator({
           
           <div className="overflow-y-auto">
             {qaSets.length === 0 ? (
-              <div className="text-center py-16 text-gray-400">
+              <div className="text-center py-16 text-gray-400 dark:text-gray-500">
                 <History className="w-16 h-16 mx-auto mb-4 opacity-50" />
                 <p className="text-lg mb-2">저장된 Q&A가 없습니다.</p>
                 <p className="text-sm">Q&A를 생성하면 자동으로 저장됩니다.</p>
@@ -4917,8 +4917,8 @@ function QAGenerator({
                     key={set.id}
                     className={`border rounded-lg p-4 cursor-pointer transition-all hover:shadow-md ${
                       selectedQASetId === set.id
-                        ? 'border-indigo-500 bg-indigo-50 shadow-md'
-                        : 'border-gray-200 hover:border-indigo-300 hover:bg-gray-50'
+                        ? 'border-indigo-500 dark:border-indigo-400 bg-indigo-50 dark:bg-indigo-900/30 shadow-md'
+                        : 'border-gray-200 dark:border-gray-700 hover:border-indigo-300 dark:hover:border-indigo-500 hover:bg-gray-50 dark:hover:bg-slate-700'
                     }`}
                     onClick={() => {
                       selectQASet(set)
@@ -4931,8 +4931,8 @@ function QAGenerator({
                   >
                     <div className="flex justify-between items-start mb-2">
                       <div className="flex-1 min-w-0">
-                        <h4 className="font-semibold text-gray-800 mb-1 truncate">{set.title}</h4>
-                        <p className="text-sm text-gray-600 mb-2 truncate">{set.productName}</p>
+                        <h4 className="font-semibold text-gray-800 dark:text-white mb-1 truncate">{set.title}</h4>
+                        <p className="text-sm text-gray-600 dark:text-gray-300 mb-2 truncate">{set.productName}</p>
                       </div>
                       <button
                         onClick={(e) => {
@@ -4941,13 +4941,13 @@ function QAGenerator({
                             deleteQASet(set.id)
                           }
                         }}
-                        className="text-red-500 hover:text-red-700 ml-2 p-1 flex-shrink-0"
+                        className="text-red-500 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 ml-2 p-1 flex-shrink-0"
                         title="삭제"
                       >
                         🗑️
                       </button>
                     </div>
-                    <div className="flex items-center gap-3 text-xs text-gray-500">
+                    <div className="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
                       <span className="flex items-center gap-1">
                         <Clock className="w-3 h-3" />
                         {new Date(set.createdAt).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
@@ -4969,9 +4969,9 @@ function QAGenerator({
 
   return (
     <div className="max-w-7xl mx-auto">
-      <div className="bg-white rounded-xl shadow-lg p-6 mb-6">
+      <div className="bg-white dark:bg-slate-800 rounded-xl shadow-lg p-6 mb-6">
         <div className="flex justify-between items-center mb-6">
-          <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
+          <h2 className="text-xl font-bold text-gray-800 dark:text-white flex items-center gap-2">
             <MessageSquare className="w-6 h-6 text-blue-600" />
             💬 보험카페 Q&A 생성기
           </h2>
@@ -4990,22 +4990,22 @@ function QAGenerator({
         
         {/* Q&A 목록 모달 - 상단에 고정 (기존 기능 유지) */}
         {showQAList && (
-          <div className="fixed top-0 left-0 right-0 bg-white border-b border-gray-200 shadow-lg z-50 max-h-[60vh] flex flex-col">
-            <div className="flex justify-between items-center p-4 border-b bg-indigo-50">
-              <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+          <div className="fixed top-0 left-0 right-0 bg-white dark:bg-slate-800 border-b border-gray-200 dark:border-gray-700 shadow-lg z-50 max-h-[60vh] flex flex-col">
+            <div className="flex justify-between items-center p-4 border-b bg-indigo-50 dark:bg-indigo-900/30">
+              <h3 className="text-lg font-bold text-gray-800 dark:text-white flex items-center gap-2">
                 <History className="w-5 h-5 text-indigo-600" />
                 저장된 Q&A 목록 ({qaSets.length})
               </h3>
               <button
                 onClick={() => setShowQAList(false)}
-                className="text-gray-500 hover:text-gray-700 text-2xl font-bold px-2"
+                className="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 text-2xl font-bold px-2"
               >
                 ×
               </button>
             </div>
-            <div className="overflow-y-auto p-4 flex-1 bg-white">
+            <div className="overflow-y-auto p-4 flex-1 bg-white dark:bg-slate-800">
               {qaSets.length === 0 ? (
-                <div className="text-center py-8 text-gray-400">
+                <div className="text-center py-8 text-gray-400 dark:text-gray-500">
                   <History className="w-10 h-10 mx-auto mb-3 opacity-50" />
                   <p>저장된 Q&A가 없습니다.</p>
                   <p className="text-sm mt-1">Q&A를 생성하면 자동으로 저장됩니다.</p>
@@ -5017,16 +5017,16 @@ function QAGenerator({
                       key={set.id}
                       className={`border rounded-lg p-3 cursor-pointer transition-all ${
                         selectedQASetId === set.id
-                          ? 'border-indigo-500 bg-indigo-50 shadow-md'
-                          : 'border-gray-200 hover:border-indigo-300 hover:bg-gray-50'
+                          ? 'border-indigo-500 dark:border-indigo-400 bg-indigo-50 dark:bg-indigo-900/30 shadow-md'
+                          : 'border-gray-200 dark:border-gray-700 hover:border-indigo-300 dark:hover:border-indigo-500 hover:bg-gray-50 dark:hover:bg-slate-700'
                       }`}
                       onClick={() => selectQASet(set)}
                     >
                       <div className="flex justify-between items-start">
                         <div className="flex-1 min-w-0">
-                          <h4 className="font-semibold text-gray-800 mb-1 truncate">{set.title}</h4>
-                          <p className="text-sm text-gray-600 mb-2 truncate">{set.productName}</p>
-                          <div className="flex items-center gap-3 text-xs text-gray-500">
+                          <h4 className="font-semibold text-gray-800 dark:text-white mb-1 truncate">{set.title}</h4>
+                          <p className="text-sm text-gray-600 dark:text-gray-300 mb-2 truncate">{set.productName}</p>
+                          <div className="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
                             <span className="flex items-center gap-1">
                               <Clock className="w-3 h-3" />
                               {new Date(set.createdAt).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
@@ -6227,8 +6227,8 @@ function ApprovalGenerator({ profile }: { profile: Profile | null }) {
 
   return (
     <div className="max-w-6xl mx-auto">
-      <div className="bg-white rounded-xl shadow-lg p-4 mb-4">
-        <h2 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+      <div className="bg-white dark:bg-slate-800 rounded-xl shadow-lg p-4 mb-4">
+        <h2 className="text-xl font-bold text-gray-800 dark:text-white mb-4 flex items-center gap-2">
           <FileText className="w-5 h-5 text-blue-600" />
           심의필 만들기
         </h2>
@@ -6238,19 +6238,19 @@ function ApprovalGenerator({ profile }: { profile: Profile | null }) {
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">
+                <label className="block text-xs font-semibold text-gray-700 dark:text-gray-200 mb-1">
                   회사명
                 </label>
-                <div className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg bg-gray-50 text-gray-700">
+                <div className="px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-slate-700 text-gray-700 dark:text-gray-200">
                   프라임에셋
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">
+                <label className="block text-xs font-semibold text-gray-700 dark:text-gray-200 mb-1">
                   지점명
                   {formData.branchName && !isEditingBranch && (
-                    <span className="ml-2 text-xs text-green-600 font-normal">(저장됨)</span>
+                    <span className="ml-2 text-xs text-green-600 dark:text-green-400 font-normal">(저장됨)</span>
                   )}
                 </label>
                 {isEditingBranch ? (
@@ -6259,7 +6259,7 @@ function ApprovalGenerator({ profile }: { profile: Profile | null }) {
                       type="text"
                       value={formData.branchName}
                       onChange={(e) => handleInputChange('branchName', e.target.value)}
-                      className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent mb-1.5"
+                      className="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent mb-1.5 bg-white dark:bg-slate-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-400"
                       placeholder="예: 광진2지점"
                     />
                     <div className="flex gap-1.5">
@@ -6289,7 +6289,7 @@ function ApprovalGenerator({ profile }: { profile: Profile | null }) {
                       type="text"
                       value={formData.branchName}
                       readOnly
-                      className="flex-1 px-3 py-1.5 text-sm border border-gray-300 rounded-lg bg-gray-50 text-gray-700 cursor-not-allowed"
+                      className="flex-1 px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-slate-700 text-gray-700 dark:text-gray-200 cursor-not-allowed"
                       placeholder="지점명"
                     />
                     <button
@@ -6301,7 +6301,7 @@ function ApprovalGenerator({ profile }: { profile: Profile | null }) {
                   </div>
                 )}
                 {formData.branchName && !isEditingBranch && (
-                  <p className="text-xs text-gray-500 mt-0.5">
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                     저장됨
                   </p>
                 )}
@@ -6310,19 +6310,19 @@ function ApprovalGenerator({ profile }: { profile: Profile | null }) {
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">
+                <label className="block text-xs font-semibold text-gray-700 dark:text-gray-200 mb-1">
                   설계사명
                 </label>
                 <input
                   type="text"
                   value={formData.designerName}
                   onChange={(e) => handleInputChange('designerName', e.target.value)}
-                  className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-400"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">
+                <label className="block text-xs font-semibold text-gray-700 dark:text-gray-200 mb-1">
                   협회 등록번호
                   {formData.registrationNumber && !isEditingRegistration && (
                     <span className="ml-2 text-xs text-green-600 font-normal">(저장됨)</span>
@@ -6334,7 +6334,7 @@ function ApprovalGenerator({ profile }: { profile: Profile | null }) {
                       type="text"
                       value={formData.registrationNumber}
                       onChange={(e) => handleInputChange('registrationNumber', e.target.value)}
-                      className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent mb-1.5"
+                      className="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent mb-1.5 bg-white dark:bg-slate-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-400"
                       placeholder="00000000000000"
                       maxLength={14}
                     />
@@ -6365,7 +6365,7 @@ function ApprovalGenerator({ profile }: { profile: Profile | null }) {
                       type="text"
                       value={formData.registrationNumber}
                       readOnly
-                      className="flex-1 px-3 py-1.5 text-sm border border-gray-300 rounded-lg bg-gray-50 text-gray-700 cursor-not-allowed"
+                      className="flex-1 px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-slate-700 text-gray-700 dark:text-gray-200 cursor-not-allowed"
                       placeholder="00000000000000"
                     />
                     <button
@@ -6377,7 +6377,7 @@ function ApprovalGenerator({ profile }: { profile: Profile | null }) {
                   </div>
                 )}
                 {formData.registrationNumber && !isEditingRegistration && (
-                  <p className="text-xs text-gray-500 mt-0.5">
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                     저장됨
                   </p>
                 )}
@@ -6385,41 +6385,41 @@ function ApprovalGenerator({ profile }: { profile: Profile | null }) {
             </div>
 
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
+              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">
                 심의필 번호
               </label>
               <input
                 type="text"
                 value={formData.approvalNumber}
                 onChange={(e) => handleInputChange('approvalNumber', e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-400"
                 placeholder="00000"
               />
             </div>
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">
                   유효기간 시작일
                 </label>
                 <input
                   type="text"
                   value={formData.approvalStartDate}
                   onChange={(e) => handleInputChange('approvalStartDate', e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-400"
                   placeholder="2026.00.00"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">
                   유효기간 종료일
                 </label>
                 <input
                   type="text"
                   value={formData.approvalEndDate}
                   onChange={(e) => handleInputChange('approvalEndDate', e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-400"
                   placeholder="2026.00.00"
                 />
               </div>
@@ -6437,10 +6437,10 @@ function ApprovalGenerator({ profile }: { profile: Profile | null }) {
 
           {/* 미리보기 */}
           <div className="flex flex-col">
-            <label className="block text-xs font-semibold text-gray-700 mb-1">
+            <label className="block text-xs font-semibold text-gray-700 dark:text-gray-200 mb-1">
               미리보기
             </label>
-            <div className="bg-white rounded-lg border-2 border-gray-300 overflow-hidden shadow-lg">
+            <div className="bg-white dark:bg-slate-700 rounded-lg border-2 border-gray-300 dark:border-gray-600 overflow-hidden shadow-lg">
               {previewImage ? (
                 <img
                   src={previewImage}
@@ -6448,7 +6448,7 @@ function ApprovalGenerator({ profile }: { profile: Profile | null }) {
                   className="w-full h-auto block"
                 />
               ) : (
-                <div className="w-full h-64 bg-white rounded-lg flex items-center justify-center text-gray-400 text-sm">
+                <div className="w-full h-64 bg-white dark:bg-slate-700 rounded-lg flex items-center justify-center text-gray-400 dark:text-gray-500 text-sm">
                   미리보기 생성 중...
                 </div>
               )}
@@ -6562,19 +6562,19 @@ function KakaoLinkGenerator({ profile }: { profile: Profile | null }) {
   }
 
   return (
-    <div className="bg-white rounded-xl shadow-lg p-8">
-      <h2 className="text-2xl font-bold text-gray-800 mb-6 flex items-center gap-3">
+    <div className="bg-white dark:bg-slate-800 rounded-xl shadow-lg p-8">
+      <h2 className="text-2xl font-bold text-gray-800 dark:text-white mb-6 flex items-center gap-3">
         <LinkIcon className="w-7 h-7 text-blue-600" />
         카톡 유입 추적 링크 생성기
       </h2>
 
-      <p className="text-gray-600 mb-6">
+      <p className="text-gray-600 dark:text-gray-300 mb-6">
         고유번호가 자동으로 포함된 카톡 채널 링크를 생성합니다. 네이버에서 이미지에 링크를 붙일 때 사용하세요.
       </p>
 
       {/* 채널 ID 설정 */}
-      <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-lg p-6 mb-6">
-        <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
+      <div className="bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-900/30 dark:to-indigo-900/30 rounded-lg p-6 mb-6">
+        <h3 className="text-lg font-bold text-gray-800 dark:text-white mb-4 flex items-center gap-2">
           <LinkIcon className="w-5 h-5 text-blue-600" />
           카톡 채널 ID 설정
         </h3>
@@ -6582,7 +6582,7 @@ function KakaoLinkGenerator({ profile }: { profile: Profile | null }) {
         {isEditingChannelId ? (
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
+              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">
                 채널 ID 또는 채널 링크
               </label>
               <input
@@ -6590,9 +6590,9 @@ function KakaoLinkGenerator({ profile }: { profile: Profile | null }) {
                 value={channelId}
                 onChange={(e) => setChannelId(e.target.value)}
                 placeholder="JxmxaJn 또는 https://pf.kakao.com/_JxmxaJn"
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-slate-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-400"
               />
-              <p className="text-xs text-gray-500 mt-1">
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                 채널 ID만 입력하거나 전체 링크를 입력해도 자동으로 처리됩니다 (예: JxmxaJn 또는 https://pf.kakao.com/_JxmxaJn)
               </p>
             </div>
@@ -6605,13 +6605,13 @@ function KakaoLinkGenerator({ profile }: { profile: Profile | null }) {
           </div>
         ) : (
           <div className="space-y-4">
-            <div className="bg-white rounded-lg p-4 border border-gray-200">
-              <p className="text-sm text-gray-600 mb-1">현재 채널 ID</p>
-              <p className="text-lg font-bold text-gray-800">{channelId || '설정되지 않음'}</p>
+            <div className="bg-white dark:bg-slate-700 rounded-lg p-4 border border-gray-200 dark:border-gray-600">
+              <p className="text-sm text-gray-600 dark:text-gray-300 mb-1">현재 채널 ID</p>
+              <p className="text-lg font-bold text-gray-800 dark:text-white">{channelId || '설정되지 않음'}</p>
             </div>
             <button
               onClick={handleEditChannelId}
-              className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors text-sm font-semibold"
+              className="px-4 py-2 bg-gray-200 dark:bg-slate-600 text-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-300 dark:hover:bg-slate-500 transition-colors text-sm font-semibold"
             >
               ✏️ 수정
             </button>
@@ -6620,8 +6620,8 @@ function KakaoLinkGenerator({ profile }: { profile: Profile | null }) {
       </div>
 
       {/* 링크 생성 및 복사 */}
-      <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-lg p-6">
-        <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
+      <div className="bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-900/30 dark:to-emerald-900/30 rounded-lg p-6">
+        <h3 className="text-lg font-bold text-gray-800 dark:text-white mb-4 flex items-center gap-2">
           <LinkIcon className="w-5 h-5 text-green-600" />
           추적 링크 생성
         </h3>
@@ -6636,14 +6636,14 @@ function KakaoLinkGenerator({ profile }: { profile: Profile | null }) {
 
         {generatedLink && (
           <div className="space-y-4">
-            <div className="bg-white rounded-lg p-4 border-2 border-green-200">
-              <p className="text-sm text-gray-600 mb-2">생성된 링크</p>
+            <div className="bg-white dark:bg-slate-700 rounded-lg p-4 border-2 border-green-200 dark:border-green-800">
+              <p className="text-sm text-gray-600 dark:text-gray-300 mb-2">생성된 링크</p>
               <div className="flex items-center gap-2">
                 <input
                   type="text"
                   value={generatedLink}
                   readOnly
-                  className="flex-1 px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-sm"
+                  className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-slate-600 text-sm text-gray-900 dark:text-white"
                 />
                 <button
                   onClick={handleCopyLink}
@@ -6654,8 +6654,8 @@ function KakaoLinkGenerator({ profile }: { profile: Profile | null }) {
                 </button>
               </div>
             </div>
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-              <p className="text-sm text-blue-800">
+            <div className="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+              <p className="text-sm text-blue-800 dark:text-blue-200">
                 💡 <strong>사용 방법:</strong> 생성된 링크를 복사하여 네이버에서 이미지에 링크를 붙이세요. 
                 매번 생성할 때마다 새로운 고유번호가 자동으로 포함되어 겹치지 않습니다.
               </p>

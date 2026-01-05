@@ -161,9 +161,9 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 dark:from-slate-900 dark:to-slate-800">
       {/* Header */}
-      <header className="bg-[#1e293b] shadow-md">
+      <header className="bg-[#1e293b] dark:bg-slate-950 shadow-md">
         <div className="container mx-auto px-4 py-4">
           <Link href="/" className="flex items-center gap-3 w-fit">
             <Shield className="w-8 h-8 text-white" />
@@ -174,13 +174,13 @@ export default function LoginPage() {
 
       {/* Login Form */}
       <main className="container mx-auto px-4 py-12">
-        <div className="max-w-md mx-auto bg-white rounded-xl shadow-lg p-8">
-          <h2 className="text-3xl font-bold text-[#1e293b] text-center mb-8">
+        <div className="max-w-md mx-auto bg-white dark:bg-slate-800 rounded-xl shadow-lg p-8">
+          <h2 className="text-3xl font-bold text-[#1e293b] dark:text-white text-center mb-8">
             로그인
           </h2>
 
           {error && (
-            <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-600 text-sm">
+            <div className="mb-6 p-4 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-lg text-red-600 dark:text-red-300 text-sm">
               {error}
             </div>
           )}
@@ -188,7 +188,7 @@ export default function LoginPage() {
           <form onSubmit={handleSubmit} className="space-y-5">
             {/* 아이디 */}
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
+              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">
                 아이디
               </label>
               <input
@@ -196,7 +196,7 @@ export default function LoginPage() {
                 name="username"
                 value={formData.username}
                 onChange={handleChange}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1e293b]"
+                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1e293b] dark:focus:ring-blue-500 bg-white dark:bg-slate-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-400"
                 placeholder="아이디를 입력하세요"
                 required
               />
@@ -204,7 +204,7 @@ export default function LoginPage() {
 
             {/* 비밀번호 */}
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
+              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">
                 비밀번호
               </label>
               <input
@@ -212,7 +212,7 @@ export default function LoginPage() {
                 name="password"
                 value={formData.password}
                 onChange={handleChange}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1e293b]"
+                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1e293b] dark:focus:ring-blue-500 bg-white dark:bg-slate-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-400"
                 placeholder="비밀번호를 입력하세요"
                 autoComplete="current-password"
                 required
@@ -223,7 +223,7 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={isSubmitting}
-              className="w-full py-3 bg-[#1e293b] text-white font-semibold rounded-lg hover:bg-[#334155] disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
+              className="w-full py-3 bg-[#1e293b] dark:bg-blue-600 text-white font-semibold rounded-lg hover:bg-[#334155] dark:hover:bg-blue-700 disabled:bg-gray-300 dark:disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
             >
               {isSubmitting ? (
                 <>
@@ -237,9 +237,9 @@ export default function LoginPage() {
           </form>
 
           <div className="mt-6 text-center">
-            <p className="text-gray-600">
+            <p className="text-gray-600 dark:text-gray-300">
               계정이 없으신가요?{' '}
-              <Link href="/signup" className="text-[#1e293b] font-semibold hover:underline">
+              <Link href="/signup" className="text-[#1e293b] dark:text-blue-400 font-semibold hover:underline">
                 회원가입
               </Link>
             </p>
