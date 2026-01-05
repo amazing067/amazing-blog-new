@@ -70,20 +70,20 @@ export default function UsersTable({ users: initialUsers, initialFilter = 'all' 
   const getStatusLabel = (status: string | null) => {
     switch (status) {
       case 'active': return '활성'
-      case 'pending': return '정지' // pending도 정지로 표시
+      case 'pending': return '승인대기'
       case 'suspended': return '정지'
       case 'deleted': return '삭제'
-      default: return '정지' // 기본값도 정지
+      default: return '승인대기'
     }
   }
 
   const getStatusColor = (status: string | null) => {
     switch (status) {
       case 'active': return 'bg-green-100 text-green-800 border-green-300'
-      case 'pending': return 'bg-red-100 text-red-800 border-red-300' // pending도 빨간색
+      case 'pending': return 'bg-yellow-100 text-yellow-800 border-yellow-300'
       case 'suspended': return 'bg-red-100 text-red-800 border-red-300'
       case 'deleted': return 'bg-gray-100 text-gray-800 border-gray-300'
-      default: return 'bg-red-100 text-red-800 border-red-300' // 기본값도 빨간색
+      default: return 'bg-yellow-100 text-yellow-800 border-yellow-300'
     }
   }
 
@@ -290,18 +290,80 @@ export default function UsersTable({ users: initialUsers, initialFilter = 'all' 
                     </span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                    {user.paid_until ? (
-                      <div>
-                        <div className={user.paid_until && new Date(user.paid_until) < new Date() ? 'text-red-600 font-semibold' : ''}>
-                          {new Date(user.paid_until).toLocaleDateString('ko-KR')}
-                        </div>
-                        {user.paid_until && new Date(user.paid_until) < new Date() && (
-                          <div className="text-xs text-red-500 mt-1">만료됨</div>
-                        )}
-                      </div>
-                    ) : (
-                      <span className="text-gray-400">-</span>
-                    )}
+                    {(() => {
+                      // 디버깅: paid_until 값 확인 (명확한 로그)
+                      const paidUntilValue = user.paid_until
+                      const hasPayment = !!paidUntilValue && paidUntilValue !== null && paidUntilValue !== undefined && paidUntilValue !== ''
+                      
+                      // 첫 번째 사용자만 상세 로그 출력 (너무 많은 로그 방지)
+                      if (process.env.NODE_ENV === 'development' && user.username === 'test') {
+                        console.log(`[UsersTable] ${user.username} 결제 만료일 상세:`, {
+                          username: user.username,
+                          paid_until: paidUntilValue,
+                          paid_until_type: typeof paidUntilValue,
+                          paid_until_string: String(paidUntilValue),
+                          paid_until_json: JSON.stringify(paidUntilValue),
+                          isNull: paidUntilValue === null,
+                          isUndefined: paidUntilValue === undefined,
+                          isEmpty: paidUntilValue === '',
+                          hasPayment: hasPayment
+                        })
+                      }
+
+                      // null, undefined, 빈 문자열 체크
+                      if (!hasPayment) {
+                        return <span className="text-gray-400">-</span>
+                      }
+
+                      try {
+                        // ISO 형식의 날짜 문자열을 Date 객체로 변환
+                        // 예: "2026-01-09T00:00:00+00:00" 또는 "2026-01-09T00:00:00.000Z"
+                        const paidUntilDate = new Date(paidUntilValue)
+                        
+                        // 유효한 날짜인지 확인
+                        if (isNaN(paidUntilDate.getTime())) {
+                          if (user.username === 'coreabos' || process.env.NODE_ENV === 'development') {
+                            console.warn('[UsersTable] 유효하지 않은 날짜:', {
+                              username: user.username,
+                              paid_until: paidUntilValue,
+                              dateObject: paidUntilDate
+                            })
+                          }
+                          return <span className="text-gray-400">-</span>
+                        }
+
+                        const now = new Date()
+                        const isExpired = paidUntilDate < now
+                        
+                        // 날짜 포맷: 2026. 1. 9.
+                        const formattedDate = paidUntilDate.toLocaleDateString('ko-KR', {
+                          year: 'numeric',
+                          month: 'numeric',
+                          day: 'numeric'
+                        })
+
+                        return (
+                          <div>
+                            <div className={isExpired ? 'text-red-600 font-semibold' : 'text-gray-900'}>
+                              {formattedDate}
+                            </div>
+                            {isExpired && (
+                              <div className="text-xs text-red-500 mt-1">만료됨</div>
+                            )}
+                          </div>
+                        )
+                      } catch (error) {
+                        if (user.username === 'coreabos' || process.env.NODE_ENV === 'development') {
+                          console.error('[UsersTable] 날짜 파싱 오류:', {
+                            username: user.username,
+                            error: error,
+                            paid_until: paidUntilValue,
+                            paid_until_type: typeof paidUntilValue
+                          })
+                        }
+                        return <span className="text-gray-400">-</span>
+                      }
+                    })()}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm">
                     <MembershipActions

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { CheckCircle, XCircle, Pause, Trash2, CreditCard, Calendar } from 'lucide-react'
+import { CreditCard } from 'lucide-react'
 
 interface MembershipActionsProps {
   userId: string
@@ -19,6 +19,61 @@ export default function MembershipActions({ userId, currentStatus, paidUntil, ro
   const [paymentNote, setPaymentNote] = useState('')
 
   const isSuperAdmin = role === 'admin' || username === 'amazing'
+
+  // 승인 처리 (ApprovalButton 로직 통합)
+  const handleApprove = async () => {
+    if (isSuperAdmin) {
+      alert('이 계정은 항상 활성 상태이며 변경할 수 없습니다.')
+      return
+    }
+    if (!confirm('이 사용자를 승인하시겠습니까?\n승인일 기준으로 1개월 후까지 사용 가능합니다.')) {
+      return
+    }
+
+    setIsLoading(true)
+    try {
+      // 승인일 기준으로 1개월 후 만료일 계산
+      const paidUntil = new Date()
+      paidUntil.setMonth(paidUntil.getMonth() + 1)
+
+      const response = await fetch('/api/admin/update-membership-status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          userId, 
+          status: 'active',
+          note: '관리자 승인'
+        })
+      })
+
+      const data = await response.json().catch(() => ({}))
+
+      if (!response.ok) {
+        throw new Error(data.error || '승인 실패')
+      }
+
+      // 결제 정보도 함께 업데이트
+      await fetch('/api/admin/confirm-payment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId,
+          paidUntil: paidUntil.toISOString(),
+          paymentNote: '승인 시 자동 설정'
+        })
+      })
+
+      alert(`사용자가 승인되었습니다.\n결제 만료일: ${paidUntil.toLocaleDateString('ko-KR')}`)
+      setTimeout(() => {
+        onUpdate()
+      }, 500)
+    } catch (error: any) {
+      console.error('승인 오류:', error)
+      alert(`오류: ${error.message || '승인 중 오류가 발생했습니다'}`)
+    } finally {
+      setIsLoading(false)
+    }
+  }
 
   const handleStatusChange = async (status: 'active' | 'suspended' | 'deleted', note?: string) => {
     if (isSuperAdmin) {
@@ -39,61 +94,26 @@ export default function MembershipActions({ userId, currentStatus, paidUntil, ro
         body: JSON.stringify({ userId, status, note })
       })
 
-      console.log('[상태 변경] API 응답 상태:', response.status, response.statusText)
-      console.log('[상태 변경] API 응답 헤더:', Object.fromEntries(response.headers.entries()))
-
       let data
       try {
         const text = await response.text()
-        console.log('[상태 변경] API 응답 원본 텍스트:', text)
         data = text ? JSON.parse(text) : {}
       } catch (parseError) {
         console.error('[상태 변경] JSON 파싱 오류:', parseError)
         throw new Error('서버 응답을 파싱할 수 없습니다.')
       }
 
-      console.log('[상태 변경] API 응답 데이터:', data)
-
       if (!response.ok) {
-        console.error('[상태 변경] API 오류:', {
-          status: response.status,
-          statusText: response.statusText,
-          data: data,
-          error: data?.error,
-          errorCode: data?.errorCode,
-          details: data?.details
-        })
-        
-        const errorMessage = data?.error || data?.message || `상태 변경 실패 (${response.status}: ${response.statusText})`
+        const errorMessage = data?.error || data?.message || `상태 변경 실패 (${response.status})`
         throw new Error(errorMessage)
       }
 
-      console.log('[상태 변경] 성공:', { userId, status, data })
-      
-      // 업데이트된 데이터 확인
-      if (data.data) {
-        console.log('[상태 변경] 업데이트된 데이터:', data.data)
-        console.log('[상태 변경] 실제 상태:', data.data.membership_status)
-      }
-      
-      // 성공 메시지 표시
       alert(`상태가 "${getStatusLabel(status)}"로 변경되었습니다`)
-      
-      // 상태 업데이트를 즉시 반영 (약간의 지연을 두어 DB 업데이트 완료 대기)
-      // DB 업데이트가 완전히 반영되도록 충분한 시간 대기
       setTimeout(() => {
-        console.log('[상태 변경] 페이지 새로고침 시작')
         onUpdate()
-      }, 800)
+      }, 500)
     } catch (error: any) {
       console.error('[상태 변경] 오류 발생:', error)
-      console.error('[상태 변경] 오류 상세:', {
-        name: error?.name,
-        message: error?.message,
-        stack: error?.stack,
-        cause: error?.cause
-      })
-      
       const errorMessage = error?.message || '상태 변경 중 오류가 발생했습니다'
       alert(`오류: ${errorMessage}`)
     } finally {
@@ -146,20 +166,10 @@ export default function MembershipActions({ userId, currentStatus, paidUntil, ro
   const getStatusLabel = (status: string | null) => {
     switch (status) {
       case 'active': return '활성'
-      case 'pending': return '정지' // pending도 정지로 표시
+      case 'pending': return '승인대기'
       case 'suspended': return '정지'
       case 'deleted': return '삭제'
-      default: return '정지' // 기본값도 정지
-    }
-  }
-
-  const getStatusColor = (status: string | null) => {
-    switch (status) {
-      case 'active': return 'bg-green-100 text-green-800 border-green-300'
-      case 'pending': return 'bg-red-100 text-red-800 border-red-300' // pending도 빨간색
-      case 'suspended': return 'bg-red-100 text-red-800 border-red-300'
-      case 'deleted': return 'bg-gray-100 text-gray-800 border-gray-300'
-      default: return 'bg-red-100 text-red-800 border-red-300' // 기본값도 빨간색
+      default: return '승인대기'
     }
   }
 
@@ -170,75 +180,70 @@ export default function MembershipActions({ userId, currentStatus, paidUntil, ro
     return date.toISOString().split('T')[0]
   }
 
+  if (isSuperAdmin) {
+    return (
+      <span className="text-xs text-gray-500">(관리 제외)</span>
+    )
+  }
+
   return (
     <>
       <div className="flex items-center gap-2">
-        {/* 현재 상태 표시 */}
-        <span className={`px-3 py-1 rounded-full text-xs font-bold border ${getStatusColor(currentStatus)}`}>
-          {getStatusLabel(currentStatus)}
-        </span>
-
-        {isSuperAdmin && (
-          <span className="text-[10px] text-gray-500">(관리 제외)</span>
+        {/* 승인 버튼 - pending일 때만 표시 */}
+        {currentStatus === 'pending' && (
+          <button
+            onClick={handleApprove}
+            disabled={isLoading}
+            className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-semibold text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isLoading ? '처리 중...' : '승인'}
+          </button>
         )}
 
-        {/* 결제 만료일 표시 */}
-        {paidUntil && (
-          <span className="text-xs text-gray-500">
-            만료: {new Date(paidUntil).toLocaleDateString('ko-KR')}
-          </span>
+        {/* 정지 버튼 - active일 때만 표시 */}
+        {currentStatus === 'active' && (
+          <button
+            onClick={() => handleStatusChange('suspended', '관리자 수동 정지')}
+            disabled={isLoading}
+            className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 font-semibold text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isLoading ? '처리 중...' : '정지'}
+          </button>
         )}
 
-        {/* 액션 버튼들 */}
-        <div className="flex items-center gap-1 ml-2">
-          {!isSuperAdmin && currentStatus !== 'active' && (
-            <button
-              onClick={() => handleStatusChange('active')}
-              disabled={isLoading}
-              className="p-1.5 text-green-600 hover:bg-green-50 rounded transition-colors disabled:opacity-50"
-              title="활성화"
-            >
-              <CheckCircle className="w-4 h-4" />
-            </button>
-          )}
+        {/* 활성화 버튼 - suspended일 때만 표시 */}
+        {currentStatus === 'suspended' && (
+          <button
+            onClick={() => handleStatusChange('active')}
+            disabled={isLoading}
+            className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-semibold text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isLoading ? '처리 중...' : '승인'}
+          </button>
+        )}
 
-          {!isSuperAdmin && currentStatus !== 'suspended' && currentStatus !== 'deleted' && (
-            <button
-              onClick={() => handleStatusChange('suspended', '관리자 수동 정지')}
-              disabled={isLoading}
-              className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors disabled:opacity-50"
-              title="정지"
-            >
-              <Pause className="w-4 h-4" />
-            </button>
-          )}
+        {/* 삭제 버튼 - deleted가 아닐 때만 표시 */}
+        {currentStatus !== 'deleted' && (
+          <button
+            onClick={() => handleStatusChange('deleted')}
+            disabled={isLoading}
+            className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 font-semibold text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isLoading ? '처리 중...' : '삭제'}
+          </button>
+        )}
 
-          {!isSuperAdmin && currentStatus !== 'deleted' && (
-            <button
-              onClick={() => handleStatusChange('deleted')}
-              disabled={isLoading}
-              className="p-1.5 text-gray-600 hover:bg-gray-50 rounded transition-colors disabled:opacity-50"
-              title="삭제"
-            >
-              <Trash2 className="w-4 h-4" />
-            </button>
-          )}
-
-          {/* 결제 확인 버튼 */}
-          {!isSuperAdmin && (
-            <button
-              onClick={() => {
-                setPaymentDate(getDefaultPaymentDate())
-                setShowPaymentModal(true)
-              }}
-              disabled={isLoading}
-              className="p-1.5 text-blue-600 hover:bg-blue-50 rounded transition-colors disabled:opacity-50"
-              title="결제 확인"
-            >
-              <CreditCard className="w-4 h-4" />
-            </button>
-          )}
-        </div>
+        {/* 결제 확인 버튼 - 항상 표시 */}
+        <button
+          onClick={() => {
+            setPaymentDate(getDefaultPaymentDate())
+            setShowPaymentModal(true)
+          }}
+          disabled={isLoading}
+          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          결제확인
+        </button>
       </div>
 
       {/* 결제 확인 모달 */}

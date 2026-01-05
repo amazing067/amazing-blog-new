@@ -76,7 +76,8 @@ export async function GET(request: NextRequest) {
       statsClient
         .from('profiles')
         .select('id, username, full_name, phone, created_at, role, department_id, department_name, team_id, team_name')
-        .is('deleted_at', null), // 삭제된 사용자는 제외
+        .is('deleted_at', null) // 삭제된 사용자는 제외
+        .limit(10000), // 명시적으로 큰 limit 설정
       statsClient
         .from('blog_posts')
         .select('user_id, created_at', { count: 'exact', head: false }),

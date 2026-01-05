@@ -15,25 +15,58 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '인증이 필요합니다' }, { status: 401 })
     }
 
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('role')
-      .eq('id', user.id)
-      .single()
+    // 관리자 권한 확인 및 SERVICE_ROLE_KEY 설정
+    let profile: { id: string; role: string } | null = null
+    let updateClient = supabase
+    
+    // 환경 변수에서 SERVICE_ROLE_KEY 가져오기
+    const rawServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+    
+    if (rawServiceRoleKey) {
+      const serviceRoleKey = rawServiceRoleKey.trim().replace(/[\r\n\t]/g, '').replace(/\s+/g, '')
+      
+      if (serviceRoleKey && serviceRoleKey.length >= 50 && serviceRoleKey.startsWith('eyJ')) {
+        try {
+          const adminClient = createAdminClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            serviceRoleKey
+          ) as any
+
+          // 관리자 권한 확인 (SERVICE_ROLE_KEY 사용)
+          const { data: profileData } = await adminClient
+            .from('profiles')
+            .select('id, role')
+            .eq('id', user.id)
+            .single()
+
+          if (profileData) {
+            profile = profileData
+            updateClient = adminClient
+          }
+        } catch (clientError: any) {
+          console.error('[API] SERVICE_ROLE 클라이언트 생성 실패:', clientError)
+        }
+      }
+    }
+
+    // SERVICE_ROLE_KEY가 없거나 실패한 경우 일반 클라이언트 사용
+    if (!profile) {
+      const { data: profileData } = await supabase
+        .from('profiles')
+        .select('id, role')
+        .eq('id', user.id)
+        .single()
+
+      if (profileData) {
+        profile = profileData
+      }
+    }
 
     if (!profile || profile.role !== 'admin') {
       return NextResponse.json({ error: '관리자 권한이 필요합니다' }, { status: 403 })
     }
 
-    // SERVICE_ROLE_KEY가 있으면 사용, 없으면 ANON_KEY로 RLS 정책을 통해 업데이트
-    let updateClient = supabase
-    
-    if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
-      updateClient = createAdminClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.SUPABASE_SERVICE_ROLE_KEY
-      ) as any
-    }
+    // updateClient는 위에서 이미 설정됨
 
     const body = await request.json()
     const { userId, paidUntil, paymentNote } = body

@@ -2,7 +2,6 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { Shield, LogOut, UserCheck, UserX, ArrowLeft, CreditCard, AlertCircle, BarChart3 } from 'lucide-react'
 import Link from 'next/link'
-import ApprovalButton from '../dashboard/ApprovalButton'
 import MembershipActions from './MembershipActions'
 import UsersTable from './UsersTable'
 import ActionCard from './ActionCard'
@@ -85,16 +84,36 @@ export default async function AdminUsersPage() {
               .select('id, username, full_name, phone, is_approved, role, membership_status, paid_until, suspended_at, deleted_at, last_payment_at, grace_period_until, payment_note, department_id, department_name, created_at')
               .is('deleted_at', null) // 삭제된 사용자는 제외
               .order('created_at', { ascending: false })
+              .limit(10000) // 명시적으로 큰 limit 설정 (Supabase 기본 limit 우회)
             
-            // 디버깅: test 사용자 확인
-            if (usersData) {
-              const testUser = usersData.find((u: any) => u.username === 'test')
-              if (testUser) {
-                console.log('[AdminUsersPage] test 사용자 데이터:', {
-                  id: testUser.id,
-                  username: testUser.username,
-                  department_id: testUser.department_id,
-                  department_name: testUser.department_name
+            // 디버깅: 결제 만료일 데이터 확인 (명확한 로그)
+            if (usersData && usersData.length > 0) {
+              const usersWithPayment = usersData.filter((u: any) => {
+                const paidUntil = u.paid_until
+                return paidUntil && paidUntil !== null && paidUntil !== undefined && paidUntil !== ''
+              })
+              const usersWithoutPayment = usersData.filter((u: any) => {
+                const paidUntil = u.paid_until
+                return !paidUntil || paidUntil === null || paidUntil === undefined || paidUntil === ''
+              })
+              
+              // 명확한 로그 출력
+              console.log('[AdminUsersPage] 결제 만료일 데이터 확인:')
+              console.log(`  전체 회원: ${usersData.length}명`)
+              console.log(`  결제 만료일 있음: ${usersWithPayment.length}명`)
+              console.log(`  결제 만료일 없음: ${usersWithoutPayment.length}명`)
+              
+              if (usersWithPayment.length > 0) {
+                console.log('  [결제 만료일 있는 회원 샘플]:')
+                usersWithPayment.slice(0, 5).forEach((u: any) => {
+                  console.log(`    - ${u.username}: ${u.paid_until} (타입: ${typeof u.paid_until})`)
+                })
+              }
+              
+              if (usersWithoutPayment.length > 0) {
+                console.log('  [결제 만료일 없는 회원 샘플]:')
+                usersWithoutPayment.slice(0, 5).forEach((u: any) => {
+                  console.log(`    - ${u.username}: ${u.paid_until === null ? 'null' : u.paid_until === undefined ? 'undefined' : `"${u.paid_until}"`}`)
                 })
               }
             }
@@ -114,6 +133,7 @@ export default async function AdminUsersPage() {
           .select('id, username, full_name, phone, is_approved, role, membership_status, paid_until, suspended_at, deleted_at, last_payment_at, grace_period_until, payment_note, department_id, department_name, created_at')
           .is('deleted_at', null) // 삭제된 사용자는 제외
           .order('created_at', { ascending: false })
+          .limit(10000) // 명시적으로 큰 limit 설정 (Supabase 기본 limit 우회)
 
       if (!err && usersData) {
         allUsers = usersData

@@ -81,13 +81,15 @@ export default async function AdminDashboardPage() {
       .from('profiles')
       .select('id, username, full_name, phone, created_at, is_approved')
       .eq('is_approved', false)
-      .order('created_at', { ascending: false }),
+      .order('created_at', { ascending: false })
+      .limit(10000), // 명시적으로 큰 limit 설정
     // 승인된 사용자 목록 (필요한 필드만 선택)
     supabase
       .from('profiles')
       .select('id, username, full_name, phone, created_at, is_approved')
       .eq('is_approved', true)
       .order('created_at', { ascending: false })
+      .limit(10000) // 명시적으로 큰 limit 설정
   ])
 
   const pendingUsers = pendingResult.data
