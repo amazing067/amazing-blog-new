@@ -6,7 +6,14 @@ import MembershipActions from './MembershipActions'
 import UsersTable from './UsersTable'
 import ActionCard from './ActionCard'
 
-export default async function AdminUsersPage() {
+export default async function AdminUsersPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ filter?: string | string[] }>
+}) {
+  // searchParams가 Promise이므로 await로 해제
+  const resolvedSearchParams = searchParams ? await searchParams : undefined
+  
   const supabase = await createClient()
 
   const {
@@ -284,7 +291,26 @@ export default async function AdminUsersPage() {
           )}
 
           {/* 회원 목록 테이블 */}
-          <UsersTable users={allUsers || []} initialFilter="all" />
+          <UsersTable 
+            users={allUsers || []} 
+            initialFilter={(() => {
+              const filterParam = resolvedSearchParams?.filter
+              if (!filterParam) return 'all'
+              
+              const filterValue = Array.isArray(filterParam) ? filterParam[0] : filterParam
+              const validFilters = ['all', 'active', 'suspended', 'pending', 'expiring']
+              
+              // 디버깅 로그
+              console.log('[AdminUsersPage] URL 필터 파라미터:', {
+                resolvedSearchParams,
+                filterParam,
+                filterValue,
+                isValid: validFilters.includes(filterValue)
+              })
+              
+              return validFilters.includes(filterValue) ? filterValue as any : 'all'
+            })()} 
+          />
         </div>
       </main>
     </div>

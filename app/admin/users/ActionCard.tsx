@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 
 interface ActionCardProps {
   title: string
@@ -18,12 +19,26 @@ const colorClasses = {
 }
 
 export default function ActionCard({ title, count, color, filter }: ActionCardProps) {
+  const router = useRouter()
+  const searchParams = useSearchParams()
   const [isLoading, setIsLoading] = useState(false)
 
   const handleClick = () => {
     setIsLoading(true)
-    // 전역 이벤트를 통해 UsersTable에 필터 변경 알림
-    window.dispatchEvent(new CustomEvent('filterChange', { detail: { filter } }))
+    
+    // URL 파라미터를 변경하여 필터 적용 (서버 컴포넌트가 다시 렌더링됨)
+    const params = new URLSearchParams(searchParams.toString())
+    
+    if (filter === 'all') {
+      // 'all'인 경우 filter 파라미터 제거
+      params.delete('filter')
+    } else {
+      params.set('filter', filter)
+    }
+    
+    // URL 변경 (서버 컴포넌트가 다시 렌더링되고 initialFilter가 업데이트됨)
+    router.push(`/admin/users?${params.toString()}`)
+    
     setTimeout(() => {
       setIsLoading(false)
     }, 100)

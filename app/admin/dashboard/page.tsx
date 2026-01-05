@@ -1,8 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
-import { Shield, LogOut, UserCheck, UserX, Sparkles, BarChart3 } from 'lucide-react'
+import { Shield, LogOut, UserCheck, UserX, Sparkles, BarChart3, FileText } from 'lucide-react'
 import Link from 'next/link'
-import ApprovalButton from './ApprovalButton'
 
 export default async function AdminDashboardPage() {
   const supabase = await createClient()
@@ -74,26 +73,62 @@ export default async function AdminDashboardPage() {
     redirect('/dashboard')
   }
 
-  // 병렬로 쿼리 실행 (성능 최적화)
-  const [pendingResult, approvedResult] = await Promise.all([
-    // 승인 대기 중인 사용자 목록 (필요한 필드만 선택)
-    supabase
-      .from('profiles')
-      .select('id, username, full_name, phone, created_at, is_approved')
-      .eq('is_approved', false)
-      .order('created_at', { ascending: false })
-      .limit(10000), // 명시적으로 큰 limit 설정
-    // 승인된 사용자 목록 (필요한 필드만 선택)
-    supabase
-      .from('profiles')
-      .select('id, username, full_name, phone, created_at, is_approved')
-      .eq('is_approved', true)
-      .order('created_at', { ascending: false })
-      .limit(10000) // 명시적으로 큰 limit 설정
-  ])
+  // 모든 사용자 조회 (SERVICE_ROLE_KEY 사용 - RLS 우회)
+  let allUsers: any[] = []
+  let usersError: any = null
 
-  const pendingUsers = pendingResult.data
-  const approvedUsers = approvedResult.data
+  try {
+    const rawServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+    if (rawServiceRoleKey) {
+      const serviceRoleKey = rawServiceRoleKey.trim().replace(/[\r\n\t]/g, '').replace(/\s+/g, '')
+      
+      if (serviceRoleKey && serviceRoleKey.length >= 50 && serviceRoleKey.startsWith('eyJ')) {
+        const { createClient: createAdminClient } = await import('@supabase/supabase-js')
+        const adminClient = createAdminClient(
+          process.env.NEXT_PUBLIC_SUPABASE_URL!,
+          serviceRoleKey
+        ) as any
+
+        const { data: usersData, error: err } = await adminClient
+          .from('profiles')
+          .select('id, username, full_name, phone, created_at, is_approved, membership_status')
+          .is('deleted_at', null) // 삭제된 사용자는 제외
+          .order('created_at', { ascending: false })
+          .limit(10000) // 명시적으로 큰 limit 설정
+
+        if (!err && usersData) {
+          allUsers = usersData
+        } else {
+          usersError = err
+        }
+      }
+    }
+
+    // SERVICE_ROLE_KEY가 없거나 실패한 경우 일반 클라이언트 사용
+    if (allUsers.length === 0 && !usersError) {
+      const { data: usersData, error: err } = await supabase
+        .from('profiles')
+        .select('id, username, full_name, phone, created_at, is_approved, membership_status')
+        .is('deleted_at', null) // 삭제된 사용자는 제외
+        .order('created_at', { ascending: false })
+        .limit(10000) // 명시적으로 큰 limit 설정
+
+      if (!err && usersData) {
+        allUsers = usersData
+      } else {
+        usersError = err
+      }
+    }
+  } catch (error: any) {
+    console.error('회원 목록 조회 중 오류:', error)
+    usersError = error
+  }
+
+  // 통계 계산
+  const totalUsers = allUsers.length
+  const pendingUsers = allUsers.filter(u => !u.is_approved || u.membership_status === 'pending')
+  const approvedUsers = allUsers.filter(u => u.is_approved && u.membership_status === 'active')
+  const suspendedUsers = allUsers.filter(u => u.membership_status === 'suspended')
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
@@ -119,6 +154,14 @@ export default async function AdminDashboardPage() {
               <BarChart3 className="w-4 h-4" />
               통계
             </Link>
+            {/* PDF 관리 기능 - 내일 개별 PDF 준비되면 활성화 예정 */}
+            {/* <Link
+              href="/admin/pdf"
+              className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 transition-colors"
+            >
+              <FileText className="w-4 h-4" />
+              PDF 관리
+            </Link> */}
             <form action="/api/auth/signout" method="post">
               <button
                 type="submit"
@@ -191,113 +234,76 @@ export default async function AdminDashboardPage() {
           </Link>
 
           {/* 통계 카드 */}
-          <div className="grid md:grid-cols-3 gap-6 mt-8">
-            <div className="bg-white rounded-2xl shadow-lg p-6 border-t-4 border-blue-500">
+          <div className="grid md:grid-cols-4 gap-6 mt-8">
+            <Link
+              href="/admin/users?filter=all"
+              className="bg-white rounded-2xl shadow-lg p-6 border-t-4 border-blue-500 hover:shadow-xl transition-all transform hover:scale-105 cursor-pointer"
+            >
               <div className="flex items-center justify-between mb-4">
                 <div className="bg-blue-100 p-3 rounded-xl">
                   <Shield className="w-6 h-6 text-blue-600" />
                 </div>
                 <div className="text-right">
                   <div className="text-3xl font-bold text-gray-800">
-                    {(pendingUsers?.length || 0) + (approvedUsers?.length || 0)}
+                    {totalUsers}
                   </div>
                   <div className="text-sm text-gray-500">전체 회원</div>
                 </div>
               </div>
-            </div>
+            </Link>
 
-            <div className="bg-white rounded-2xl shadow-lg p-6 border-t-4 border-yellow-500">
+            <Link
+              href="/admin/users?filter=pending"
+              className="bg-white rounded-2xl shadow-lg p-6 border-t-4 border-yellow-500 hover:shadow-xl transition-all transform hover:scale-105 cursor-pointer"
+            >
               <div className="flex items-center justify-between mb-4">
                 <div className="bg-yellow-100 p-3 rounded-xl">
                   <UserX className="w-6 h-6 text-yellow-600" />
                 </div>
                 <div className="text-right">
                   <div className="text-3xl font-bold text-gray-800">
-                    {pendingUsers?.length || 0}
+                    {pendingUsers.length}
                   </div>
                   <div className="text-sm text-gray-500">승인 대기</div>
                 </div>
               </div>
-            </div>
+            </Link>
 
-            <div className="bg-white rounded-2xl shadow-lg p-6 border-t-4 border-green-500">
+            <Link
+              href="/admin/users?filter=active"
+              className="bg-white rounded-2xl shadow-lg p-6 border-t-4 border-green-500 hover:shadow-xl transition-all transform hover:scale-105 cursor-pointer"
+            >
               <div className="flex items-center justify-between mb-4">
                 <div className="bg-green-100 p-3 rounded-xl">
                   <UserCheck className="w-6 h-6 text-green-600" />
                 </div>
                 <div className="text-right">
                   <div className="text-3xl font-bold text-gray-800">
-                    {approvedUsers?.length || 0}
+                    {approvedUsers.length}
                   </div>
                   <div className="text-sm text-gray-500">승인 완료</div>
                 </div>
               </div>
-            </div>
+            </Link>
+
+            <Link
+              href="/admin/users?filter=suspended"
+              className="bg-white rounded-2xl shadow-lg p-6 border-t-4 border-red-500 hover:shadow-xl transition-all transform hover:scale-105 cursor-pointer"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <div className="bg-red-100 p-3 rounded-xl">
+                  <UserX className="w-6 h-6 text-red-600" />
+                </div>
+                <div className="text-right">
+                  <div className="text-3xl font-bold text-gray-800">
+                    {suspendedUsers.length}
+                  </div>
+                  <div className="text-sm text-gray-500">정지</div>
+                </div>
+              </div>
+            </Link>
           </div>
 
-          {/* 승인 대기 사용자 목록 */}
-          {pendingUsers && pendingUsers.length > 0 && (
-            <div className="mt-8 bg-white rounded-2xl shadow-lg p-6">
-              <h2 className="text-2xl font-bold text-gray-800 mb-6 flex items-center gap-2">
-                <UserX className="w-6 h-6 text-yellow-600" />
-                승인 대기 중인 사용자 ({pendingUsers.length}명)
-              </h2>
-              <div className="space-y-4">
-                {pendingUsers.map((user) => (
-                  <div
-                    key={user.id}
-                    className="flex items-center justify-between p-4 bg-yellow-50 border border-yellow-200 rounded-lg hover:bg-yellow-100 transition-colors"
-                  >
-                    <div className="flex-1">
-                      <div className="flex items-center gap-3">
-                        <div className="font-semibold text-gray-800">{user.full_name}</div>
-                        <div className="text-sm text-gray-500">({user.username})</div>
-                      </div>
-                      <div className="text-sm text-gray-600 mt-1">{user.phone || '-'}</div>
-                      <div className="text-xs text-gray-400 mt-1">
-                        가입일: {new Date(user.created_at).toLocaleDateString('ko-KR')}
-                      </div>
-                    </div>
-                    <ApprovalButton userId={user.id} />
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* 승인된 사용자 목록 (간단히) */}
-          {approvedUsers && approvedUsers.length > 0 && (
-            <div className="mt-8 bg-white rounded-2xl shadow-lg p-6">
-              <h2 className="text-2xl font-bold text-gray-800 mb-6 flex items-center gap-2">
-                <UserCheck className="w-6 h-6 text-green-600" />
-                승인된 사용자 ({approvedUsers.length}명)
-              </h2>
-              <div className="grid md:grid-cols-2 gap-4">
-                {approvedUsers.slice(0, 10).map((user) => (
-                  <div
-                    key={user.id}
-                    className="p-4 bg-green-50 border border-green-200 rounded-lg"
-                  >
-                    <div className="font-semibold text-gray-800">{user.full_name}</div>
-                    <div className="text-sm text-gray-600">{user.phone || '-'}</div>
-                    <div className="text-xs text-gray-400 mt-1">
-                      가입일: {new Date(user.created_at).toLocaleDateString('ko-KR')}
-                    </div>
-                  </div>
-                ))}
-              </div>
-              {approvedUsers.length > 10 && (
-                <div className="mt-4 text-center">
-                  <Link
-                    href="/admin/users"
-                    className="text-blue-600 hover:underline font-semibold"
-                  >
-                    전체 회원 목록 보기 →
-                  </Link>
-                </div>
-              )}
-            </div>
-          )}
         </div>
       </main>
     </div>

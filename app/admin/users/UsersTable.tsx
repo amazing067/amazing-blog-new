@@ -36,21 +36,18 @@ interface UsersTableProps {
 export default function UsersTable({ users: initialUsers, initialFilter = 'all' }: UsersTableProps) {
   const router = useRouter()
   const [users, setUsers] = useState(initialUsers)
-  const [filter, setFilter] = useState<'all' | 'active' | 'suspended' | 'deleted' | 'expiring' | 'pending'>(initialFilter as any)
+  const [internalFilter, setInternalFilter] = useState<'all' | 'active' | 'suspended' | 'deleted' | 'expiring' | 'pending'>(initialFilter as any)
   const [searchTerm, setSearchTerm] = useState('')
   const [departmentFilter, setDepartmentFilter] = useState<string>('')
   const [roleFilter, setRoleFilter] = useState<string>('')
 
-  // ActionCard에서 필터 변경 이벤트 수신
+  // initialFilter가 변경되면 internalFilter도 업데이트 (동기화)
   useEffect(() => {
-    const handleFilterChange = (event: CustomEvent) => {
-      setFilter(event.detail.filter)
-    }
-    window.addEventListener('filterChange', handleFilterChange as EventListener)
-    return () => {
-      window.removeEventListener('filterChange', handleFilterChange as EventListener)
-    }
-  }, [])
+    setInternalFilter(initialFilter as any)
+  }, [initialFilter])
+  
+  // 실제 사용할 필터 값 (initialFilter 우선 - URL 파라미터가 있으면 사용, 없으면 internalFilter 사용)
+  const activeFilter = initialFilter || internalFilter
 
   const handleUpdate = () => {
     // 페이지 새로고침으로 최신 데이터 가져오기
@@ -90,6 +87,19 @@ export default function UsersTable({ users: initialUsers, initialFilter = 'all' 
 
   // 필터링된 사용자 목록
   const filteredUsers = users.filter(user => {
+    // 디버깅: 필터 적용 확인 (첫 번째 사용자만)
+    if (users.indexOf(user) === 0 && process.env.NODE_ENV === 'development') {
+      console.log('[UsersTable] 필터 적용 확인:', {
+        activeFilter,
+        initialFilter,
+        internalFilter,
+        userStatus: user.membership_status,
+        isApproved: user.is_approved,
+        username: user.username,
+        totalUsers: users.length
+      })
+    }
+    
     // 검색어 필터
     if (searchTerm) {
       const searchLower = searchTerm.toLowerCase()
@@ -112,26 +122,48 @@ export default function UsersTable({ users: initialUsers, initialFilter = 'all' 
       return false
     }
 
-    // 상태 필터
-    if (filter === 'all') return true
-    if (filter === 'active') {
+    // 상태 필터 (activeFilter 사용)
+    if (activeFilter === 'all') return true
+    
+    if (activeFilter === 'active') {
+      // 활성 사용자만
       return user.membership_status === 'active'
     }
-    if (filter === 'suspended') {
-      return user.membership_status === 'pending' || user.membership_status === 'suspended' || (!user.membership_status && !user.is_approved)
+    
+    if (activeFilter === 'suspended') {
+      // 정지된 사용자만 (suspended 상태만)
+      const isSuspended = user.membership_status === 'suspended'
+      if (users.indexOf(user) === 0 && process.env.NODE_ENV === 'development') {
+        console.log('[UsersTable] suspended 필터 확인:', {
+          username: user.username,
+          membership_status: user.membership_status,
+          isSuspended
+        })
+      }
+      return isSuspended
     }
-    if (filter === 'expiring') {
+    
+    if (activeFilter === 'pending') {
+      // 승인 대기 사용자만 (pending 상태 또는 is_approved가 false이고 active/suspended가 아닌 경우)
+      const isPending = user.membership_status === 'pending' || 
+                       (!user.is_approved && 
+                        user.membership_status !== 'active' && 
+                        user.membership_status !== 'suspended' &&
+                        user.membership_status !== 'deleted')
+      return isPending
+    }
+    
+    if (activeFilter === 'expiring') {
+      // 결제 만료 임박 (활성 상태이고 7일 이내 만료)
       if (!user.paid_until || user.membership_status !== 'active') return false
       const paidUntil = new Date(user.paid_until)
       const sevenDaysLater = new Date()
       sevenDaysLater.setDate(sevenDaysLater.getDate() + 7)
       return paidUntil <= sevenDaysLater && paidUntil > new Date()
     }
-        if (filter === 'pending') {
-          return !user.is_approved || user.membership_status === 'pending'
-        }
-        // deleted 필터 제거 (삭제된 사용자는 목록에 표시되지 않음)
-        return false
+    
+    // deleted 필터 제거 (삭제된 사용자는 목록에 표시되지 않음)
+    return false
   })
 
   // 고유한 본부 목록 추출

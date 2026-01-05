@@ -3857,6 +3857,10 @@ function QAGenerator({
   const [isDraggingOverDesignSheet, setIsDraggingOverDesignSheet] = useState(false)
   const [isGeneratingField, setIsGeneratingField] = useState<{ field: string | null; mode: string | null }>({ field: null, mode: null })
   const [isGeneratingSellingPoint, setIsGeneratingSellingPoint] = useState(false)
+  const [isParsingPDF, setIsParsingPDF] = useState(false)
+  // PDF 선택 기능 - 내일 개별 PDF 준비되면 활성화 예정
+  // const [availablePDFs, setAvailablePDFs] = useState<Array<{ name: string; publicUrl: string; category: string }>>([])
+  // const [selectedPDF, setSelectedPDF] = useState<string>('')
   const [progress, setProgress] = useState(0)
   const [generatedQuestion, setGeneratedQuestion] = useState<{ title: string; content: string } | null>(null)
   const [generatedAnswer, setGeneratedAnswer] = useState<string | null>(null)
@@ -5058,9 +5062,58 @@ function QAGenerator({
         <div className="grid md:grid-cols-2 gap-6 mb-6">
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">
-                상품명 *
-              </label>
+              <div className="flex items-center justify-between mb-2">
+                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200">
+                  상품명 *
+                </label>
+              </div>
+              {/* PDF 선택 기능 - 내일 개별 PDF 준비되면 활성화 예정 */}
+              {/* <div className="mb-2">
+                <select
+                  value={selectedPDF}
+                  onChange={(e) => {
+                    const pdfUrl = e.target.value
+                    setSelectedPDF(pdfUrl)
+                    if (pdfUrl) {
+                      const selectedPDFInfo = availablePDFs.find(pdf => pdf.publicUrl === pdfUrl)
+                      if (selectedPDFInfo) {
+                        handlePDFSelect(pdfUrl, selectedPDFInfo.category)
+                      }
+                    }
+                  }}
+                  disabled={isParsingPDF}
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-800 text-black dark:text-white disabled:opacity-50"
+                >
+                  <option value="">📄 소식지 PDF 선택 (선택사항)</option>
+                  {availablePDFs.filter(pdf => pdf.category === 'damage').length > 0 && (
+                    <optgroup label="손해보험 소식지">
+                      {availablePDFs
+                        .filter(pdf => pdf.category === 'damage')
+                        .map((pdf) => (
+                          <option key={pdf.publicUrl} value={pdf.publicUrl}>
+                            {pdf.name}
+                          </option>
+                        ))}
+                    </optgroup>
+                  )}
+                  {availablePDFs.filter(pdf => pdf.category === 'life').length > 0 && (
+                    <optgroup label="생명보험 소식지">
+                      {availablePDFs
+                        .filter(pdf => pdf.category === 'life')
+                        .map((pdf) => (
+                          <option key={pdf.publicUrl} value={pdf.publicUrl}>
+                            {pdf.name}
+                          </option>
+                        ))}
+                    </optgroup>
+                  )}
+                </select>
+                {isParsingPDF && (
+                  <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
+                    ⏳ PDF 파싱 중... 잠시만 기다려주세요.
+                  </p>
+                )}
+              </div> */}
               <input
                 type="text"
                 name="productName"
