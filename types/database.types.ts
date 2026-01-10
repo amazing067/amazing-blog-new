@@ -18,6 +18,15 @@ export interface Database {
           last_payment_at: string | null
           grace_period_until: string | null
           payment_note: string | null
+          contact_info: {
+            enabled?: boolean
+            emoji?: string
+            greeting?: string
+            greeting2?: string
+            kakaoOpenChat?: string
+            kakao1on1?: string
+            phone?: string
+          } | null
         }
         Insert: {
           id: string
@@ -52,6 +61,15 @@ export interface Database {
           last_payment_at?: string | null
           grace_period_until?: string | null
           payment_note?: string | null
+          contact_info?: {
+            enabled?: boolean
+            emoji?: string
+            greeting?: string
+            greeting2?: string
+            kakaoOpenChat?: string
+            kakao1on1?: string
+            phone?: string
+          } | null
         }
       }
     }

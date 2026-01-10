@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { Shield, LogOut, Sparkles, Copy, Send, FileDown, Clock, BookOpen, TrendingUp, ArrowLeft, UserCheck, History, BarChart3, FileText, Save, MessageSquare, Image as ImageIcon, Link as LinkIcon, Crown, Building2, MapPin, Users, User, RefreshCw, Wand2 } from 'lucide-react'
+import { Shield, LogOut, Sparkles, Copy, Send, FileDown, Clock, BookOpen, TrendingUp, ArrowLeft, UserCheck, History, BarChart3, FileText, Save, MessageSquare, Image as ImageIcon, Link as LinkIcon, Crown, Building2, MapPin, Users, User, RefreshCw, Wand2, Smartphone, Monitor } from 'lucide-react'
 import MembershipStatusBanner from './MembershipStatusBanner'
 import { createClient } from '@/lib/supabase/client'
 import type { BlogPost } from '@/types/blog.types'
@@ -3836,6 +3836,8 @@ function QAGenerator({
     answerTone: string
     answerLength: 'default'
     designSheetImage: string | null
+    designSheetImageUrl?: string | null // 원본 이미지 URL (다운로드용)
+    designSheetImageTitle?: string | null // 이미지 제목 (다운로드용)
     designSheetAnalysis?: {
       premium?: string
       coverages?: string[]
@@ -3849,6 +3851,8 @@ function QAGenerator({
     answerTone: 'expert',
     answerLength: 'default',
     designSheetImage: null,
+    designSheetImageUrl: null,
+    designSheetImageTitle: null,
     designSheetAnalysis: null
   })
   
@@ -3858,9 +3862,31 @@ function QAGenerator({
   const [isGeneratingField, setIsGeneratingField] = useState<{ field: string | null; mode: string | null }>({ field: null, mode: null })
   const [isGeneratingSellingPoint, setIsGeneratingSellingPoint] = useState(false)
   const [isParsingPDF, setIsParsingPDF] = useState(false)
+  
+  // 연락처 정보 상태
+  const [contactInfo, setContactInfo] = useState<{
+    enabled: boolean
+    emoji: string
+    greeting: string
+    greeting2: string
+    kakaoOpenChat: string
+    kakao1on1: string
+    phone: string
+  }>({
+    enabled: false,
+    emoji: '🐾',
+    greeting: '상담요청은 언제나 환영합니다',
+    greeting2: '편하게 문의 주세요~~',
+    kakaoOpenChat: '',
+    kakao1on1: '',
+    phone: ''
+  })
+  const [isSavingContactInfo, setIsSavingContactInfo] = useState(false)
+  const [showContactInfoSettings, setShowContactInfoSettings] = useState(false)
   // PDF 선택 기능 - 내일 개별 PDF 준비되면 활성화 예정
   // const [availablePDFs, setAvailablePDFs] = useState<Array<{ name: string; publicUrl: string; category: string }>>([])
   // const [selectedPDF, setSelectedPDF] = useState<string>('')
+  const [isGeneratingQuestionFromProduct, setIsGeneratingQuestionFromProduct] = useState(false)
   const [progress, setProgress] = useState(0)
   const [generatedQuestion, setGeneratedQuestion] = useState<{ title: string; content: string } | null>(null)
   const [generatedAnswer, setGeneratedAnswer] = useState<string | null>(null)
@@ -4074,10 +4100,132 @@ function QAGenerator({
     }
   }
   
+  // 연락처 정보 불러오기
+  const loadContactInfo = async () => {
+    if (!profile?.id) {
+      console.warn('[연락처 정보] 프로필 ID가 없어서 불러올 수 없습니다')
+      return
+    }
+    
+    try {
+      const response = await fetch('/api/profile/contact-info')
+      
+      // response.json()은 한 번만 호출해야 함
+      let data
+      try {
+        data = await response.json()
+      } catch (parseError) {
+        console.error('[연락처 정보] JSON 파싱 오류:', parseError)
+        // JSON 파싱 실패해도 기존 상태 유지
+        return
+      }
+      
+      console.log('[연락처 정보] 로드 응답:', { ok: response.ok, status: response.status, data })
+      
+      // response.ok를 먼저 체크
+      if (!response.ok) {
+        console.error('[연락처 정보] 로드 실패 (HTTP 에러):', {
+          status: response.status,
+          statusText: response.statusText,
+          error: data.error || '알 수 없는 오류',
+          details: data.details,
+          code: data.code
+        })
+        // 에러가 발생해도 기존 상태 유지 (초기화하지 않음)
+        return
+      }
+      
+      // response.ok가 true인 경우에만 success 체크
+      if (data.success) {
+        if (data.contactInfo) {
+          // 저장된 정보가 있으면 로드
+          setContactInfo({
+            enabled: data.contactInfo.enabled || false,
+            emoji: data.contactInfo.emoji || '🐾',
+            greeting: data.contactInfo.greeting || '상담요청은 언제나 환영합니다',
+            greeting2: data.contactInfo.greeting2 || '편하게 문의 주세요~~',
+            kakaoOpenChat: data.contactInfo.kakaoOpenChat || '',
+            kakao1on1: data.contactInfo.kakao1on1 || '',
+            phone: data.contactInfo.phone || ''
+          })
+          console.log('[연락처 정보] ✅ 저장된 정보 로드 완료:', data.contactInfo)
+        } else {
+          // 저장된 정보가 없으면 기본값 유지 (초기화하지 않음)
+          console.log('[연락처 정보] 저장된 정보 없음 (null), 기본값 유지')
+        }
+      } else {
+        // success: false인 경우 (예상치 못한 응답 형식)
+        console.error('[연락처 정보] 로드 실패 (success: false):', data.error || '알 수 없는 오류')
+        // 에러가 발생해도 기존 상태 유지 (초기화하지 않음)
+      }
+    } catch (error: any) {
+      console.error('[연락처 정보] 불러오기 오류 (네트워크/파싱 에러):', error.message || error)
+      // 네트워크 오류 등으로 인해 실패해도 기존 상태 유지 (초기화하지 않음)
+    }
+  }
+  
+  // 전화번호 포맷팅 함수 (010-XXXX-XXXX 형식)
+  const formatPhoneNumber = (value: string): string => {
+    const numbers = value.replace(/[^\d]/g, '')
+    const limitedNumbers = numbers.slice(0, 11)
+    
+    if (limitedNumbers.length <= 3) {
+      return limitedNumbers
+    } else if (limitedNumbers.length <= 7) {
+      return `${limitedNumbers.slice(0, 3)}-${limitedNumbers.slice(3)}`
+    } else {
+      return `${limitedNumbers.slice(0, 3)}-${limitedNumbers.slice(3, 7)}-${limitedNumbers.slice(7)}`
+    }
+  }
+
+  // 연락처 정보 저장
+  const saveContactInfo = async () => {
+    if (!profile?.id) {
+      alert('로그인이 필요합니다')
+      return
+    }
+    
+    setIsSavingContactInfo(true)
+    try {
+      const response = await fetch('/api/profile/contact-info', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contactInfo })
+      })
+      
+      const data = await response.json()
+      
+      if (!response.ok) {
+        console.error('[연락처 정보 저장 실패]', {
+          status: response.status,
+          statusText: response.statusText,
+          data
+        })
+        throw new Error(data.error || `저장 실패 (${response.status})`)
+      }
+      
+      if (data.success) {
+        // 저장 성공 후 자동으로 다시 로드해서 상태 동기화
+        await loadContactInfo()
+        alert('연락처 정보가 저장되었습니다!')
+        // 저장 후에도 섹션은 열어두기 (사용자가 확인 가능하도록)
+        // setShowContactInfoSettings(false) // 제거: 저장 후에도 섹션 열어두기
+      } else {
+        throw new Error(data.error || '저장 실패')
+      }
+    } catch (error: any) {
+      console.error('연락처 정보 저장 오류:', error)
+      alert('연락처 정보 저장 중 오류가 발생했습니다: ' + (error.message || '알 수 없는 오류'))
+    } finally {
+      setIsSavingContactInfo(false)
+    }
+  }
+
   // 컴포넌트 마운트 시 및 프로필 변경 시 저장된 세트 불러오기
   useEffect(() => {
     if (profile?.id) {
       loadQASets()
+      loadContactInfo() // 연락처 정보도 함께 불러오기
       // 선택된 Q&A 세트가 있으면 로드 (다른 탭에서 선택한 경우)
       const storageKey = getQAStorageKey()
       const selectedSetStr = localStorage.getItem(`${storageKey}_selected`)
@@ -4108,6 +4256,210 @@ function QAGenerator({
     setQAFormData(prev => ({ ...prev, [name]: value }))
   }
 
+  // 제목과 본문을 자동으로 분리하는 함수 (클라이언트 측 후처리)
+  const parseTitleAndContent = (title: string, content: string, productName?: string): { title: string; content: string } => {
+    let parsedTitle = title.trim()
+    let parsedContent = content.trim()
+    
+    // 1. 제목이 너무 길면 (50자 이상) 자동 분리 시도
+    if (parsedTitle.length > 50) {
+      // 구두점(?, !, .) 기준으로 제목 자르기
+      const punctuationMatch = parsedTitle.match(/^(.{0,45}[?!.])/g)
+      if (punctuationMatch) {
+        // 구두점으로 끝나는 부분까지 제목으로
+        parsedTitle = punctuationMatch[0].trim()
+        // 나머지는 본문으로
+        const remaining = title.substring(punctuationMatch[0].length).trim()
+        if (remaining) {
+          parsedContent = remaining + (parsedContent ? '\n\n' + parsedContent : '')
+        }
+      } else {
+        // 구두점이 없으면 40자로 자르기
+        parsedTitle = parsedTitle.substring(0, 40).trim()
+        // 나머지는 본문으로
+        const remaining = title.substring(40).trim()
+        if (remaining) {
+          parsedContent = remaining + (parsedContent ? '\n\n' + parsedContent : '')
+        }
+      }
+    }
+    
+    // 2. 제목과 본문이 합쳐져 있는 경우 처리 (제목에 본문 내용이 포함된 경우)
+    // 제목이 본문의 첫 부분을 포함하고 있으면 제거
+    if (parsedContent) {
+      const titleLower = parsedTitle.toLowerCase()
+      const contentStart = parsedContent.substring(0, Math.min(100, parsedContent.length)).toLowerCase()
+      
+      // 제목의 마지막 20자 이상이 본문 시작 부분에 포함되어 있으면
+      if (parsedTitle.length > 20) {
+        const titleEnd = parsedTitle.substring(parsedTitle.length - 20).toLowerCase()
+        if (contentStart.includes(titleEnd) || contentStart.startsWith(titleEnd)) {
+          // 본문에서 제목의 마지막 부분 제거
+          const titleEndIndex = contentStart.indexOf(titleEnd)
+          if (titleEndIndex >= 0) {
+            parsedContent = parsedContent.substring(titleEndIndex + titleEnd.length).trim()
+          }
+        }
+      }
+      
+      // 제목과 본문의 첫 문장이 완전히 같거나 매우 유사하면 제거
+      const contentFirstSentence = parsedContent.split(/[.!?]\s+/)[0].trim()
+      if (contentFirstSentence && contentFirstSentence.length > 10) {
+        const similarity = contentFirstSentence.toLowerCase().includes(titleLower.substring(0, 30).toLowerCase()) ||
+                          titleLower.includes(contentFirstSentence.substring(0, 30).toLowerCase())
+        if (similarity) {
+          // 첫 문장 제거
+          parsedContent = parsedContent.substring(contentFirstSentence.length).trim()
+          // 다음 문장 시작 부분 정리
+          parsedContent = parsedContent.replace(/^[.!?]\s*/, '').trim()
+        }
+      }
+    }
+    
+    // 3. 제목이 본문에 완전히 포함되어 있는 경우 (제목이 본문의 첫 부분)
+    if (parsedContent && parsedContent.toLowerCase().startsWith(parsedTitle.toLowerCase())) {
+      parsedContent = parsedContent.substring(parsedTitle.length).trim()
+      // 본문 시작 부분 정리
+      parsedContent = parsedContent.replace(/^[.!?]\s*/, '').trim()
+    }
+    
+    // 4. 최종 검증: 제목이 너무 길면 다시 자르기
+    if (parsedTitle.length > 50) {
+      // 구두점 기준으로 다시 자르기
+      const punctMatch = parsedTitle.match(/^(.{0,45}[?!.])/)
+      if (punctMatch) {
+        parsedTitle = punctMatch[0].trim()
+      } else {
+        parsedTitle = parsedTitle.substring(0, 45).trim()
+      }
+    }
+    
+    // 5. 제목과 본문이 비어있지 않은지 확인
+    if (!parsedTitle || parsedTitle.length < 5) {
+      // 제목이 너무 짧으면 기본값 사용
+      parsedTitle = `${productName || '보험'} 가입 고민 있어요`
+    }
+    
+    if (!parsedContent || parsedContent.length < 10) {
+      // 본문이 너무 짧으면 기본값 사용
+      parsedContent = '설계서를 받아봤는데 몇 가지 궁금한 점이 있어서 문의드립니다'
+    }
+    
+    return {
+      title: parsedTitle,
+      content: parsedContent
+    }
+  }
+
+  // 상품명 기반 질문글 자동 생성 (정말 귀찮다 버튼)
+  const handleAutoGenerateQuestionFromProduct = async () => {
+    if (!qaFormData.productName || !qaFormData.productName.trim()) {
+      alert('상품명을 먼저 입력해주세요!')
+      return
+    }
+
+    setIsGeneratingQuestionFromProduct(true)
+    setProgress(0)
+
+    const progressInterval = setInterval(() => {
+      setProgress((prev) => {
+        if (prev >= 90) {
+          clearInterval(progressInterval)
+          return 90
+        }
+        return prev + 10
+      })
+    }, 300)
+
+    try {
+      const response = await fetch('/api/generate-question-from-product', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          productName: qaFormData.productName.trim()
+        }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || '질문글 생성 오류')
+      }
+
+      clearInterval(progressInterval)
+      setProgress(100)
+
+      if (data.success && data.question) {
+        // 클라이언트 측 후처리: 제목과 본문을 자동으로 분리
+        const parsed = parseTitleAndContent(data.question.title, data.question.content, qaFormData.productName)
+        
+        console.log('[상품명 기반 질문글 생성] 원본 제목:', data.question.title)
+        console.log('[상품명 기반 질문글 생성] 원본 본문:', data.question.content)
+        console.log('[상품명 기반 질문글 생성] 후처리 제목:', parsed.title)
+        console.log('[상품명 기반 질문글 생성] 후처리 본문:', parsed.content)
+        
+        // 생성된 질문글을 핵심 고민 필드에 자동 입력
+        // 제목과 본문을 합쳐서 worryPoint에 입력
+        const questionText = `${parsed.title}\n\n${parsed.content}`
+        
+        setQAFormData(prev => ({
+          ...prev,
+          worryPoint: questionText,
+          sellingPoint: data.sellingPoint || prev.sellingPoint, // 답변 강조 포인트 자동 입력
+          designSheetImage: data.designSheetImage || prev.designSheetImage, // 설계서 이미지 (base64)
+          // 설계서 이미지 URL과 제목도 저장 (다운로드용)
+          ...(data.designSheetImageUrl && { designSheetImageUrl: data.designSheetImageUrl }),
+          ...(data.designSheetImageTitle && { designSheetImageTitle: data.designSheetImageTitle })
+        }))
+
+        // 생성된 질문을 generatedQuestion에도 저장 (표시용) - 후처리된 제목과 본문 사용
+        setGeneratedQuestion({
+          title: parsed.title,
+          content: parsed.content
+        })
+
+        // 설계서 이미지가 있으면 자동으로 분석도 실행 (비동기, 실패해도 계속 진행)
+        if (data.designSheetImage) {
+          console.log('[상품명 기반 질문글 생성] 설계서 이미지 발견, 자동 분석 시작...')
+          setTimeout(async () => {
+            try {
+              await handleAnalyzeDesignSheetOnly(data.designSheetImage, true) // silent 모드
+              console.log('[상품명 기반 질문글 생성] 설계서 자동 분석 완료')
+            } catch (analyzeError: any) {
+              console.error('[상품명 기반 질문글 생성] 설계서 자동 분석 오류:', analyzeError)
+            }
+          }, 500)
+        }
+
+        // 메시지 구성 (설계서 이미지와 답변 강조 포인트 포함 여부에 따라)
+        let message = ''
+        if (data.designSheetImage) {
+          message = `질문글, 답변 강조 포인트, 설계서 이미지가 자동으로 생성되어 입력되었습니다!\n상품명: ${qaFormData.productName}\n\n설계서 이미지가 포함되어 있으며, 자동 분석이 진행 중입니다.`
+        } else if (data.sellingPoint) {
+          message = `질문글과 답변 강조 포인트가 자동으로 생성되어 입력되었습니다!\n상품명: ${qaFormData.productName}`
+        } else {
+          message = `질문글이 자동으로 생성되어 핵심 고민 필드에 입력되었습니다!\n상품명: ${qaFormData.productName}`
+        }
+        
+        alert(message)
+      } else {
+        throw new Error('질문글 생성 실패')
+      }
+    } catch (error: any) {
+      console.error('상품명 기반 질문글 생성 오류:', error)
+      alert('질문글 생성 중 오류가 발생했습니다: ' + (error.message || '알 수 없는 오류'))
+    } finally {
+      clearInterval(progressInterval)
+      setIsGeneratingQuestionFromProduct(false)
+      setProgress(0)
+      setTimeout(() => {
+        setProgress(0)
+      }, 500)
+    }
+  }
+
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const handleFileSelect = () => {
@@ -4135,11 +4487,13 @@ function QAGenerator({
   }
 
   // 설계서 이미지 업로드 시 자동으로 분석만 수행하는 함수
-  const handleAnalyzeDesignSheetOnly = async (imageBase64?: string) => {
+  const handleAnalyzeDesignSheetOnly = async (imageBase64?: string, silent: boolean = false) => {
     const imageToAnalyze = imageBase64 || qaFormData.designSheetImage
     
     if (!imageToAnalyze) {
-      alert('설계서 이미지를 먼저 업로드해주세요!')
+      if (!silent) {
+        alert('설계서 이미지를 먼저 업로드해주세요!')
+      }
       return
     }
 
@@ -4158,7 +4512,13 @@ function QAGenerator({
       const data = await response.json()
 
       if (!response.ok) {
-        throw new Error(data.error || '분석 오류')
+        const errorMessage = data.error || '분석 오류'
+        // silent 모드일 때는 오류를 throw하지 않고 조용히 처리
+        if (silent) {
+          console.error('[설계서 분석] 오류 (silent 모드):', errorMessage)
+          return // 조용히 종료
+        }
+        throw new Error(errorMessage)
       }
 
       // API에서 반환된 targetPersona를 옵션과 매칭
@@ -4220,10 +4580,19 @@ function QAGenerator({
         매칭결과: matchedTargetPersona 
       })
 
-      alert('설계서 분석이 완료되었습니다! 폼이 자동으로 채워졌습니다. 필요시 수정 후 "Q&A 생성하기" 버튼을 눌러주세요.')
+      if (!silent) {
+        alert('설계서 분석이 완료되었습니다! 폼이 자동으로 채워졌습니다. 필요시 수정 후 "Q&A 생성하기" 버튼을 눌러주세요.')
+      }
     } catch (error: any) {
       console.error('설계서 분석 오류:', error)
-      alert('설계서 분석 중 오류가 발생했습니다: ' + error.message)
+      // silent 모드가 아닐 때만 사용자에게 오류 표시
+      if (!silent) {
+        alert('설계서 분석 중 오류가 발생했습니다: ' + error.message)
+      }
+      // silent 모드일 때는 오류를 다시 throw하지 않음 (자동 분석 실패를 조용히 처리)
+      if (!silent) {
+        throw error
+      }
     } finally {
       setIsAnalyzing(false)
     }
@@ -4353,255 +4722,189 @@ function QAGenerator({
   }
 
   const handleRandomGenerate = async () => {
-    // 랜덤 프리셋 데이터 (실제 많이 검색되는 보험 상품들 - 실손보험 제외)
-    const randomPresets = [
-      {
-        productName: '한화생명 종신보험',
-        targetPersona: '40대 직장인 남성',
-        worryPoint: '가족을 위한 보장이 필요한데, 종신보험과 정기보험 중 어떤 게 나을지 고민입니다. 보험료도 부담스러워서 망설여집니다.',
-        sellingPoint: '종신보험의 안정성과 보장의 완결성을 제공하며, 해지환급금도 있어 장기적으로 유리합니다'
-      },
-      {
-        productName: '교보생명 암보험',
-        targetPersona: '30대 직장인 여성',
-        worryPoint: '암 진단비와 수술비가 걱정되어 암보험을 고려하고 있습니다. 현재 보험료로 충분한 보장을 받을 수 있을까요?',
-        sellingPoint: '암 진단비, 수술비, 입원비를 종합적으로 보장하며, 암 2차 진단비까지 포함되어 있습니다'
-      },
-      {
-        productName: 'DB손해보험 자동차보험',
-        targetPersona: '30대 직장인 남성',
-        worryPoint: '자동차보험 가입 시 어떤 특약이 필요한지, 현재 보험료가 합리적인지 확인하고 싶습니다.',
-        sellingPoint: '자기차량 손해, 대인배상, 대물배상을 모두 보장하며, 보험료 대비 보장 범위가 우수합니다'
-      },
-      {
-        productName: '신한생명 종합건강보험',
-        targetPersona: '30대 직장인 여성',
-        worryPoint: '암보험, 질병보험을 따로 들어야 할까요? 하나로 합쳐서 들 수 있는 상품이 있을까요?',
-        sellingPoint: '암, 질병보험을 통합한 상품으로 보험료 절감 효과가 있고, 관리도 편리합니다'
-      },
-      {
-        productName: 'KB생명 연금보험',
-        targetPersona: '40대 직장인 남성',
-        worryPoint: '노후 준비를 위해 연금보험을 고려하고 있는데, 확정형과 변액형 중 어떤 게 나을까요? 현재 보험료로 충분한 연금을 받을 수 있을까요?',
-        sellingPoint: '확정형 연금으로 안정적인 노후 자금을 보장하며, 해지환급금도 있어 유연한 운영이 가능합니다'
-      },
-      {
-        productName: '현대해상 화재보험',
-        targetPersona: '30대 신혼부부',
-        worryPoint: '아파트 구매 후 화재보험을 들어야 하는데, 어떤 보장이 필요한지 모르겠어요. 기본 상품으로 충분한가요?',
-        sellingPoint: '화재, 자연재해, 배관누수 등을 종합적으로 보장하며, 가전제품 파손까지 포함되어 있습니다'
-      },
-      {
-        productName: '메리츠화재 치아보험',
-        targetPersona: '30대 직장인',
-        worryPoint: '임플란트나 보철치료 비용이 너무 비싸서 치아보험을 고려 중입니다. 실제로 보장받을 수 있는 금액이 궁금해요.',
-        sellingPoint: '임플란트, 보철치료를 충분히 보장하며, 정기 검진비까지 포함되어 치과 치료비 부담을 크게 줄여줍니다'
-      },
-      {
-        productName: '미래에셋생명 어린이보험',
-        targetPersona: '30대 부모',
-        worryPoint: '아이가 태어났는데 자녀보험을 언제 들여야 할까요? 보험료가 부담스러운데 꼭 필요한가요?',
-        sellingPoint: '어린이 질병, 상해사고를 보장하며, 교육비 확보까지 가능한 상품으로 자녀의 미래를 준비할 수 있습니다'
-      },
-      {
-        productName: '교보생명 간병인보험',
-        targetPersona: '50대 직장인',
-        worryPoint: '부모님 연세가 많아져서 간병비가 걱정됩니다. 간병인보험이 실제로 도움이 될까요? 보험료가 부담스러워서 고민입니다.',
-        sellingPoint: '간병인 비용, 요양보호사 비용을 보장하며, 장기요양 등급에 따라 추가 보험금을 지급하여 부담을 줄여줍니다'
-      },
-      {
-        productName: '삼성생명 중대질병보험',
-        targetPersona: '40대 직장인 남성',
-        worryPoint: '뇌졸중, 심근경색 같은 중대질병이 걱정되는데, 암보험만으로는 부족할까요? 중대질병보험을 따로 들어야 하나요?',
-        sellingPoint: '뇌졸중, 심근경색, 관상동맥우회술 등 중대질병을 보장하며, 진단비는 물론 수술비, 입원비까지 종합 보장합니다'
-      },
-      {
-        productName: 'DB손해보험 상해보험',
-        targetPersona: '20대 대학생',
-        worryPoint: '교통사고나 각종 사고에 대한 보장이 필요한데, 가격도 저렴한지 궁금합니다. 알뜰하게 가입하고 싶어요.',
-        sellingPoint: '상해 사망/후유장해를 보장하며, 보험료가 저렴하면서도 실질적인 보장을 제공합니다'
-      },
-      {
-        productName: '현대해상 여행자보험',
-        targetPersona: '30대 직장인',
-        worryPoint: '해외여행을 가는데 여행자보험이 필수인가요? 어떤 보장이 필요할까요?',
-        sellingPoint: '해외 질병, 상해 사고를 보장하며, 여행 취소/지연, 휴대품 분실까지 보장하여 안심하고 여행할 수 있습니다'
-      },
-      {
-        productName: '삼성생명 유사암보험',
-        targetPersona: '30대 직장인 여성',
-        worryPoint: '유사암 진단비가 걱정되는데, 일반 암보험으로는 보장이 안 될까요? 유사암보험을 따로 들어야 하나요?',
-        sellingPoint: '유사암 진단비를 보장하며, 일반 암보험과 함께 가입하면 더욱 완벽한 보장을 받을 수 있습니다'
-      },
-      {
-        productName: '한화생명 질병보험',
-        targetPersona: '30대 직장인 남성',
-        worryPoint: '뇌혈관질환, 심장질환 같은 질병이 걱정됩니다. 현재 보험료로 충분한 보장을 받을 수 있을까요?',
-        sellingPoint: '뇌혈관질환, 심장질환 등 주요 질병을 보장하며, 진단비, 수술비, 입원비를 종합적으로 보장합니다'
-      },
-      {
-        productName: '교보생명 상해보험',
-        targetPersona: '20대 직장인',
-        worryPoint: '사고로 인한 상해가 걱정되는데, 상해보험이 꼭 필요한가요? 보험료는 얼마나 드나요?',
-        sellingPoint: '상해 사망, 후유장해를 보장하며, 보험료가 저렴하면서도 실질적인 보장을 제공합니다'
-      },
-      {
-        productName: '삼성화재 운전자보험',
-        targetPersona: '30대 직장인 남성',
-        worryPoint: '운전 중 사고가 걱정됩니다. 자동차보험과 운전자보험의 차이가 뭔가요? 둘 다 들어야 하나요?',
-        sellingPoint: '운전 중 사고로 인한 상해, 사망을 보장하며, 자동차보험과 함께 가입하면 더욱 완벽한 보장을 받을 수 있습니다'
-      },
-      {
-        productName: 'NH농협손해보험 장기요양보험',
-        targetPersona: '50대 직장인',
-        worryPoint: '노후에 장기요양이 필요할 수 있어서 걱정됩니다. 장기요양보험이 실제로 도움이 될까요?',
-        sellingPoint: '장기요양 등급에 따라 요양비를 보장하며, 노후 생활을 안정적으로 보장할 수 있습니다'
-      },
-      {
-        productName: 'KB손해보험 배상책임보험',
-        targetPersona: '30대 직장인',
-        worryPoint: '타인에게 피해를 입혔을 때 배상책임이 걱정됩니다. 배상책임보험이 필요한가요?',
-        sellingPoint: '타인에게 입힌 재산상 손해, 신체상 손해를 보장하며, 생활 안정을 위한 필수 보험입니다'
-      },
-      {
-        productName: '메리츠화재 재물보험',
-        targetPersona: '30대 신혼부부',
-        worryPoint: '집에 있는 가전제품이나 가구가 파손될 수 있어 걱정됩니다. 재물보험이 필요한가요?',
-        sellingPoint: '가전제품, 가구 등 재물 손해를 보장하며, 화재, 도난, 파손 등 다양한 위험을 보장합니다'
-      },
-      {
-        productName: 'DB생명 교육보험',
-        targetPersona: '30대 부모',
-        worryPoint: '자녀의 교육비가 걱정됩니다. 교육보험을 언제부터 들여야 할까요? 보험료는 얼마나 드나요?',
-        sellingPoint: '자녀의 교육비를 확보할 수 있으며, 만기 시 해지환급금을 받아 교육비로 활용할 수 있습니다'
-      },
-      {
-        productName: '신한화재 해상보험',
-        targetPersona: '40대 사업자',
-        worryPoint: '해상 운송 중 화물 손실이 걱정됩니다. 해상보험이 필요한가요?',
-        sellingPoint: '해상 운송 중 화물 손실, 손해를 보장하며, 수출입 업무를 안정적으로 진행할 수 있습니다'
-      },
-      {
-        productName: '현대생명 변액연금보험',
-        targetPersona: '40대 직장인 남성',
-        worryPoint: '노후 자금을 확보하고 싶은데, 변액연금보험의 수익률이 궁금합니다. 리스크는 없나요?',
-        sellingPoint: '변액연금으로 노후 자금을 확보할 수 있으며, 투자 수익에 따라 연금액이 증가할 수 있습니다'
-      },
-      {
-        productName: '삼성생명 정기보험',
-        targetPersona: '30대 직장인 남성',
-        worryPoint: '가족을 위한 보장이 필요한데, 종신보험보다 정기보험이 저렴하다고 들었어요. 어떤 게 나을까요?',
-        sellingPoint: '정기보험은 보험료가 저렴하면서도 가족을 위한 충분한 보장을 제공하며, 필요 시 연장도 가능합니다'
-      },
-      {
-        productName: '한화화재 공제보험',
-        targetPersona: '40대 사업자',
-        worryPoint: '사업 중 발생할 수 있는 위험에 대비하고 싶습니다. 공제보험이 일반 보험과 다른가요?',
-        sellingPoint: '사업자들을 위한 특화된 보험으로, 사업 중 발생할 수 있는 다양한 위험을 보장합니다'
-      },
-      {
-        productName: '교보생명 어린이암보험',
-        targetPersona: '30대 부모',
-        worryPoint: '아이에게 암보험이 필요한가요? 어린이암보험을 따로 들어야 하나요?',
-        sellingPoint: '어린이에게 특화된 암보험으로, 소아암 진단비, 수술비, 입원비를 종합적으로 보장합니다'
-      },
-      {
-        productName: 'KB생명 갱신형보험',
-        targetPersona: '30대 직장인',
-        worryPoint: '갱신형보험과 비갱신형보험의 차이가 뭔가요? 어떤 게 더 유리한가요?',
-        sellingPoint: '갱신형보험은 보험료가 저렴하면서도 필요 시 갱신하여 보장을 지속할 수 있습니다'
-      },
-      {
-        productName: '삼성화재 배상책임보험',
-        targetPersona: '30대 직장인',
-        worryPoint: '타인에게 피해를 입혔을 때 배상책임이 걱정됩니다. 배상책임보험이 필요한가요?',
-        sellingPoint: '타인에게 입힌 재산상 손해, 신체상 손해를 보장하며, 생활 안정을 위한 필수 보험입니다'
-      },
-      {
-        productName: 'NH농협생명 종신보험',
-        targetPersona: '40대 직장인 남성',
-        worryPoint: '가족을 위한 평생 보장이 필요한데, 종신보험의 보험료가 부담스러워요. 해지환급금은 있나요?',
-        sellingPoint: '평생 보장을 제공하며, 해지환급금도 있어 장기적으로 유리한 상품입니다'
-      },
-      {
-        productName: 'DB손해보험 여행자보험',
-        targetPersona: '30대 직장인',
-        worryPoint: '해외여행을 가는데 여행자보험이 필수인가요? 어떤 보장이 필요할까요?',
-        sellingPoint: '해외 질병, 상해 사고를 보장하며, 여행 취소/지연, 휴대품 분실까지 보장하여 안심하고 여행할 수 있습니다'
-      },
-      {
-        productName: '현대해상 자동차보험',
-        targetPersona: '30대 직장인 남성',
-        worryPoint: '자동차보험 가입 시 어떤 특약이 필요한지, 현재 보험료가 합리적인지 확인하고 싶습니다.',
-        sellingPoint: '자기차량 손해, 대인배상, 대물배상을 모두 보장하며, 보험료 대비 보장 범위가 우수합니다'
-      },
-      {
-        productName: '메리츠생명 암보험',
-        targetPersona: '30대 직장인 여성',
-        worryPoint: '암 진단비와 수술비가 걱정되어 암보험을 고려하고 있습니다. 현재 보험료로 충분한 보장을 받을 수 있을까요?',
-        sellingPoint: '암 진단비, 수술비, 입원비를 종합적으로 보장하며, 암 2차 진단비까지 포함되어 있습니다'
-      },
-      {
-        productName: '신한생명 종신보험',
-        targetPersona: '40대 직장인 남성',
-        worryPoint: '가족을 위한 보장이 필요한데, 종신보험과 정기보험 중 어떤 게 나을지 고민입니다.',
-        sellingPoint: '종신보험의 안정성과 보장의 완결성을 제공하며, 해지환급금도 있어 장기적으로 유리합니다'
-      },
-      {
-        productName: 'KB손해보험 화재보험',
-        targetPersona: '30대 신혼부부',
-        worryPoint: '아파트 구매 후 화재보험을 들어야 하는데, 어떤 보장이 필요한지 모르겠어요.',
-        sellingPoint: '화재, 자연재해, 배관누수 등을 종합적으로 보장하며, 가전제품 파손까지 포함되어 있습니다'
-      },
-      {
-        productName: '삼성생명 연금보험',
-        targetPersona: '40대 직장인 남성',
-        worryPoint: '노후 준비를 위해 연금보험을 고려하고 있는데, 확정형과 변액형 중 어떤 게 나을까요?',
-        sellingPoint: '확정형 연금으로 안정적인 노후 자금을 보장하며, 해지환급금도 있어 유연한 운영이 가능합니다'
-      },
-      {
-        productName: '한화생명 치아보험',
-        targetPersona: '30대 직장인',
-        worryPoint: '임플란트나 보철치료 비용이 너무 비싸서 치아보험을 고려 중입니다. 실제로 보장받을 수 있는 금액이 궁금해요.',
-        sellingPoint: '임플란트, 보철치료를 충분히 보장하며, 정기 검진비까지 포함되어 치과 치료비 부담을 크게 줄여줍니다'
-      },
-      {
-        productName: '교보생명 어린이보험',
-        targetPersona: '30대 부모',
-        worryPoint: '아이가 태어났는데 자녀보험을 언제 들여야 할까요? 보험료가 부담스러운데 꼭 필요한가요?',
-        sellingPoint: '어린이 질병, 상해사고를 보장하며, 교육비 확보까지 가능한 상품으로 자녀의 미래를 준비할 수 있습니다'
-      },
-      {
-        productName: 'DB생명 간병인보험',
-        targetPersona: '50대 직장인',
-        worryPoint: '부모님 연세가 많아져서 간병비가 걱정됩니다. 간병인보험이 실제로 도움이 될까요?',
-        sellingPoint: '간병인 비용, 요양보호사 비용을 보장하며, 장기요양 등급에 따라 추가 보험금을 지급하여 부담을 줄여줍니다'
-      },
-      {
-        productName: '현대생명 중대질병보험',
-        targetPersona: '40대 직장인 남성',
-        worryPoint: '뇌졸중, 심근경색 같은 중대질병이 걱정되는데, 암보험만으로는 부족할까요?',
-        sellingPoint: '뇌졸중, 심근경색, 관상동맥우회술 등 중대질병을 보장하며, 진단비는 물론 수술비, 입원비까지 종합 보장합니다'
-      },
-      {
-        productName: '메리츠화재 상해보험',
-        targetPersona: '20대 대학생',
-        worryPoint: '교통사고나 각종 사고에 대한 보장이 필요한데, 가격도 저렴한지 궁금합니다.',
-        sellingPoint: '상해 사망/후유장해를 보장하며, 보험료가 저렴하면서도 실질적인 보장을 제공합니다'
-      }
+    // 정말 귀찮다 버튼: 매번 랜덤 상품명 선택 (기존 상품명 무시하고 항상 새로 선택)
+    const randomProductNames = [
+      '한화생명 종신보험',
+      '교보생명 암보험',
+      'DB손해보험 자동차보험',
+      '신한생명 종합건강보험',
+      'KB생명 연금보험',
+      '현대해상 화재보험',
+      '메리츠화재 치아보험',
+      '미래에셋생명 어린이보험',
+      '교보생명 간병인보험',
+      '삼성생명 중대질병보험',
+      'DB손해보험 상해보험',
+      '현대해상 여행자보험',
+      '삼성생명 유사암보험',
+      '한화생명 질병보험',
+      '교보생명 상해보험',
+      'NH농협손해보험 장기요양보험',
+      'KB손해보험 배상책임보험',
+      '메리츠화재 재물보험',
+      'DB생명 교육보험',
+      '신한화재 해상보험',
+      '현대생명 변액연금보험',
+      '삼성생명 정기보험',
+      '한화화재 공제보험',
+      '교보생명 어린이암보험',
+      'KB생명 갱신형보험',
+      'NH농협생명 종신보험',
+      '현대해상 자동차보험',
+      '메리츠생명 암보험',
+      '신한생명 종신보험',
+      'KB손해보험 화재보험',
+      '삼성생명 연금보험',
+      '한화생명 치아보험',
+      'DB생명 간병인보험',
+      '현대생명 중대질병보험',
+      '메리츠화재 상해보험',
+      '삼성화재 운전자보험',
+      '현대해상 운전자보험',
+      'DB손해보험 운전자보험',
+      'NH농협손해보험 운전자보험',
+      'KB손해보험 운전자보험',
+      '한화화재 운전자보험',
+      '신한화재 운전자보험',
+      '메리츠화재 운전자보험',
+      '삼성화재 실손의료비보험',
+      '현대해상 실손의료비보험',
+      'DB손해보험 실손의료비보험',
+      '삼성생명 실손의료비보험',
+      '한화생명 실손의료비보험',
+      '교보생명 실손의료비보험',
+      'KB생명 실손의료비보험',
+      '신한생명 실손의료비보험'
     ]
-
-    const randomPreset = randomPresets[Math.floor(Math.random() * randomPresets.length)]
     
+    // 이전에 선택한 상품명 제외하고 랜덤 선택 (다양성 확보)
+    const previousProductName = qaFormData.productName?.trim() || ''
+    const availableProducts = previousProductName 
+      ? randomProductNames.filter(name => name !== previousProductName)
+      : randomProductNames
+    
+    // 사용 가능한 상품이 있으면 그 중에서 선택, 없으면 전체에서 선택
+    const productPool = availableProducts.length > 0 ? availableProducts : randomProductNames
+    const randomIndex = Math.floor(Math.random() * productPool.length)
+    const randomProductName = productPool[randomIndex]
+    
+    // 선택된 상품명을 폼에 입력 (상품명만)
     setQAFormData(prev => ({
       ...prev,
-      ...randomPreset,
-      answerTone: ['friendly', 'expert', 'comparative', 'persuasive'][Math.floor(Math.random() * 4)]
+      productName: randomProductName
     }))
+    
+    const productNameToSearch = randomProductName
 
-    // 생성된 결과 초기화
-    setGeneratedQuestion(null)
-    setGeneratedAnswer(null)
+    // 상품명 기반 질문글 자동 생성 실행 (웹 검색 + AI 생성)
+    setIsGeneratingQuestionFromProduct(true)
+    setProgress(0)
+
+    const progressInterval = setInterval(() => {
+      setProgress((prev) => {
+        if (prev >= 90) {
+          clearInterval(progressInterval)
+          return 90
+        }
+        return prev + 10
+      })
+    }, 300)
+
+    try {
+      const response = await fetch('/api/generate-question-from-product', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          productName: productNameToSearch
+        }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || '질문글 생성 오류')
+      }
+
+      clearInterval(progressInterval)
+      setProgress(100)
+
+      if (data.success && data.question) {
+        // 클라이언트 측 후처리: 제목과 본문을 자동으로 분리
+        const parsed = parseTitleAndContent(data.question.title, data.question.content, productNameToSearch)
+        
+        console.log('[정말 귀찮다] 원본 제목:', data.question.title)
+        console.log('[정말 귀찮다] 원본 본문:', data.question.content)
+        console.log('[정말 귀찮다] 후처리 제목:', parsed.title)
+        console.log('[정말 귀찮다] 후처리 본문:', parsed.content)
+        
+        // 생성된 질문글을 핵심 고민 필드에 자동 입력
+        // 제목과 본문을 합쳐서 worryPoint에 입력
+        const questionText = `${parsed.title}\n\n${parsed.content}`
+        
+        // 설계서 이미지가 있으면 함께 설정 (이미지와 원본 URL 모두 저장)
+        // 답변 강조 포인트도 함께 설정 (API에서 생성된 경우)
+        setQAFormData(prev => ({
+          ...prev,
+          worryPoint: questionText,
+          sellingPoint: data.sellingPoint || prev.sellingPoint, // 답변 강조 포인트 자동 입력
+          designSheetImage: data.designSheetImage || prev.designSheetImage, // 설계서 이미지 (base64)
+          // 설계서 이미지 URL과 제목도 저장 (다운로드용)
+          ...(data.designSheetImageUrl && { designSheetImageUrl: data.designSheetImageUrl }),
+          ...(data.designSheetImageTitle && { designSheetImageTitle: data.designSheetImageTitle })
+        }))
+
+        // 생성된 질문을 generatedQuestion에도 저장 (표시용) - 후처리된 제목과 본문 사용
+        setGeneratedQuestion({
+          title: parsed.title,
+          content: parsed.content
+        })
+
+        // 설계서 이미지가 있으면 자동으로 분석도 실행 (비동기, 실패해도 계속 진행)
+        if (data.designSheetImage) {
+          console.log('[상품명 기반 질문글 생성] 설계서 이미지 발견, 자동 분석 시작...')
+          // 약간의 지연 후 설계서 분석 실행 (이미지가 설정된 후)
+          // 분석은 백그라운드에서 실행하고, 실패해도 질문글 생성은 성공으로 처리
+          setTimeout(async () => {
+            try {
+              // 자동 분석 시에는 오류 발생 시 사용자에게 alert를 표시하지 않도록 처리
+              // handleAnalyzeDesignSheetOnly 내부의 alert를 억제하기 위해 플래그 전달
+              await handleAnalyzeDesignSheetOnly(data.designSheetImage, true) // silent 모드
+              console.log('[상품명 기반 질문글 생성] 설계서 자동 분석 완료')
+            } catch (analyzeError: any) {
+              console.error('[상품명 기반 질문글 생성] 설계서 자동 분석 오류:', analyzeError)
+              // 분석 실패해도 질문글 생성은 성공한 것으로 처리
+              // 사용자에게는 조용히 넘어가고, 설계서 이미지는 이미 설정되어 있음
+            }
+          }, 500)
+        }
+
+        // 메시지 구성 (설계서 이미지와 답변 강조 포인트 포함 여부에 따라)
+        let message = ''
+        if (data.designSheetImage) {
+          message = `질문글, 답변 강조 포인트, 설계서 이미지가 자동으로 생성되어 입력되었습니다!\n상품명: ${productNameToSearch}\n\n설계서 이미지가 포함되어 있으며, 자동 분석이 진행 중입니다.`
+        } else if (data.sellingPoint) {
+          message = `질문글과 답변 강조 포인트가 자동으로 생성되어 입력되었습니다!\n상품명: ${productNameToSearch}`
+        } else {
+          message = `질문글이 자동으로 생성되어 핵심 고민 필드에 입력되었습니다!\n상품명: ${productNameToSearch}`
+        }
+        
+        alert(message)
+      } else {
+        throw new Error('질문글 생성 실패')
+      }
+    } catch (error: any) {
+      console.error('상품명 기반 질문글 생성 오류:', error)
+      alert('질문글 생성 중 오류가 발생했습니다: ' + (error.message || '알 수 없는 오류'))
+    } finally {
+      clearInterval(progressInterval)
+      setIsGeneratingQuestionFromProduct(false)
+      setProgress(0)
+      setTimeout(() => {
+        setProgress(0)
+      }, 500)
+    }
   }
 
   // 제거됨: Q&A 3개 세트 기능 제거로 인해 handleGenerateQAByNumber 함수 제거
@@ -4738,6 +5041,53 @@ function QAGenerator({
     if (!generatedAnswer) return
     navigator.clipboard.writeText(generatedAnswer)
     alert('답변이 클립보드에 복사되었습니다!')
+  }
+
+  // 전체 복사 (답변 + 연락처 정보)
+  const handleCopyFullAnswer = () => {
+    if (!generatedAnswer) return
+    
+    let fullText = generatedAnswer
+    
+    // 연락처 정보가 활성화되어 있고 정보가 있으면 추가
+    if (contactInfo.enabled && (contactInfo.phone || contactInfo.kakao1on1 || contactInfo.kakaoOpenChat)) {
+      fullText += '\n\n'
+      
+      if (contactInfo.greeting) {
+        fullText += `${contactInfo.greeting} ${contactInfo.emoji || ''}\n`
+      }
+      if (contactInfo.greeting2) {
+        fullText += `${contactInfo.greeting2}\n`
+      }
+      
+      if (contactInfo.kakao1on1) {
+        fullText += `\n💬 카카오톡 1:1 상담 바로가기\n${contactInfo.kakao1on1}\n`
+      } else if (contactInfo.kakaoOpenChat) {
+        fullText += `\n💬 카카오톡 오픈채팅 바로가기\n${contactInfo.kakaoOpenChat}\n`
+      }
+      
+      if (contactInfo.phone) {
+        fullText += `\n📞 연락처: ${contactInfo.phone}`
+      }
+    }
+    
+    navigator.clipboard.writeText(fullText)
+    alert('답변과 연락처 정보가 클립보드에 복사되었습니다!')
+  }
+
+  // 연락처 정보 텍스트 생성 (표시용)
+  const getContactInfoText = () => {
+    if (!contactInfo.enabled || (!contactInfo.phone && !contactInfo.kakao1on1 && !contactInfo.kakaoOpenChat)) {
+      return null
+    }
+    
+    return {
+      greeting: contactInfo.greeting ? `${contactInfo.greeting} ${contactInfo.emoji || ''}` : '',
+      greeting2: contactInfo.greeting2 || '',
+      kakao1on1: contactInfo.kakao1on1 || '',
+      kakaoOpenChat: contactInfo.kakaoOpenChat || '',
+      phone: contactInfo.phone || ''
+    }
   }
 
   const handleRegenerateQuestion = async () => {
@@ -5060,7 +5410,21 @@ function QAGenerator({
 
         {/* 입력 폼 */}
         <div className="grid md:grid-cols-2 gap-6 mb-6">
-          <div className="space-y-4">
+          {/* 왼쪽 컬럼: 질문 입력 (모바일용) */}
+          <div className="space-y-4 border-l-4 border-blue-500 dark:border-blue-400 bg-blue-50/30 dark:bg-blue-900/20 rounded-r-lg p-4">
+            {/* 모바일용 안내 */}
+            <div className="mb-4 flex items-center gap-2 bg-blue-100 dark:bg-blue-900/40 rounded-lg p-3 border border-blue-200 dark:border-blue-700">
+              <Smartphone className="w-5 h-5 text-blue-600 dark:text-blue-400 flex-shrink-0" />
+              <div>
+                <div className="text-sm font-bold text-blue-800 dark:text-blue-200">
+                  📱 모바일용 - 고객 질문
+                </div>
+                <div className="text-xs text-blue-600 dark:text-blue-300 mt-0.5">
+                  고객 질문은 모바일(핸드폰)에서 올려주세요
+                </div>
+              </div>
+            </div>
+
             <div>
               <div className="flex items-center justify-between mb-2">
                 <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200">
@@ -5119,7 +5483,8 @@ function QAGenerator({
                 name="productName"
                 value={qaFormData.productName}
                 onChange={handleQAChange}
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500"
+                disabled={isGeneratingQuestionFromProduct}
+                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 disabled:opacity-50 disabled:cursor-not-allowed"
                 placeholder="예: KB손해보험 금쪽같은자녀보험 Plus"
               />
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
@@ -5136,7 +5501,8 @@ function QAGenerator({
                 name="targetPersona"
                 value={qaFormData.targetPersona}
                 onChange={handleQAChange}
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500"
+                disabled={isGeneratingQuestionFromProduct}
+                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 disabled:opacity-50 disabled:cursor-not-allowed"
                 placeholder="예: 30대 직장인 남성"
               />
               {qaFormData.targetPersona && qaFormData.targetPersona.trim().length < 5 && (
@@ -5201,10 +5567,10 @@ function QAGenerator({
                     isGeneratingField.field === 'worryPoint' 
                       ? 'border-blue-400 dark:border-blue-500 bg-blue-50/30 dark:bg-blue-900/20' 
                       : 'border-gray-300 dark:border-gray-600'
-                  }`}
+                  } ${isGeneratingQuestionFromProduct ? 'opacity-50 cursor-not-allowed' : ''}`}
                   rows={3}
                   placeholder="예: 보험료가 적당한지, 보장 범위가 충분한지 궁금합니다"
-                  disabled={isGeneratingField.field === 'worryPoint'}
+                  disabled={isGeneratingField.field === 'worryPoint' || isGeneratingQuestionFromProduct}
                 />
                 {isGeneratingField.field === 'worryPoint' && (
                   <div className="absolute inset-0 bg-blue-50/50 dark:bg-blue-900/30 rounded-lg flex items-center justify-center backdrop-blur-sm">
@@ -5252,12 +5618,42 @@ function QAGenerator({
                 >
                   {qaFormData.designSheetImage ? (
                     <div className="space-y-2">
-                      <div className="text-green-600 dark:text-green-400 font-semibold">✓ 설계서 이미지 첨부됨</div>
+                      <div className="flex items-center justify-between">
+                        <div className="text-green-600 dark:text-green-400 font-semibold">✓ 설계서 이미지 첨부됨</div>
+                        {qaFormData.designSheetImageUrl && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              if (!qaFormData.designSheetImageUrl) return
+                              
+                              // 이미지 다운로드
+                              const link = document.createElement('a')
+                              link.href = qaFormData.designSheetImageUrl
+                              const url = qaFormData.designSheetImageUrl
+                              const fileExtension = url.endsWith('.pdf') ? '.pdf' : url.match(/\.(jpg|jpeg|png|gif|webp)$/i)?.[0] || '.jpg'
+                              link.download = qaFormData.designSheetImageTitle || `설계서_${qaFormData.productName || '이미지'}_${new Date().getTime()}${fileExtension}`
+                              link.target = '_blank'
+                              document.body.appendChild(link)
+                              link.click()
+                              document.body.removeChild(link)
+                            }}
+                            className="px-2 py-1 text-xs bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors dark:bg-blue-600 dark:hover:bg-blue-700"
+                            title="원본 이미지 다운로드"
+                          >
+                            📥 다운로드
+                          </button>
+                        )}
+                      </div>
                       <img 
                         src={qaFormData.designSheetImage} 
                         alt="설계서 미리보기" 
                         className="max-w-full max-h-32 mx-auto rounded border border-gray-300 dark:border-gray-600"
                       />
+                      {qaFormData.designSheetImageTitle && (
+                        <div className="text-xs text-gray-500 dark:text-gray-400 truncate" title={qaFormData.designSheetImageTitle}>
+                          {qaFormData.designSheetImageTitle}
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <div className="space-y-2">
@@ -5289,7 +5685,21 @@ function QAGenerator({
             </div>
           </div>
 
-          <div className="space-y-4">
+          {/* 오른쪽 컬럼: 답변 생성 (PC용) */}
+          <div className="space-y-4 border-l-4 border-purple-500 dark:border-purple-400 bg-purple-50/30 dark:bg-purple-900/20 rounded-r-lg p-4">
+            {/* PC용 안내 */}
+            <div className="mb-4 flex items-center gap-2 bg-purple-100 dark:bg-purple-900/40 rounded-lg p-3 border border-purple-200 dark:border-purple-700">
+              <Monitor className="w-5 h-5 text-purple-600 dark:text-purple-400 flex-shrink-0" />
+              <div>
+                <div className="text-sm font-bold text-purple-800 dark:text-purple-200">
+                  💻 PC용 - 설계사 답변
+                </div>
+                <div className="text-xs text-purple-600 dark:text-purple-300 mt-0.5">
+                  설계사 답변은 PC에서 작성해주세요
+                </div>
+              </div>
+            </div>
+
             <div>
               <div className="flex items-center justify-between mb-2">
                 <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200">
@@ -5345,10 +5755,10 @@ function QAGenerator({
                     (isGeneratingField.field === 'sellingPoint' || isGeneratingSellingPoint)
                       ? 'border-purple-400 dark:border-purple-500 bg-purple-50/30 dark:bg-purple-900/20' 
                       : 'border-gray-300 dark:border-gray-600'
-                  }`}
+                  } ${isGeneratingQuestionFromProduct ? 'opacity-50 cursor-not-allowed' : ''}`}
                   rows={3}
                   placeholder="예: 보장 범위가 넓고, 보험료 대비 합리적이며, 특약 구성이 탄탄함"
-                  disabled={isGeneratingField.field === 'sellingPoint' || isGeneratingSellingPoint}
+                  disabled={isGeneratingField.field === 'sellingPoint' || isGeneratingSellingPoint || isGeneratingQuestionFromProduct}
                 />
                 {(isGeneratingField.field === 'sellingPoint' || isGeneratingSellingPoint) && (
                   <div className="absolute inset-0 bg-purple-50/50 dark:bg-purple-900/30 rounded-lg flex items-center justify-center backdrop-blur-sm">
@@ -5371,7 +5781,8 @@ function QAGenerator({
                 name="answerTone"
                 value={qaFormData.answerTone}
                 onChange={handleQAChange}
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-800 text-black dark:text-white"
+                disabled={isGeneratingQuestionFromProduct}
+                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-800 text-black dark:text-white disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <option value="friendly">친절한</option>
                 <option value="expert">전문적인</option>
@@ -5438,12 +5849,42 @@ function QAGenerator({
                 >
                   {qaFormData.designSheetImage ? (
                     <div className="space-y-2">
-                      <div className="text-green-600 dark:text-green-400 font-semibold">✓ 설계서 이미지 첨부됨</div>
+                      <div className="flex items-center justify-between">
+                        <div className="text-green-600 dark:text-green-400 font-semibold">✓ 설계서 이미지 첨부됨</div>
+                        {qaFormData.designSheetImageUrl && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              if (!qaFormData.designSheetImageUrl) return
+                              
+                              // 이미지 다운로드
+                              const link = document.createElement('a')
+                              link.href = qaFormData.designSheetImageUrl
+                              const url = qaFormData.designSheetImageUrl
+                              const fileExtension = url.endsWith('.pdf') ? '.pdf' : url.match(/\.(jpg|jpeg|png|gif|webp)$/i)?.[0] || '.jpg'
+                              link.download = qaFormData.designSheetImageTitle || `설계서_${qaFormData.productName || '이미지'}_${new Date().getTime()}${fileExtension}`
+                              link.target = '_blank'
+                              document.body.appendChild(link)
+                              link.click()
+                              document.body.removeChild(link)
+                            }}
+                            className="px-2 py-1 text-xs bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors dark:bg-blue-600 dark:hover:bg-blue-700"
+                            title="원본 이미지 다운로드"
+                          >
+                            📥 다운로드
+                          </button>
+                        )}
+                      </div>
                       <img 
                         src={qaFormData.designSheetImage} 
                         alt="설계서 미리보기" 
                         className="max-w-full max-h-32 mx-auto rounded border border-gray-300 dark:border-gray-600"
                       />
+                      {qaFormData.designSheetImageTitle && (
+                        <div className="text-xs text-gray-500 dark:text-gray-400 truncate" title={qaFormData.designSheetImageTitle}>
+                          {qaFormData.designSheetImageTitle}
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <div className="space-y-2">
@@ -5478,13 +5919,165 @@ function QAGenerator({
 
         {/* Q&A 생성 모드 선택 제거됨 - 단일 Q&A만 생성 */}
 
+        {/* 연락처 정보 설정 섹션 */}
+        <div className="mb-6 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+          <button
+            onClick={() => setShowContactInfoSettings(!showContactInfoSettings)}
+            className="w-full px-4 py-3 bg-gray-50 dark:bg-slate-700 hover:bg-gray-100 dark:hover:bg-slate-600 transition-colors flex items-center justify-between text-left"
+          >
+            <div className="flex items-center gap-2">
+              <LinkIcon className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+              <span className="font-semibold text-gray-800 dark:text-white">
+                연락처 정보 설정 (답변 하단에 표시)
+              </span>
+            </div>
+            <span className="text-sm text-gray-500 dark:text-gray-400">
+              {showContactInfoSettings ? '접기 ▲' : '펼치기 ▼'}
+            </span>
+          </button>
+          
+          {showContactInfoSettings && (
+            <div className="p-4 bg-white dark:bg-slate-800 space-y-4 border-t border-gray-200 dark:border-gray-700">
+              {/* 체크박스만 먼저 표시 */}
+              <div className="flex items-center gap-2 mb-4 pb-4 border-b border-gray-200 dark:border-gray-700">
+                <input
+                  type="checkbox"
+                  id="contactInfoEnabled"
+                  checked={contactInfo.enabled}
+                  onChange={(e) => setContactInfo(prev => ({ ...prev, enabled: e.target.checked }))}
+                  className="w-4 h-4 text-purple-600 rounded focus:ring-purple-500"
+                />
+                <label htmlFor="contactInfoEnabled" className="text-sm font-semibold text-gray-700 dark:text-gray-200 cursor-pointer">
+                  답변 하단에 연락처 정보 추가
+                </label>
+              </div>
+              
+              {/* 입력 필드들은 항상 표시 (체크박스와 독립적으로) */}
+              <div className="grid md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">
+                    이모티콘
+                  </label>
+                  <input
+                    type="text"
+                    value={contactInfo.emoji}
+                    onChange={(e) => setContactInfo(prev => ({ ...prev, emoji: e.target.value }))}
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white dark:bg-gray-800 text-black dark:text-white"
+                    placeholder="🐾"
+                    maxLength={5}
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">
+                    전화번호
+                  </label>
+                  <input
+                    type="text"
+                    value={contactInfo.phone}
+                    onChange={(e) => {
+                      const formatted = formatPhoneNumber(e.target.value)
+                      setContactInfo(prev => ({ ...prev, phone: formatted }))
+                    }}
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white dark:bg-gray-800 text-black dark:text-white"
+                    placeholder="010-xxxx-xxxx"
+                    maxLength={13}
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">
+                    안내 문구 1
+                  </label>
+                  <input
+                    type="text"
+                    value={contactInfo.greeting}
+                    onChange={(e) => setContactInfo(prev => ({ ...prev, greeting: e.target.value }))}
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white dark:bg-gray-800 text-black dark:text-white"
+                    placeholder="상담요청은 언제나 환영합니다"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">
+                    안내 문구 2
+                  </label>
+                  <input
+                    type="text"
+                    value={contactInfo.greeting2}
+                    onChange={(e) => setContactInfo(prev => ({ ...prev, greeting2: e.target.value }))}
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white dark:bg-gray-800 text-black dark:text-white"
+                    placeholder="편하게 문의 주세요~~"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">
+                    카카오톡 오픈채팅 링크
+                  </label>
+                  <input
+                    type="text"
+                    value={contactInfo.kakaoOpenChat}
+                    onChange={(e) => setContactInfo(prev => ({ ...prev, kakaoOpenChat: e.target.value }))}
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white dark:bg-gray-800 text-black dark:text-white"
+                    placeholder="https://open.kakao.com/o/..."
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">
+                    카카오톡 1:1 상담 링크
+                  </label>
+                  <input
+                    type="text"
+                    value={contactInfo.kakao1on1}
+                    onChange={(e) => setContactInfo(prev => ({ ...prev, kakao1on1: e.target.value }))}
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white dark:bg-gray-800 text-black dark:text-white"
+                    placeholder="https://open.kakao.com/o/..."
+                  />
+                </div>
+              </div>
+              
+              {/* 저장 버튼은 항상 표시 (체크박스만 체크하고 저장도 가능) */}
+              <div className="flex gap-2 pt-2 border-t border-gray-200 dark:border-gray-700">
+                <button
+                  onClick={saveContactInfo}
+                  disabled={isSavingContactInfo}
+                  className="px-4 py-2 bg-purple-600 text-white font-semibold rounded-lg hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+                >
+                  {isSavingContactInfo ? (
+                    <>
+                      <Clock className="w-4 h-4 animate-spin" />
+                      저장 중...
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-4 h-4" />
+                      저장
+                    </>
+                  )}
+                </button>
+                <button
+                  onClick={() => {
+                    // 초기화: 저장된 정보 다시 로드
+                    loadContactInfo()
+                  }}
+                  className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 font-semibold rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
+                >
+                  저장된 정보 불러오기
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+
         {/* 전체 생성 버튼 (하위 호환성) */}
         <div className="flex gap-3">
-          <button
-            onClick={handleGenerateQA}
-            disabled={isGenerating || !qaFormData.productName || !qaFormData.worryPoint || !qaFormData.sellingPoint}
-            className="flex-1 py-2 bg-gradient-to-r from-gray-600 to-gray-700 text-white font-semibold rounded-lg hover:from-gray-700 hover:to-gray-800 disabled:from-gray-300 disabled:to-gray-400 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2 text-sm"
-          >
+            <button
+              onClick={handleGenerateQA}
+              disabled={isGenerating || !qaFormData.productName || !qaFormData.worryPoint || !qaFormData.sellingPoint}
+              className="flex-1 py-2 bg-gradient-to-r from-purple-600 to-purple-700 text-white font-semibold rounded-lg hover:from-purple-700 hover:to-purple-800 disabled:from-gray-300 disabled:to-gray-400 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2 text-sm"
+            >
               {isGenerating ? (
                 <>
                   <Clock className="w-4 h-4 animate-spin" />
@@ -5496,17 +6089,66 @@ function QAGenerator({
                   Q&A 생성하기
                 </>
               )}
-          </button>
-          <button
-            onClick={handleRandomGenerate}
-            disabled={isGenerating || isAnalyzing}
-            className="px-6 py-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white font-bold rounded-lg hover:from-purple-600 hover:to-pink-600 disabled:from-gray-300 disabled:to-gray-400 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2 whitespace-nowrap text-sm"
-          >
-            <Sparkles className="w-4 h-4" />
-            🎲 정말 귀찮다
-          </button>
+            </button>
+            <button
+              onClick={handleRandomGenerate}
+              disabled={isGenerating || isAnalyzing || isGeneratingQuestionFromProduct}
+              className="px-6 py-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white font-bold rounded-lg hover:from-purple-600 hover:to-pink-600 disabled:from-gray-300 disabled:to-gray-400 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2 whitespace-nowrap text-sm relative"
+            >
+              {isGeneratingQuestionFromProduct ? (
+                <>
+                  <Clock className="w-4 h-4 animate-spin" />
+                  생성 중... ({progress}%)
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-4 h-4" />
+                  🎲 정말 귀찮다
+                </>
+              )}
+            </button>
         </div>
       </div>
+
+      {/* 로딩 오버레이 (정말 귀찮다 버튼 클릭 시) */}
+      {isGeneratingQuestionFromProduct && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center">
+          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl p-8 max-w-md w-full mx-4">
+            {/* 큰 로딩 스피너 */}
+            <div className="flex flex-col items-center justify-center space-y-6">
+              <div className="relative w-20 h-20">
+                <div className="absolute inset-0 border-4 border-purple-200 dark:border-purple-800 rounded-full"></div>
+                <div className="absolute inset-0 border-4 border-transparent border-t-purple-600 dark:border-t-purple-400 rounded-full animate-spin"></div>
+              </div>
+              
+              {/* 진행률 표시 */}
+              <div className="w-full space-y-2">
+                <div className="flex items-center justify-between text-sm font-semibold text-gray-700 dark:text-gray-300">
+                  <span>질문 생성 중입니다...</span>
+                  <span className="text-purple-600 dark:text-purple-400">{progress}%</span>
+                </div>
+                {/* 프로그레스 바 */}
+                <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-3 overflow-hidden">
+                  <div 
+                    className="bg-gradient-to-r from-purple-500 to-pink-500 h-full rounded-full transition-all duration-300 ease-out"
+                    style={{ width: `${progress}%` }}
+                  ></div>
+                </div>
+              </div>
+              
+              {/* 진행 단계 표시 */}
+              <div className="text-center space-y-1">
+                <p className="text-sm text-gray-600 dark:text-gray-400">
+                  {progress < 30 ? '상품 검색 중...' : progress < 70 ? '질문 생성 중...' : '답변 포인트 생성 중...'}
+                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-500">
+                  잠시만 기다려주세요
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 결과 미리보기 */}
       {(generatedQuestion || generatedAnswer) && (
@@ -5580,42 +6222,66 @@ function QAGenerator({
               position: 'relative',
               zIndex: 1
             }}>
-              {/* 질문 영역 */}
-              <div className="qa-question-container bg-white rounded-xl shadow-lg p-6 border border-gray-200" style={{ 
+              {/* 질문 영역 - 모바일용 */}
+              <div className="qa-question-container bg-white dark:bg-slate-800 rounded-xl shadow-lg p-6 border-l-4 border-blue-500 dark:border-blue-400 bg-blue-50/20 dark:bg-blue-900/10" style={{ 
                 contain: 'layout style paint',
                 isolation: 'isolate',
                 position: 'relative',
                 zIndex: 1
               }}>
-                <div className="flex justify-between items-center mb-6 pb-4 border-b border-gray-200">
-                  <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                <div className="flex items-center gap-2 mb-3 bg-blue-100 dark:bg-blue-900/40 rounded-lg p-2 border border-blue-200 dark:border-blue-700">
+                  <Smartphone className="w-4 h-4 text-blue-600 dark:text-blue-400 flex-shrink-0" />
+                  <span className="text-xs font-semibold text-blue-700 dark:text-blue-300">
+                    📱 모바일용 - 고객 질문글
+                  </span>
+                </div>
+                <div className="flex justify-between items-center mb-6 pb-4 border-b border-gray-200 dark:border-gray-700">
+                  <h3 className="text-lg font-bold text-gray-800 dark:text-white flex items-center gap-2">
                     <MessageSquare className="w-5 h-5 text-blue-600" />
                     질문글
                   </h3>
                   <div className="flex gap-2">
                     <button
                       onClick={handleRegenerateQuestion}
-                      className="px-3 py-1.5 bg-gray-600 text-white text-xs rounded-md hover:bg-gray-700 transition-colors"
+                      disabled={isGeneratingQuestionFromProduct}
+                      className="px-3 py-1.5 bg-gray-600 text-white text-xs rounded-md hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       🔄 재생성
                     </button>
                     <button
                       onClick={handleCopyQuestion}
-                      className="px-3 py-1.5 bg-blue-600 text-white text-xs rounded-md hover:bg-blue-700 transition-colors flex items-center gap-1"
+                      disabled={isGeneratingQuestionFromProduct}
+                      className="px-3 py-1.5 bg-blue-600 text-white text-xs rounded-md hover:bg-blue-700 transition-colors flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       <Copy className="w-3 h-3" />
                       복사
                     </button>
                   </div>
                 </div>
-                {generatedQuestion ? (
-                  <div className="text-gray-800">
+                {isGeneratingQuestionFromProduct ? (
+                  // 스켈레톤 로딩 UI
+                  <div className="space-y-4 animate-pulse">
+                    {/* 제목 스켈레톤 */}
+                    <div className="h-7 bg-gray-200 dark:bg-gray-700 rounded w-3/4"></div>
+                    {/* 구분선 */}
+                    <div className="h-px bg-gray-200 dark:bg-gray-700"></div>
+                    {/* 본문 스켈레톤 */}
+                    <div className="space-y-3">
+                      <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-full"></div>
+                      <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-5/6"></div>
+                      <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-4/5"></div>
+                      <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-full"></div>
+                      <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-3/4"></div>
+                    </div>
+                  </div>
+                ) : generatedQuestion ? (
+                  <div className="text-gray-800 dark:text-gray-200">
                     {/* 제목 */}
-                    <h4 className="font-bold text-gray-900 text-xl mb-4">
+                    <h4 className="font-bold text-gray-900 dark:text-white text-xl mb-4">
                       {generatedQuestion.title}
                     </h4>
                     {/* 제목과 본문 구분선 */}
-                    <div className="mb-6 h-px bg-gradient-to-r from-transparent via-gray-300 to-transparent"></div>
+                    <div className="mb-6 h-px bg-gradient-to-r from-transparent via-gray-300 dark:via-gray-600 to-transparent"></div>
                     {/* 본문 - 문단별로 깔끔하게 표시 (제목과 중복되는 첫 부분 제거) */}
                     <div className="space-y-5">
                       {(() => {
@@ -5627,45 +6293,81 @@ function QAGenerator({
                         // 본문을 문단으로 분리
                         const paragraphs = content.split(/\n\n+/).filter(p => p.trim())
                         
-                        // 첫 문단이 제목과 동일하거나 제목을 포함하면 제거
+                        // 제목과 본문의 중복 제거 (더 강화된 로직)
                         let filteredParagraphs = paragraphs
                         if (paragraphs.length > 0) {
                           const firstParagraph = paragraphs[0].trim()
                           const titleTrimmed = generatedQuestion.title.trim()
                           
-                          // 첫 문단이 제목과 동일하거나 제목으로 시작하면 제거
-                          if (titleTrimmed && (
-                              firstParagraph === titleTrimmed || 
+                          // 제목에서 핵심 키워드 추출 (상품명, 질문 내용 등)
+                          const titleWords = titleTrimmed
+                            .replace(/[?~!]/g, '')
+                            .split(/\s+/)
+                            .filter(w => w.length > 2) // 2자 이상인 단어만
+                          
+                          // 첫 문단이 제목과 중복되는지 확인
+                          const isDuplicate = titleTrimmed && (
+                              // 완전히 동일하거나
+                              firstParagraph === titleTrimmed ||
+                              // 제목으로 시작하거나
                               firstParagraph.startsWith(titleTrimmed) ||
-                              titleTrimmed.includes(firstParagraph.substring(0, Math.min(50, firstParagraph.length))) ||
-                              // 제목의 첫 30자와 본문 첫 부분이 유사하면 제거
-                              (titleTrimmed.length > 30 && firstParagraph.startsWith(titleTrimmed.substring(0, 30)))
-                          )) {
-                            filteredParagraphs = paragraphs.slice(1)
+                              // 제목의 첫 30자 이상이 본문 첫 부분과 일치하거나
+                              (titleTrimmed.length > 30 && firstParagraph.startsWith(titleTrimmed.substring(0, 30))) ||
+                              // 제목의 마지막 부분이 본문 첫 부분에 포함되거나 (예: 제목이 "...이거 괜찮나요?제가 나이가"로 끝나고 본문이 "제가 나이가..."로 시작)
+                              (titleTrimmed.length > 20 && firstParagraph.includes(titleTrimmed.substring(Math.max(0, titleTrimmed.length - 20)))) ||
+                              // 제목의 핵심 키워드들이 본문 첫 문장에 순서대로 많이 나타나거나
+                              (titleWords.length > 0 && titleWords.filter(word => firstParagraph.includes(word)).length >= Math.min(3, titleWords.length))
+                          )
+                          
+                          if (isDuplicate) {
+                            // 중복되는 부분 제거 시도
+                            // 제목의 마지막 부분(마지막 20자)을 본문에서 찾아 제거
+                            if (titleTrimmed.length > 20) {
+                              const titleEnd = titleTrimmed.substring(Math.max(0, titleTrimmed.length - 20))
+                              if (firstParagraph.startsWith(titleEnd)) {
+                                const cleaned = firstParagraph.substring(titleEnd.length).trim()
+                                if (cleaned.length > 10) { // 충분히 남아있으면
+                                  filteredParagraphs = [cleaned, ...paragraphs.slice(1)]
+                                } else {
+                                  filteredParagraphs = paragraphs.slice(1) // 너무 짧으면 그냥 제거
+                                }
+                              } else {
+                                filteredParagraphs = paragraphs.slice(1)
+                              }
+                            } else {
+                              filteredParagraphs = paragraphs.slice(1)
+                            }
                           }
                         }
                         
                         // 필터링 후에도 문단이 없으면 원본 본문 사용 (단, 제목 부분은 제거)
                         if (filteredParagraphs.length === 0 && content.trim().length > 0) {
                           const titleTrimmed = generatedQuestion.title.trim()
-                          if (titleTrimmed && content.startsWith(titleTrimmed)) {
+                          // 제목의 마지막 부분부터 제거 시도
+                          if (titleTrimmed.length > 20) {
+                            const titleEnd = titleTrimmed.substring(Math.max(0, titleTrimmed.length - 20))
+                            if (content.startsWith(titleEnd)) {
+                              content = content.substring(titleEnd.length).trim()
+                            } else if (content.startsWith(titleTrimmed)) {
+                              content = content.substring(titleTrimmed.length).trim()
+                            }
+                          } else if (content.startsWith(titleTrimmed)) {
                             content = content.substring(titleTrimmed.length).trim()
-                            content = content.replace(/^[\s\n]+/, '').trim()
                           }
+                          content = content.replace(/^[\s\n]+/, '').trim()
                           filteredParagraphs = content.split(/\n\n+/).filter(p => p.trim())
                         }
                         
                         return filteredParagraphs.map((paragraph, idx) => (
                           <p
                             key={idx}
-                            className="mb-5 last:mb-0"
+                            className="mb-5 last:mb-0 text-gray-800 dark:text-gray-200"
                             style={{
                               whiteSpace: 'pre-wrap',
                               wordBreak: 'break-word',
                               overflowWrap: 'break-word',
                               lineHeight: '1.95',
                               fontSize: '15px',
-                              color: '#374151',
                               maxWidth: '100%',
                               letterSpacing: '0.01em',
                               paddingBottom: '0'
@@ -5678,21 +6380,27 @@ function QAGenerator({
                     </div>
                   </div>
                 ) : (
-                  <div className="text-center py-12 text-gray-400">
+                  <div className="text-center py-12 text-gray-400 dark:text-gray-500">
                     질문 생성 중...
                   </div>
                 )}
               </div>
 
-              {/* 답변 영역 */}
-              <div className="qa-answer-container bg-white rounded-xl shadow-lg p-6 border border-gray-200" style={{ 
+              {/* 답변 영역 - PC용 */}
+              <div className="qa-answer-container bg-white dark:bg-slate-800 rounded-xl shadow-lg p-6 border-l-4 border-purple-500 dark:border-purple-400 bg-purple-50/20 dark:bg-purple-900/10" style={{ 
                 contain: 'layout style paint',
                 isolation: 'isolate',
                 position: 'relative',
                 zIndex: 1
               }}>
-                <div className="flex justify-between items-center mb-6 pb-4 border-b border-gray-200">
-                  <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                <div className="flex items-center gap-2 mb-3 bg-purple-100 dark:bg-purple-900/40 rounded-lg p-2 border border-purple-200 dark:border-purple-700">
+                  <Monitor className="w-4 h-4 text-purple-600 dark:text-purple-400 flex-shrink-0" />
+                  <span className="text-xs font-semibold text-purple-700 dark:text-purple-300">
+                    💻 PC용 - 설계사 답변
+                  </span>
+                </div>
+                <div className="flex justify-between items-center mb-6 pb-4 border-b border-gray-200 dark:border-gray-700">
+                  <h3 className="text-lg font-bold text-gray-800 dark:text-white flex items-center gap-2">
                     <UserCheck className="w-5 h-5 text-indigo-600" />
                     전문가 답변
                   </h3>
@@ -5708,36 +6416,111 @@ function QAGenerator({
                       onClick={handleCopyAnswer}
                       disabled={!generatedAnswer}
                       className="px-3 py-1.5 bg-indigo-600 text-white text-xs rounded-md hover:bg-indigo-700 transition-colors flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
+                      title="답변만 복사"
                     >
                       <Copy className="w-3 h-3" />
-                      복사
+                      답변만
+                    </button>
+                    <button
+                      onClick={handleCopyFullAnswer}
+                      disabled={!generatedAnswer}
+                      className="px-3 py-1.5 bg-purple-600 text-white text-xs rounded-md hover:bg-purple-700 transition-colors flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
+                      title="답변 + 연락처 정보 전체 복사"
+                    >
+                      <Copy className="w-3 h-3" />
+                      전체 복사
                     </button>
                   </div>
                 </div>
                 {generatedAnswer ? (
-                  <div className="text-gray-800">
-                    {generatedAnswer.split(/\n\n+/).filter(p => p.trim()).map((paragraph, idx) => (
-                      <p
-                        key={idx}
-                        className="mb-5 last:mb-0"
-                        style={{
-                          whiteSpace: 'pre-wrap',
-                          wordBreak: 'break-word',
-                          overflowWrap: 'break-word',
-                          lineHeight: '1.95',
-                          fontSize: '15px',
-                          color: '#374151',
-                          maxWidth: '100%',
-                          letterSpacing: '0.01em',
-                          paddingBottom: '0'
-                        }}
-                      >
-                        {paragraph.trim()}
-                      </p>
-                    ))}
-                  </div>
+                  <>
+                    <div className="text-gray-800 dark:text-gray-200">
+                      {generatedAnswer.split(/\n\n+/).filter(p => p.trim()).map((paragraph, idx) => (
+                        <p
+                          key={idx}
+                          className="mb-5 last:mb-0 text-gray-800 dark:text-gray-200"
+                          style={{
+                            whiteSpace: 'pre-wrap',
+                            wordBreak: 'break-word',
+                            overflowWrap: 'break-word',
+                            lineHeight: '1.95',
+                            fontSize: '15px',
+                            maxWidth: '100%',
+                            letterSpacing: '0.01em',
+                            paddingBottom: '0'
+                          }}
+                        >
+                          {paragraph.trim()}
+                        </p>
+                      ))}
+                    </div>
+                    
+                    {/* 연락처 정보 (활성화되어 있고 정보가 있을 때만 표시) */}
+                    {(() => {
+                      const contactInfoText = getContactInfoText()
+                      if (!contactInfoText) return null
+                      
+                      return (
+                        <div className="mt-8 pt-6 border-t border-gray-200 dark:border-gray-700">
+                          {contactInfoText.greeting && (
+                            <p className="text-gray-700 dark:text-gray-300 mb-2 text-base font-medium">
+                              {contactInfoText.greeting}
+                            </p>
+                          )}
+                          {contactInfoText.greeting2 && (
+                            <p className="text-gray-600 dark:text-gray-400 mb-4 text-sm">
+                              {contactInfoText.greeting2}
+                            </p>
+                          )}
+                          
+                          {contactInfoText.kakao1on1 && (
+                            <div className="mb-3">
+                              <p className="text-gray-700 dark:text-gray-300 text-sm font-medium mb-1">
+                                💬 카카오톡 1:1 상담 바로가기
+                              </p>
+                              <a 
+                                href={contactInfoText.kakao1on1} 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="text-purple-600 dark:text-purple-400 hover:underline text-sm break-all"
+                              >
+                                {contactInfoText.kakao1on1}
+                              </a>
+                            </div>
+                          )}
+                          
+                          {!contactInfoText.kakao1on1 && contactInfoText.kakaoOpenChat && (
+                            <div className="mb-3">
+                              <p className="text-gray-700 dark:text-gray-300 text-sm font-medium mb-1">
+                                💬 카카오톡 오픈채팅 바로가기
+                              </p>
+                              <a 
+                                href={contactInfoText.kakaoOpenChat} 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="text-purple-600 dark:text-purple-400 hover:underline text-sm break-all"
+                              >
+                                {contactInfoText.kakaoOpenChat}
+                              </a>
+                            </div>
+                          )}
+                          
+                          {contactInfoText.phone && (
+                            <div>
+                              <p className="text-gray-700 dark:text-gray-300 text-sm font-medium mb-1">
+                                📞 연락처
+                              </p>
+                              <p className="text-gray-800 dark:text-gray-200 text-sm">
+                                {contactInfoText.phone}
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })()}
+                  </>
                 ) : (
-                  <div className="text-center py-12 text-gray-400">
+                  <div className="text-center py-12 text-gray-400 dark:text-gray-500">
                     {generatedQuestion ? '답변 생성 중...' : '질문을 먼저 생성해주세요'}
                   </div>
                 )}
@@ -5748,9 +6531,9 @@ function QAGenerator({
         
         {/* 대화형 스레드 (카카오톡/슬랙 스타일) */}
         {conversationThread.length > 0 && (
-          <div className="bg-white rounded-xl shadow-lg p-6 mt-6 border border-gray-200">
-            <div className="flex justify-between items-center mb-6 pb-4 border-b border-gray-200">
-              <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-lg p-6 mt-6 border border-gray-200 dark:border-gray-700">
+            <div className="flex justify-between items-center mb-6 pb-4 border-b border-gray-200 dark:border-gray-700">
+              <h3 className="text-lg font-bold text-gray-800 dark:text-white flex items-center gap-2">
                 <MessageSquare className="w-5 h-5 text-purple-600" />
                 💬 대화형 댓글 스레드 ({conversationThread.length}개)
               </h3>
@@ -5775,7 +6558,7 @@ function QAGenerator({
             </div>
             
             {/* 카카오톡/슬랙 스타일 채팅 컨테이너 (시각적 구분 강화) */}
-            <div className="bg-gradient-to-b from-gray-50 to-gray-100 rounded-lg p-6 max-h-[700px] overflow-y-auto">
+            <div className="bg-gradient-to-b from-gray-50 to-gray-100 dark:from-slate-700 dark:to-slate-800 rounded-lg p-6 max-h-[700px] overflow-y-auto">
               <div className="space-y-4">
                 {conversationThread.map((message, idx) => {
                   const isCustomer = message.role === 'customer'
@@ -5795,11 +6578,11 @@ function QAGenerator({
                         showAvatar ? 'mt-2' : 'mt-1'
                       }`}
                     >
-                      {/* 왼쪽: 고객 아바타 (왼쪽에만) */}
+                      {/* 왼쪽: 고객 아바타 (왼쪽에만) - 모바일용 */}
                       {isCustomer && (
                         <div className={`flex-shrink-0 ${showAvatar ? 'block' : 'invisible'}`}>
                           <div className="relative">
-                            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center text-white text-base font-bold shadow-lg ring-2 ring-blue-200 ring-offset-2">
+                            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center text-white text-base font-bold shadow-lg ring-2 ring-blue-200 ring-offset-2" title="📱 모바일용 - 고객 질문">
                               👤
                             </div>
                             {showAvatar && (
@@ -5814,12 +6597,24 @@ function QAGenerator({
                         {/* 이름 표시 (같은 역할이 연속될 때는 첫 메시지에만) */}
                         {showAvatar && (
                           <div className={`mb-2 ${isCustomer ? 'ml-1' : 'mr-1'}`}>
-                            <div className={`text-sm font-bold ${
-                              isCustomer ? 'text-blue-600' : 'text-indigo-600'
+                            <div className={`text-sm font-bold flex items-center gap-1 ${
+                              isCustomer ? 'text-blue-600 dark:text-blue-400' : 'text-purple-600 dark:text-purple-400'
                             }`}>
-                              {isCustomer ? customerName : '설계사'}
+                              {isCustomer ? (
+                                <>
+                                  <Smartphone className="w-3 h-3" />
+                                  <span>{customerName}</span>
+                                  <span className="text-xs font-normal text-blue-500 dark:text-blue-400">(모바일)</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Monitor className="w-3 h-3" />
+                                  <span>설계사</span>
+                                  <span className="text-xs font-normal text-purple-500 dark:text-purple-400">(PC)</span>
+                                </>
+                              )}
                             </div>
-                            <div className="text-xs text-gray-500">
+                            <div className="text-xs text-gray-500 dark:text-gray-400">
                               댓글 #{Math.ceil((message.step + 1) / 2)}
                             </div>
                           </div>
@@ -5828,21 +6623,19 @@ function QAGenerator({
                         {/* 말풍선 */}
                         <div className="group relative">
                           <div
-                            className={`rounded-2xl px-5 py-3 shadow-lg hover:shadow-xl transition-all duration-200 border ${
+                            className={`rounded-2xl px-5 py-3 shadow-lg hover:shadow-xl transition-all duration-200 ${
                               isCustomer
-                                ? 'bg-gradient-to-br from-blue-500 to-blue-600 text-white rounded-bl-sm border-blue-400'
-                                : 'bg-white text-gray-800 rounded-br-sm border-gray-300'
+                                ? 'bg-gradient-to-br from-blue-500 to-blue-600 text-white rounded-bl-sm'
+                                : 'bg-gradient-to-br from-purple-500 to-purple-600 text-white rounded-br-sm dark:from-purple-600 dark:to-purple-700'
                             } ${isGrouped ? (isCustomer ? 'rounded-tl-sm' : 'rounded-tr-sm') : ''}`}
                             style={{
                               wordBreak: 'break-word',
                               boxShadow: isCustomer 
                                 ? '0 4px 12px rgba(59, 130, 246, 0.3)' 
-                                : '0 4px 12px rgba(0, 0, 0, 0.1)'
+                                : '0 4px 12px rgba(147, 51, 234, 0.3)'
                             }}
                           >
-                            <p className={`text-sm whitespace-pre-wrap leading-relaxed ${
-                              isCustomer ? 'text-white' : 'text-gray-800'
-                            }`}>
+                            <p className="text-sm whitespace-pre-wrap leading-relaxed text-white">
                               {message.content}
                             </p>
                           </div>
@@ -5856,7 +6649,7 @@ function QAGenerator({
                             className={`absolute opacity-0 group-hover:opacity-100 transition-all duration-200 p-2 rounded-full ${
                               isCustomer 
                                 ? 'bg-white text-blue-600 shadow-lg -right-10 top-1/2 -translate-y-1/2' 
-                                : 'bg-gray-700 text-white shadow-lg -left-10 top-1/2 -translate-y-1/2'
+                                : 'bg-white text-purple-600 shadow-lg -left-10 top-1/2 -translate-y-1/2'
                             } hover:scale-110`}
                             title="복사"
                           >
@@ -5866,17 +6659,17 @@ function QAGenerator({
                         
                         {/* 댓글 번호 (아바타가 없을 때만) */}
                         {!showAvatar && (
-                          <div className={`text-xs text-gray-400 mt-1 px-2 ${isCustomer ? 'ml-1' : 'mr-1'}`}>
+                          <div className={`text-xs text-gray-400 dark:text-gray-500 mt-1 px-2 ${isCustomer ? 'ml-1' : 'mr-1'}`}>
                             #{Math.ceil((message.step + 1) / 2)}
                           </div>
                         )}
                       </div>
                       
-                      {/* 오른쪽: 설계사 아바타 (오른쪽에만) */}
+                      {/* 오른쪽: 설계사 아바타 (오른쪽에만) - PC용 */}
                       {!isCustomer && (
                         <div className={`flex-shrink-0 ${showAvatar ? 'block' : 'invisible'}`}>
                           <div className="relative">
-                            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white text-base font-bold shadow-lg ring-2 ring-indigo-200 ring-offset-2">
+                            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-purple-500 to-purple-600 dark:from-purple-600 dark:to-purple-700 flex items-center justify-center text-white text-base font-bold shadow-lg ring-2 ring-purple-200 dark:ring-purple-700 ring-offset-2" title="💻 PC용 - 설계사 답변">
                               👨‍💼
                             </div>
                             {showAvatar && (

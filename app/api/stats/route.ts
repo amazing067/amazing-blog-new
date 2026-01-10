@@ -136,6 +136,10 @@ export async function GET(request: NextRequest) {
           prompt: toNumber(process.env.GEMINI_FLASH_2_0_INPUT_COST_PER_1M, 0.10),
           completion: toNumber(process.env.GEMINI_FLASH_2_0_OUTPUT_COST_PER_1M, 0.40)
         },
+        'gemini-2.5-flash': {
+          prompt: toNumber(process.env.GEMINI_FLASH_2_5_INPUT_COST_PER_1M, 0.075),
+          completion: toNumber(process.env.GEMINI_FLASH_2_5_OUTPUT_COST_PER_1M, 0.30)
+        },
         'gemini-2.5-pro': {
           prompt: toNumber(process.env.GEMINI_PRO_2_5_INPUT_COST_PER_1M, 1.25),
           completion: toNumber(process.env.GEMINI_PRO_2_5_OUTPUT_COST_PER_1M, 10.00)

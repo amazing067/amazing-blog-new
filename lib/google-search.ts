@@ -9,6 +9,13 @@ export interface SearchResult {
   displayLink: string
 }
 
+export interface ImageSearchResult {
+  title: string
+  link: string
+  imageUrl: string
+  displayLink: string
+}
+
 export interface SearchResponse {
   success: boolean
   results: SearchResult[]
@@ -165,6 +172,67 @@ export async function searchTrustedSources(
   }
 
   return allResults.slice(0, maxResults)
+}
+
+/**
+ * Google Custom Search API로 이미지 검색 수행
+ */
+export async function searchGoogleImages(
+  query: string,
+  maxResults: number = 5
+): Promise<{ success: boolean; results: ImageSearchResult[]; error?: string }> {
+  const apiKey = process.env.GOOGLE_CUSTOM_SEARCH_API_KEY || process.env.GOOGLE_API_KEY
+  const searchEngineId = process.env.GOOGLE_CUSTOM_SEARCH_ENGINE_ID
+
+  if (!apiKey || !searchEngineId) {
+    return {
+      success: false,
+      results: [],
+      error: 'API 키 또는 검색 엔진 ID가 설정되지 않았습니다.'
+    }
+  }
+
+  try {
+    const url = new URL('https://www.googleapis.com/customsearch/v1')
+    url.searchParams.set('key', apiKey)
+    url.searchParams.set('cx', searchEngineId)
+    url.searchParams.set('q', query)
+    url.searchParams.set('searchType', 'image') // 이미지 검색
+    url.searchParams.set('num', Math.min(maxResults, 10).toString())
+    url.searchParams.set('lr', 'lang_ko') // 한국어 결과만
+    url.searchParams.set('safe', 'active') // 안전 검색 활성화
+
+    const response = await fetch(url.toString())
+    const data = await response.json()
+
+    if (!response.ok) {
+      console.error('Google Image Search API 오류:', data)
+      return {
+        success: false,
+        results: [],
+        error: data.error?.message || '이미지 검색 중 오류가 발생했습니다.'
+      }
+    }
+
+    const results: ImageSearchResult[] = (data.items || []).map((item: any) => ({
+      title: item.title || '',
+      link: item.link || '',
+      imageUrl: item.link || item.image?.thumbnailLink || '', // 이미지 URL
+      displayLink: item.displayLink || ''
+    }))
+
+    return {
+      success: true,
+      results
+    }
+  } catch (error: any) {
+    console.error('Google Image Search 오류:', error)
+    return {
+      success: false,
+      results: [],
+      error: error.message || '이미지 검색 중 오류가 발생했습니다.'
+    }
+  }
 }
 
 /**

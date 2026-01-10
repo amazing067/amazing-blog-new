@@ -46,29 +46,32 @@ export async function POST(request: NextRequest) {
     const genAI = new GoogleGenerativeAI(apiKey)
     
     // Fallback 로직: Gemini만 사용
-    // 순서: Gemini-2.5-Pro → Gemini-2.0-Flash
+    // 1단계: gemini-2.5-flash → gemini-2.5-pro
+    // 3단계: gemini-2.5-pro → gemini-2.5-flash → gemini-2.0-flash
     const generateContentWithFallback = async (
       prompt: string,
       base64Data: string,
       mimeType: string,
-      usePro: boolean = true // true: Pro 우선, false: Flash 우선
+      stage: 'basic' | 'final' = 'basic' // 'basic': 1단계, 'final': 3단계
     ): Promise<{ text: string; provider: 'gemini' }> => {
-      // usePro에 따라 모델 순서 결정
-      // true: Pro 우선 → Flash 폴백, false: Flash 우선 → Pro 폴백
-      const models = usePro
+      // stage에 따라 모델 순서 결정
+      // basic (1단계): gemini-2.5-flash → gemini-2.5-pro
+      // final (3단계): gemini-2.5-pro → gemini-2.5-flash → gemini-2.0-flash
+      const models = stage === 'basic'
         ? [
-            { provider: 'gemini' as const, model: 'gemini-2.5-pro' },
-            { provider: 'gemini' as const, model: 'gemini-2.0-flash' }
-          ]
-        : [
-            { provider: 'gemini' as const, model: 'gemini-2.0-flash' },
+            { provider: 'gemini' as const, model: 'gemini-2.5-flash' },
             { provider: 'gemini' as const, model: 'gemini-2.5-pro' }
           ]
+        : [
+            { provider: 'gemini' as const, model: 'gemini-2.5-pro' },
+            { provider: 'gemini' as const, model: 'gemini-2.5-flash' },
+            { provider: 'gemini' as const, model: 'gemini-2.0-flash' }
+          ]
       
-      const modelOrder = usePro 
-        ? 'Gemini-2.5-Pro → Gemini-2.0-Flash' 
-        : 'Gemini-2.0-Flash → Gemini-2.5-Pro'
-      console.log(`[설계서 분석] 🔄 Gemini 폴백 순서 시작: ${modelOrder}`)
+      const modelOrder = stage === 'basic'
+        ? 'Gemini-2.5-Flash → Gemini-2.5-Pro'
+        : 'Gemini-2.5-Pro → Gemini-2.5-Flash → Gemini-2.0-Flash'
+      console.log(`[설계서 분석] 🔄 Gemini 폴백 순서 시작 (${stage}): ${modelOrder}`)
       
       for (let attempt = 0; attempt < models.length; attempt++) {
         const { provider, model: modelName } = models[attempt]
@@ -153,7 +156,8 @@ export async function POST(request: NextRequest) {
         }
       }
       
-      throw new Error('모든 모델 시도 실패 (Gemini-2.5-Pro → Gemini-2.0-Flash)')
+      const failedModels = models.map(m => m.model).join(' → ')
+      throw new Error(`모든 모델 시도 실패 (${failedModels})`)
     }
 
     // Base64에서 데이터 부분만 추출 (data:image/...;base64, 제거)
@@ -204,8 +208,8 @@ export async function POST(request: NextRequest) {
 
 ⚠️ 이미지에 명시된 정확한 정보만 추출하세요. 추정하지 마세요.`
 
-    // 1단계는 Flash/GPT-4o-mini 모델 사용 (Pro 할당량 절약, 50:50 분산)
-    const basicResult = await generateContentWithFallback(basicInfoPrompt, base64Data, mimeType, false)
+    // 1단계는 gemini-2.5-flash → gemini-2.5-pro 순서 사용
+    const basicResult = await generateContentWithFallback(basicInfoPrompt, base64Data, mimeType, 'basic')
     console.log(`[설계서 분석] 1단계 완료 - 사용된 제공자: ${basicResult.provider.toUpperCase()}`)
     let basicAnalysisText = basicResult.text
     basicAnalysisText = basicAnalysisText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()
@@ -384,8 +388,9 @@ ${searchResultsText ? `4단계: 검색 결과 활용
     // 1단계와 3단계 사이 최소 간격 보장 (RPM 제한 방지)
     await new Promise(resolve => setTimeout(resolve, 2000)) // 2초 대기
     
-    // 이미지와 프롬프트를 함께 전송 (그라운딩 활성화, fallback 포함, Pro/GPT-4o 우선, 50:50 분산)
-    const finalResult = await generateContentWithFallback(prompt, base64Data, mimeType, true)
+    // 이미지와 프롬프트를 함께 전송 (그라운딩 활성화, fallback 포함)
+    // 3단계: gemini-2.5-pro → gemini-2.5-flash → gemini-2.0-flash 순서 사용
+    const finalResult = await generateContentWithFallback(prompt, base64Data, mimeType, 'final')
     console.log(`[설계서 분석] 3단계 완료 - 사용된 제공자: ${finalResult.provider.toUpperCase()}`)
     let analysisText = finalResult.text
 
