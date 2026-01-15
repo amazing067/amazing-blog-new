@@ -28,13 +28,14 @@ export interface PromptData {
     content: string
   }>
   detectedProductName?: string  // 감지된 상품명 (예: "하나생명 질병후유장해")
+  faqResults?: string  // 자주 묻는 질문 검색 결과
 }
 
 /**
  * 메인 프롬프트 생성 함수
  */
 export function generateInsuranceBlogPrompt(data: PromptData): string {
-  let { topic, keywords, product, tone, age, gender, topInsurance, diseaseCodes, designSheetImage, designSheetAnalysis, authorName, searchResults, precedents, detectedProductName } = data
+  let { topic, keywords, product, tone, age, gender, topInsurance, diseaseCodes, designSheetImage, designSheetAnalysis, authorName, searchResults, precedents, detectedProductName, faqResults } = data
   
   // 제안서만 있고 주제가 없으면 제안서 분석 결과로 주제/키워드 생성
   if (!topic && designSheetAnalysis) {
@@ -880,7 +881,54 @@ ${searchResults}
 
 ---
 `}
+${faqResults ? `
+### ❓ 자주 묻는 질문(FAQ) 검색 결과
 
+**⚠️ 중요:** 아래 FAQ 검색 결과를 바탕으로 본문 마지막 부분(결론 전)에 "자주 묻는 질문" 섹션을 추가하세요.
+
+${faqResults}
+
+**FAQ 섹션 작성 지침:**
+
+1. **질문 선별 (5개 정도):**
+   - 검색 결과에서 주제와 가장 관련성이 높은 질문 5개 정도를 선별
+   - 일반적이고 실용적인 질문 우선 선택
+   - 중복되거나 유사한 질문은 하나로 통합
+
+2. **답변 작성:**
+   - 검색 결과의 답변을 참고하되, 본문의 맥락과 일관성 있게 재구성
+   - 명확하고 실용적인 답변 제공
+   - 필요시 본문에서 언급한 내용과 연결
+   - 자연스러운 대화체 유지
+
+3. **배치:**
+   - 본문 마지막 부분(결론 전)에 배치
+   - "자주 묻는 질문" 또는 "FAQ" 제목 사용
+   - 각 질문과 답변을 명확히 구분
+
+4. **스타일:**
+   - 질문은 굵게, 답변은 일반 텍스트
+   - 시각적으로 구분되는 박스 형태로 배치
+   - 읽기 쉽도록 충분한 여백 확보
+
+**⚠️ FAQ 섹션 HTML 구조 예시:**
+\`\`\`html
+<div class="faq-section" style="margin-top: 50px; padding: 30px; background: #f8f9fa; border-radius: 20px; box-shadow: var(--shadow);">
+  <h2 style="font-size: 22px; font-weight: 800; color: var(--navy); margin-bottom: 25px; display: flex; align-items: center;">
+    <span style="margin-right: 10px; font-size: 24px;">❓</span>
+    자주 묻는 질문
+  </h2>
+  <div class="faq-item" style="margin-bottom: 25px; padding-bottom: 25px; border-bottom: 1px solid #e5e7eb;">
+    <h3 style="font-size: 18px; font-weight: 700; color: var(--navy); margin-bottom: 10px;">질문 내용</h3>
+    <p style="font-size: 16px; line-height: 1.8; color: #374151;">답변 내용</p>
+  </div>
+  <!-- 추가 FAQ 항목들... -->
+</div>
+\`\`\`
+
+---
+
+` : ''}
 ${!topic && designSheetAnalysis ? `
 ### 📄 제안서 기반 자동 생성 모드
 
@@ -998,7 +1046,31 @@ ${!topic && designSheetAnalysis ? `
    - ⚠️ 주의사항
    - 🔍 질병코드 체크
 
-3. **SVG 다이어그램 1~2개** (선택 - **매번 다른 스타일 필수!**)
+${faqResults ? `3. **자주 묻는 질문(FAQ) 섹션** (필수!)
+   - 검색된 FAQ 결과를 바탕으로 주제와 관련된 자주 묻는 질문 5개 정도를 선별하여 작성
+   - 각 질문에 대한 명확하고 실용적인 답변 제공
+   - FAQ 섹션은 본문 마지막 부분(결론 전)에 배치
+   - HTML 구조: \`<div class="faq-section">\` 사용
+   - 각 FAQ 항목은 \`<div class="faq-item">\`로 구분
+   - 질문은 \`<h3>\` 태그, 답변은 \`<p>\` 태그 사용
+   - 스타일: 질문은 굵게, 답변은 일반 텍스트
+   - 예시:
+   \`\`\`html
+   <div class="faq-section" style="margin-top: 50px; padding: 30px; background: #f8f9fa; border-radius: 20px;">
+     <h2 style="font-size: 22px; font-weight: 800; color: var(--navy); margin-bottom: 25px; display: flex; align-items: center;">
+       <span style="margin-right: 10px;">❓</span>
+       자주 묻는 질문
+     </h2>
+     <div class="faq-item" style="margin-bottom: 25px; padding-bottom: 25px; border-bottom: 1px solid #e5e7eb;">
+       <h3 style="font-size: 18px; font-weight: 700; color: var(--navy); margin-bottom: 10px;">질문 내용</h3>
+       <p style="font-size: 16px; line-height: 1.8; color: #374151;">답변 내용</p>
+     </div>
+   </div>
+   \`\`\`
+
+4. **SVG 다이어그램 1~2개** (선택 - **매번 다른 스타일 필수!**)
+` : `3. **SVG 다이어그램 1~2개** (선택 - **매번 다른 스타일 필수!**)
+`}
    - **⚠️ 매우 중요: 같은 다이어그램 형식을 반복하지 마세요!**
    - 보험료 비교: Bar/Line/Pie/Table/Card Grid 중 **매번 다르게 선택**
    - 보장 범위: Venn/Target/Tree/Bubble/Nested/Sunburst 중 **매번 다르게 선택**

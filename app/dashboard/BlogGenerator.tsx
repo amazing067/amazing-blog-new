@@ -2364,7 +2364,7 @@ h2 {
               }`}
             >
               <Sparkles className="w-4 h-4" />
-              ✨ 새 글 쓰기
+              ✨ 블로그 쓰기
             </button>
             <button
               onClick={() => setActiveTab('history')}
@@ -3313,7 +3313,7 @@ h2 {
                     아직 작성한 글이 없습니다
                   </h3>
                   <p className="text-gray-500 dark:text-gray-400 mb-6">
-                    [✨ 새 글 쓰기] 탭에서 첫 번째 블로그를 만들어보세요!
+                    [✨ 블로그 쓰기] 탭에서 첫 번째 블로그를 만들어보세요!
                   </p>
                   <button
                     onClick={() => setActiveTab('write')}

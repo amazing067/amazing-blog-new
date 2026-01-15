@@ -278,11 +278,49 @@ export async function POST(request: NextRequest) {
       searchResults = combinedResults
     }
     
+    // 6-2. 자주 묻는 질문(FAQ) 검색
+    console.log('🔍 자주 묻는 질문(FAQ) 검색 시작:', { topic, keywords })
+    const faqQueries = [
+      `${topic} 자주묻는질문`,
+      `${topic} FAQ`,
+      `${topic} 궁금한 점`,
+      `${topic} 질문`,
+      `${keywords} 자주묻는질문`
+    ]
+    
+    const faqResults: typeof searchResults = []
+    const seenFaqLinks = new Set(searchResults.map(r => r.link))
+    
+    for (const query of faqQueries.slice(0, 3)) { // 최대 3개 쿼리만 사용
+      try {
+        const response = await searchInsuranceTopics(query, '', 2)
+        for (const result of response) {
+          if (!seenFaqLinks.has(result.link)) {
+            seenFaqLinks.add(result.link)
+            faqResults.push(result)
+          }
+        }
+        await new Promise(resolve => setTimeout(resolve, 200))
+      } catch (error) {
+        console.warn('⚠️ FAQ 검색 오류:', error)
+      }
+    }
+    
+    console.log('✅ FAQ 검색 완료:', { 
+      resultCount: faqResults.length 
+    })
+    
+    // FAQ 검색 결과를 프롬프트 형식으로 변환
+    const faqResultsText = formatSearchResultsForPrompt(faqResults.slice(0, 5)) // 최대 5개
+    
     // 검색 결과를 프롬프트 형식으로 변환
     const searchResultsText = formatSearchResultsForPrompt(searchResults)
     
     // 검색 결과에서 출처 추출 (나중에 출처 섹션에 추가)
     const searchSources = extractSourcesFromSearchResults(searchResults)
+    
+    // FAQ 출처도 추가
+    const faqSources = extractSourcesFromSearchResults(faqResults)
 
     // 6. Gemini REST API 직접 호출 (Grounding 활성화)
     const apiKey = process.env.GEMINI_API_KEY!
@@ -421,7 +459,7 @@ export async function POST(request: NextRequest) {
       throw new Error('모든 모델에서 실패했습니다')
     }
 
-    // 7. 프롬프트 생성 (Google Custom Search 결과 + 최신 판례 포함)
+    // 7. 프롬프트 생성 (Google Custom Search 결과 + 최신 판례 + FAQ 포함)
     const prompt = generateInsuranceBlogPrompt({
       topic,
       keywords,
@@ -437,6 +475,7 @@ export async function POST(request: NextRequest) {
       searchResults: searchResultsText, // Google Custom Search 결과 추가
       precedents: relevantPrecedents, // 최신 판례 추가 (최근 5년 이내)
       detectedProductName: productName || undefined, // 감지된 상품명 전달
+      faqResults: faqResultsText || undefined, // FAQ 검색 결과 추가
     })
 
     console.log('프롬프트 생성 완료, Gemini REST API 호출 중...')
@@ -488,6 +527,21 @@ export async function POST(request: NextRequest) {
         console.log('✅ Grounding 출처 추가:', groundingSource.url)
       } else if (!groundingSource.url || groundingSource.url.trim() === '') {
         console.warn('⚠️ Grounding 출처 URL 없음:', groundingSource)
+      }
+    })
+    
+    // FAQ 출처 추가 (URL이 있는 것만)
+    faqSources.forEach(faqSource => {
+      const isDuplicate = allSources.some(s => s.url === faqSource.url)
+      if (!isDuplicate && faqSource.url && faqSource.url.trim() !== '') {
+        allSources.push({
+          title: faqSource.title || 'FAQ 검색 결과',
+          url: faqSource.url.trim(),
+          organization: faqSource.organization
+        })
+        console.log('✅ FAQ 출처 추가:', faqSource.url)
+      } else if (!faqSource.url || faqSource.url.trim() === '') {
+        console.warn('⚠️ FAQ 출처 URL 없음:', faqSource)
       }
     })
     
