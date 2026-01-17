@@ -3871,6 +3871,7 @@ function QAGenerator({
     greeting2: string
     kakaoOpenChat: string
     kakao1on1: string
+    youtubeChannel: string
     phone: string
   }>({
     enabled: false,
@@ -3879,6 +3880,7 @@ function QAGenerator({
     greeting2: '편하게 문의 주세요~~',
     kakaoOpenChat: '',
     kakao1on1: '',
+    youtubeChannel: '',
     phone: ''
   })
   const [isSavingContactInfo, setIsSavingContactInfo] = useState(false)
@@ -4146,6 +4148,7 @@ function QAGenerator({
             greeting2: data.contactInfo.greeting2 || '편하게 문의 주세요~~',
             kakaoOpenChat: data.contactInfo.kakaoOpenChat || '',
             kakao1on1: data.contactInfo.kakao1on1 || '',
+            youtubeChannel: data.contactInfo.youtubeChannel || '',
             phone: data.contactInfo.phone || ''
           })
           console.log('[연락처 정보] ✅ 저장된 정보 로드 완료:', data.contactInfo)
@@ -5050,7 +5053,7 @@ function QAGenerator({
     let fullText = generatedAnswer
     
     // 연락처 정보가 활성화되어 있고 정보가 있으면 추가
-    if (contactInfo.enabled && (contactInfo.phone || contactInfo.kakao1on1 || contactInfo.kakaoOpenChat)) {
+    if (contactInfo.enabled && (contactInfo.phone || contactInfo.kakao1on1 || contactInfo.kakaoOpenChat || contactInfo.youtubeChannel)) {
       fullText += '\n\n'
       
       if (contactInfo.greeting) {
@@ -5062,8 +5065,14 @@ function QAGenerator({
       
       if (contactInfo.kakao1on1) {
         fullText += `\n💬 카카오톡 1:1 상담 바로가기\n${contactInfo.kakao1on1}\n`
-      } else if (contactInfo.kakaoOpenChat) {
+      }
+      
+      if (contactInfo.kakaoOpenChat) {
         fullText += `\n💬 카카오톡 오픈채팅 바로가기\n${contactInfo.kakaoOpenChat}\n`
+      }
+      
+      if (contactInfo.youtubeChannel) {
+        fullText += `\n📺 유튜브 채널 바로가기\n${contactInfo.youtubeChannel}\n`
       }
       
       if (contactInfo.phone) {
@@ -5077,7 +5086,7 @@ function QAGenerator({
 
   // 연락처 정보 텍스트 생성 (표시용)
   const getContactInfoText = () => {
-    if (!contactInfo.enabled || (!contactInfo.phone && !contactInfo.kakao1on1 && !contactInfo.kakaoOpenChat)) {
+    if (!contactInfo.enabled || (!contactInfo.phone && !contactInfo.kakao1on1 && !contactInfo.kakaoOpenChat && !contactInfo.youtubeChannel)) {
       return null
     }
     
@@ -5086,6 +5095,7 @@ function QAGenerator({
       greeting2: contactInfo.greeting2 || '',
       kakao1on1: contactInfo.kakao1on1 || '',
       kakaoOpenChat: contactInfo.kakaoOpenChat || '',
+      youtubeChannel: contactInfo.youtubeChannel || '',
       phone: contactInfo.phone || ''
     }
   }
@@ -6036,6 +6046,19 @@ function QAGenerator({
                     placeholder="https://open.kakao.com/o/..."
                   />
                 </div>
+                
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">
+                    유튜브 채널 링크
+                  </label>
+                  <input
+                    type="text"
+                    value={contactInfo.youtubeChannel}
+                    onChange={(e) => setContactInfo(prev => ({ ...prev, youtubeChannel: e.target.value }))}
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white dark:bg-gray-800 text-black dark:text-white"
+                    placeholder="https://www.youtube.com/@..."
+                  />
+                </div>
               </div>
               
               {/* 저장 버튼은 항상 표시 (체크박스만 체크하고 저장도 가능) */}
@@ -6489,7 +6512,7 @@ function QAGenerator({
                             </div>
                           )}
                           
-                          {!contactInfoText.kakao1on1 && contactInfoText.kakaoOpenChat && (
+                          {contactInfoText.kakaoOpenChat && (
                             <div className="mb-3">
                               <p className="text-gray-700 dark:text-gray-300 text-sm font-medium mb-1">
                                 💬 카카오톡 오픈채팅 바로가기
@@ -6501,6 +6524,22 @@ function QAGenerator({
                                 className="text-purple-600 dark:text-purple-400 hover:underline text-sm break-all"
                               >
                                 {contactInfoText.kakaoOpenChat}
+                              </a>
+                            </div>
+                          )}
+                          
+                          {contactInfoText.youtubeChannel && (
+                            <div className="mb-3">
+                              <p className="text-gray-700 dark:text-gray-300 text-sm font-medium mb-1">
+                                📺 유튜브 채널 바로가기
+                              </p>
+                              <a 
+                                href={contactInfoText.youtubeChannel} 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="text-purple-600 dark:text-purple-400 hover:underline text-sm break-all"
+                              >
+                                {contactInfoText.youtubeChannel}
                               </a>
                             </div>
                           )}

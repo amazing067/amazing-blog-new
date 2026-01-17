@@ -25,6 +25,7 @@ export interface Database {
             greeting2?: string
             kakaoOpenChat?: string
             kakao1on1?: string
+            youtubeChannel?: string
             phone?: string
           } | null
         }
@@ -68,6 +69,7 @@ export interface Database {
             greeting2?: string
             kakaoOpenChat?: string
             kakao1on1?: string
+            youtubeChannel?: string
             phone?: string
           } | null
         }
