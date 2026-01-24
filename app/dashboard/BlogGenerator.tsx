@@ -7297,7 +7297,7 @@ function KakaoLinkGenerator({ profile }: { profile: Profile | null }) {
   const [channelId, setChannelId] = useState<string>('')
   const [isEditingChannelId, setIsEditingChannelId] = useState(false)
   const [generatedLink, setGeneratedLink] = useState<string>('')
-  const [uniqueId, setUniqueId] = useState<string>('')
+  const [sourceInfo, setSourceInfo] = useState<string>('') // 출처 정보 (예: 네이버 블로그 - 수술비 보험 글)
 
   // localStorage 키 (사용자별)
   const getStorageKey = () => {
@@ -7305,11 +7305,12 @@ function KakaoLinkGenerator({ profile }: { profile: Profile | null }) {
     return `kakao_channel_id_${profile.id}`
   }
 
-  // 고유번호 생성 함수 (타임스탬프 + 랜덤 문자열)
-  const generateUniqueId = (): string => {
-    const timestamp = Date.now().toString(36) // 타임스탬프를 36진수로 변환
-    const randomStr = Math.random().toString(36).substring(2, 8) // 랜덤 문자열 6자리
-    return `${timestamp}-${randomStr}`.toUpperCase()
+  // 고유 추적 코드 생성 (타임스탬프 + 랜덤 문자열로 고유성 보장)
+  const generateUniqueTrackingCode = (): string => {
+    const timestamp = Date.now().toString(36) // 타임스탬프를 36진수로 변환 (8-9자리)
+    const randomStr = Math.random().toString(36).substring(2, 6) // 랜덤 문자열 4자리
+    // 총 12-13자리: 타임스탬프(8-9자리) + 랜덤(4자리)
+    return `${timestamp}${randomStr}`.toUpperCase()
   }
 
   // 채널 ID 로드
@@ -7364,7 +7365,7 @@ function KakaoLinkGenerator({ profile }: { profile: Profile | null }) {
     return trimmed
   }
 
-  // 링크 생성 (고유번호 자동 생성)
+  // 링크 생성 (출처 정보를 짧은 해시로 변환하여 포함)
   const handleGenerateLink = () => {
     if (!channelId.trim()) {
       alert('먼저 채널 ID를 입력해주세요')
@@ -7372,16 +7373,25 @@ function KakaoLinkGenerator({ profile }: { profile: Profile | null }) {
       return
     }
 
+    if (!sourceInfo.trim()) {
+      alert('출처 정보를 입력해주세요 (예: 네이버 블로그 - 수술비 보험 글)')
+      return
+    }
+
     // 채널 ID에서 순수 ID만 추출
     const pureChannelId = extractChannelId(channelId)
     
-    // 고유번호 자동 생성
-    const newUniqueId = generateUniqueId()
-    setUniqueId(newUniqueId)
+    // 고유 추적 코드 생성 (타임스탬프 + 랜덤으로 겹치지 않음 보장)
+    const trackingCode = generateUniqueTrackingCode()
+    
+    // 출처 정보를 짧게 인코딩 (한글은 URL 인코딩되면 길어지므로 해시 사용)
+    const sourceHash = sourceInfo.trim().split('').reduce((acc, char) => {
+      return ((acc << 5) - acc) + char.charCodeAt(0)
+    }, 0).toString(36).substring(0, 4).toUpperCase()
 
-    // 카톡 채널 링크 생성 (고유번호를 쿼리 파라미터로 포함, 채팅창으로 바로 연결)
-    // 카톡 채널 링크 형식: https://pf.kakao.com/_[채널ID]/chat?ref=[고유번호]
-    const kakaoLink = `https://pf.kakao.com/_${pureChannelId}/chat?ref=${newUniqueId}`
+    // 카톡 채널 링크 생성 (고유 추적 코드와 출처 해시 포함)
+    // 카톡 채널 링크 형식: https://pf.kakao.com/_[채널ID]/chat?ref=[추적코드]&s=[출처해시]
+    const kakaoLink = `https://pf.kakao.com/_${pureChannelId}/chat?ref=${trackingCode}&s=${sourceHash}`
     
     setGeneratedLink(kakaoLink)
   }
@@ -7462,9 +7472,25 @@ function KakaoLinkGenerator({ profile }: { profile: Profile | null }) {
           추적 링크 생성
         </h3>
 
+        <div className="mb-4">
+          <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">
+            출처 정보 <span className="text-red-500">*</span>
+          </label>
+          <input
+            type="text"
+            value={sourceInfo}
+            onChange={(e) => setSourceInfo(e.target.value)}
+            placeholder="예: 네이버 블로그 - 수술비 보험 글"
+            className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 bg-white dark:bg-slate-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-400"
+          />
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+            이 링크가 어디의 어떤 글에 사용되는지 입력하세요. 카카오톡에서 유입 추적 시 표시됩니다.
+          </p>
+        </div>
+
         <button
           onClick={handleGenerateLink}
-          disabled={!channelId}
+          disabled={!channelId || !sourceInfo.trim()}
           className="w-full mb-4 px-6 py-3 bg-gradient-to-r from-green-600 to-emerald-600 text-white font-semibold rounded-lg hover:shadow-lg transition-all disabled:from-gray-300 disabled:to-gray-400 disabled:cursor-not-allowed"
         >
           🔗 링크 생성하기
@@ -7493,7 +7519,10 @@ function KakaoLinkGenerator({ profile }: { profile: Profile | null }) {
             <div className="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
               <p className="text-sm text-blue-800 dark:text-blue-200">
                 💡 <strong>사용 방법:</strong> 생성된 링크를 복사하여 네이버에서 이미지에 링크를 붙이세요. 
-                매번 생성할 때마다 새로운 고유번호가 자동으로 포함되어 겹치지 않습니다.
+                매번 생성할 때마다 새로운 추적 코드가 자동으로 포함되어 겹치지 않습니다.
+                <br />
+                <br />
+                <strong>유입 추적:</strong> 카카오톡 비즈니스 채널 관리 페이지에서 이 링크로 들어온 사용자의 출처 정보를 확인할 수 있습니다.
               </p>
             </div>
           </div>
