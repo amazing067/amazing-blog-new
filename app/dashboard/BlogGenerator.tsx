@@ -7314,12 +7314,16 @@ function KakaoLinkGenerator({ profile }: { profile: Profile | null }) {
 
   // 채널 ID 로드
   useEffect(() => {
-    if (typeof window !== 'undefined' && profile?.id) {
+    if (typeof window !== 'undefined') {
       const stored = localStorage.getItem(getStorageKey())
       if (stored) {
         setChannelId(stored)
       } else {
-        setIsEditingChannelId(true) // 저장된 ID가 없으면 편집 모드로
+        // 기본 채널 ID 설정 (http://pf.kakao.com/_JxmxaJn/chat)
+        const defaultChannelId = 'JxmxaJn'
+        setChannelId(defaultChannelId)
+        // 기본값을 localStorage에 저장
+        localStorage.setItem(getStorageKey(), defaultChannelId)
       }
     }
   }, [profile?.id])
