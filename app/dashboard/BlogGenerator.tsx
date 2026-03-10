@@ -984,11 +984,32 @@ export default function BlogGenerator({ profile: initialProfile }: { profile: Pr
           }),
         })
 
-        const data = await response.json()
+        const resText = await response.text()
+        let data: { success?: boolean; data?: Record<string, unknown> }
+        try {
+          data = JSON.parse(resText)
+        } catch {
+          console.error('[설계서 분석] 응답 파싱 실패:', resText?.slice(0, 80))
+          alert(
+            response.status === 413 || /Request Entity|Payload|too large/i.test(resText)
+              ? '이미지 크기가 너무 큽니다. 더 작은 이미지로 시도해 주세요.'
+              : '서버 응답 형식 오류입니다. 잠시 후 다시 시도해 주세요.'
+          )
+          return
+        }
         if (data.success && data.data) {
           // 제안서 분석 결과를 바탕으로 주제와 키워드 자동 생성
-          const analysis = data.data
-          const productName = analysis.productName || '보험'
+          type DesignSheetAnalysis = {
+            productName: string
+            targetPersona: string
+            worryPoint: string
+            sellingPoint: string
+          }
+          const analysis = data.data as DesignSheetAnalysis
+          const productName: string =
+            (typeof analysis.productName === 'string' && analysis.productName.trim().length > 0)
+              ? analysis.productName
+              : '보험'
           const targetPersona = analysis.targetPersona || ''
           
           // 주제 자동 생성: 상품명 + 대상 고객
@@ -2636,11 +2657,32 @@ h2 {
                             }),
                           })
 
-                          const data = await response.json()
+                          const resText = await response.text()
+                          let data: { success?: boolean; data?: Record<string, unknown> }
+                          try {
+                            data = JSON.parse(resText)
+                          } catch {
+                            console.error('[설계서 분석] 응답 파싱 실패:', resText?.slice(0, 80))
+                            alert(
+                              response.status === 413 || /Request Entity|Payload|too large/i.test(resText)
+                                ? '이미지 크기가 너무 큽니다. 더 작은 이미지로 시도해 주세요.'
+                                : '서버 응답 형식 오류입니다. 잠시 후 다시 시도해 주세요.'
+                            )
+                            return
+                          }
                           if (data.success && data.data) {
                             // 제안서 분석 결과를 바탕으로 주제와 키워드 자동 생성
-                            const analysis = data.data
-                            const productName = analysis.productName || '보험'
+                            type DesignSheetAnalysis = {
+                              productName: string
+                              targetPersona: string
+                              worryPoint: string
+                              sellingPoint: string
+                            }
+                            const analysis = data.data as DesignSheetAnalysis
+                            const productName: string =
+                              (typeof analysis.productName === 'string' && analysis.productName.trim().length > 0)
+                                ? analysis.productName
+                                : '보험'
                             const targetPersona = analysis.targetPersona || ''
                             
                             // 주제 자동 생성: 상품명 + 대상 고객
@@ -3516,7 +3558,18 @@ function ImageAnalyzer({ profile }: { profile: Profile | null }) {
         body: JSON.stringify({ imageBase64: imageToAnalyze }),
       })
 
-      const data = await response.json()
+      const text = await response.text()
+      let data: { success?: boolean; data?: unknown; error?: string }
+      try {
+        data = JSON.parse(text)
+      } catch {
+        console.error('이미지 분석 응답 파싱 실패 (JSON 아님):', text?.slice(0, 80))
+        throw new Error(
+          response.status === 413 || text.includes('Request Entity') || text.includes('Payload')
+            ? '이미지 크기가 너무 큽니다. 더 작은 이미지로 시도해 주세요.'
+            : '서버 응답 형식 오류입니다. 잠시 후 다시 시도해 주세요.'
+        )
+      }
 
       if (!response.ok) {
         throw new Error(data.error || '이미지 분석 중 오류가 발생했습니다.')
@@ -3891,10 +3944,11 @@ function QAGenerator({
   const [isGeneratingQuestionFromProduct, setIsGeneratingQuestionFromProduct] = useState(false)
   const [progress, setProgress] = useState(0)
   const [generatedQuestion, setGeneratedQuestion] = useState<{ title: string; content: string } | null>(null)
+  const [qaSearchKeywords, setQaSearchKeywords] = useState<string[]>([])
   const [generatedAnswer, setGeneratedAnswer] = useState<string | null>(null)
   const [conversationThread, setConversationThread] = useState<Array<{ role: 'customer' | 'agent'; content: string; step: number }>>([])
   const conversationMode = true // 항상 대화형 모드 활성화
-  const DEFAULT_CONVERSATION_LENGTH = 8 // 대화 횟수 고정값
+  const DEFAULT_CONVERSATION_LENGTH = 6 // 대화 횟수 고정값 (대댓글 4개)
   const [reviewCount, setReviewCount] = useState<0 | 1 | 2>(0) // 후기성 댓글 개수 (0, 1, 2)
   // Q&A 3개 세트 기능 제거 - 단일 Q&A만 생성
   // const [qaCount, setQaCount] = useState<1 | 3>(3) // 제거됨
@@ -4512,7 +4566,22 @@ function QAGenerator({
         }),
       })
 
-      const data = await response.json()
+      const text = await response.text()
+      let data: { success?: boolean; data?: Record<string, unknown>; error?: string }
+      try {
+        data = JSON.parse(text)
+      } catch {
+        console.error('[설계서 분석] 응답 파싱 실패 (JSON 아님):', text?.slice(0, 80))
+        const msg =
+          response.status === 413 || /Request Entity|Payload|too large/i.test(text)
+            ? '이미지 크기가 너무 큽니다. 더 작은 이미지로 시도해 주세요.'
+            : '서버 응답 형식 오류입니다. 잠시 후 다시 시도해 주세요.'
+        if (silent) {
+          console.error('[설계서 분석] 오류 (silent):', msg)
+          return
+        }
+        throw new Error(msg)
+      }
 
       if (!response.ok) {
         const errorMessage = data.error || '분석 오류'
@@ -4536,15 +4605,18 @@ function QAGenerator({
         '30대 자녀 있는 가족', '40대 자녀 있는 가족', '50대 자녀 있는 가족'
       ]
       
-      let matchedTargetPersona = data.data.targetPersona || qaFormData.targetPersona
-      if (data.data.targetPersona) {
+      const apiTargetPersona = typeof data.data?.targetPersona === 'string'
+        ? data.data.targetPersona as string
+        : undefined
+      let matchedTargetPersona = apiTargetPersona || qaFormData.targetPersona
+      if (apiTargetPersona) {
         // 정확히 일치하는 옵션이 있는지 확인
-        const exactMatch = targetPersonaOptions.find(opt => opt === data.data.targetPersona)
+        const exactMatch = targetPersonaOptions.find(opt => opt === apiTargetPersona)
         if (exactMatch) {
           matchedTargetPersona = exactMatch
         } else {
           // 부분 일치로 찾기
-          const apiValue = data.data.targetPersona.toLowerCase()
+          const apiValue = apiTargetPersona.toLowerCase()
           const partialMatch = targetPersonaOptions.find(opt => {
             const optValue = opt.toLowerCase()
             // 나이대와 성별/직업이 일치하는지 확인
@@ -4559,27 +4631,40 @@ function QAGenerator({
                           optValue.includes('자녀 있는 가족') && (apiValue.includes('자녀') || apiValue.includes('가족'))
             return hasAge && (hasGender || hasJob)
           })
-          matchedTargetPersona = partialMatch || data.data.targetPersona
+          matchedTargetPersona = partialMatch || apiTargetPersona
         }
       }
 
       // 분석 결과로 폼 자동 채우기
+      const apiProductName: string | undefined =
+        typeof data.data?.productName === 'string' ? (data.data.productName as string) : undefined
+      const apiWorryPoint: string | undefined =
+        typeof data.data?.worryPoint === 'string' ? (data.data.worryPoint as string) : undefined
+      const apiSellingPoint: string | undefined =
+        typeof data.data?.sellingPoint === 'string' ? (data.data.sellingPoint as string) : undefined
+      const apiPremium: string =
+        typeof data.data?.premium === 'string' ? (data.data.premium as string) : ''
+      const apiCoverages: string[] =
+        Array.isArray(data.data?.coverages) ? (data.data.coverages as string[]) : []
+      const apiSpecialClauses: string[] =
+        Array.isArray(data.data?.specialClauses) ? (data.data.specialClauses as string[]) : []
+
       setQAFormData(prev => ({
         ...prev,
-        productName: data.data.productName || prev.productName,
+        productName: apiProductName || prev.productName,
         targetPersona: matchedTargetPersona,
-        worryPoint: data.data.worryPoint || prev.worryPoint,
-        sellingPoint: data.data.sellingPoint || prev.sellingPoint,
+        worryPoint: apiWorryPoint || prev.worryPoint,
+        sellingPoint: apiSellingPoint || prev.sellingPoint,
         designSheetImage: imageToAnalyze,
         designSheetAnalysis: {
-          premium: data.data.premium || '',
-          coverages: data.data.coverages || [],
-          specialClauses: data.data.specialClauses || []
+          premium: apiPremium,
+          coverages: apiCoverages,
+          specialClauses: apiSpecialClauses
         }
       }))
       
       console.log('타겟고객 매칭:', { 
-        원본: data.data.targetPersona, 
+        원본: apiTargetPersona, 
         매칭결과: matchedTargetPersona 
       })
 
@@ -4994,6 +5079,24 @@ function QAGenerator({
       setGeneratedAnswer(data.answer.content)
       setConversationThread(data.conversation || [])
       setTokenUsage(data.tokenUsage || null)
+
+      // 검색 기반 연관 키워드 (최대 5개) 저장
+      try {
+        const rawKeywords = data.metadata?.searchKeywords
+        let parsed: string[] = []
+        if (Array.isArray(rawKeywords)) {
+          parsed = rawKeywords
+        } else if (typeof rawKeywords === 'string') {
+          parsed = rawKeywords
+            .split(/[,|\n]/)
+            .map((k: string) => k.trim())
+            .filter((k: string) => k.length > 0)
+        }
+        setQaSearchKeywords(Array.from(new Set(parsed)).slice(0, 5))
+      } catch (e) {
+        console.error('검색 키워드 파싱 중 오류:', e)
+        setQaSearchKeywords([])
+      }
 
       setProgress(100)
       setCurrentStep('complete')
@@ -6303,6 +6406,22 @@ function QAGenerator({
                     <h4 className="font-bold text-gray-900 dark:text-white text-xl mb-4">
                       {generatedQuestion.title}
                     </h4>
+                    {/* 연관 키워드 (검색 API 기반) */}
+                    {qaSearchKeywords.length > 0 && (
+                      <div className="mb-4 flex flex-wrap items-center gap-2">
+                        <span className="text-xs font-semibold text-gray-500 dark:text-gray-400">
+                          🔍 연관 키워드
+                        </span>
+                        {qaSearchKeywords.map((kw) => (
+                          <span
+                            key={kw}
+                            className="px-2 py-0.5 rounded-full bg-blue-50 dark:bg-blue-900/40 border border-blue-200 dark:border-blue-700 text-xs text-blue-700 dark:text-blue-300"
+                          >
+                            #{kw}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                     {/* 제목과 본문 구분선 */}
                     <div className="mb-6 h-px bg-gradient-to-r from-transparent via-gray-300 dark:via-gray-600 to-transparent"></div>
                     {/* 본문 - 문단별로 깔끔하게 표시 (제목과 중복되는 첫 부분 제거) */}

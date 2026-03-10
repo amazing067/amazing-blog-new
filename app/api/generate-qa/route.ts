@@ -431,7 +431,7 @@ export async function POST(request: NextRequest) {
       questionTitle, // 답변 재생성 시 사용
       questionContent, // 답변 재생성 시 사용
       conversationMode, // 대화형 모드 활성화 여부
-      conversationLength, // 대화 횟수 (6, 8, 10, 12 - 짝수만 허용, 항상 설계사가 마무리)
+      conversationLength, // 대화 횟수 (기본 6회 - 짝수만 허용, 항상 설계사가 마무리)
       reviewCount, // 후기성 댓글 개수 (0, 1, 2 - 고객만 생성, 설계사 응답 없음)
       generateStep // 생성 단계: 'question' | 'answer' | 'conversation' | 'all' (기본값: 'all')
     } = requestBody
@@ -490,6 +490,8 @@ export async function POST(request: NextRequest) {
     // Q&A 전용 최신 검색 요약 (뉴스/블로그/커뮤니티 포함, 출처 표기 없음)
     // ============================================
     let searchResultsText = ''
+    // 키워드 추출용으로 검색 결과를 따로 보관
+    let collectedForKeywords: SearchResult[] = []
     try {
       // 검색 쿼리: 가격 정보, 장점, 특징, 정보 등을 찾기 위한 다양한 쿼리 생성
       const searchQueries = Array.from(new Set([
@@ -533,6 +535,7 @@ export async function POST(request: NextRequest) {
       }
       
       searchResultsText = formatSearchResultsForPrompt(collected)
+      collectedForKeywords = collected
       console.log('[Q&A 생성] 🔍 검색 완료 - 수집된 결과:', collected.length, '건, 커스텀 서치 총 횟수:', customSearchCount)
     } catch (searchError) {
       console.error('[Q&A 생성] ⚠️ 검색 요약 생성 중 오류:', searchError)
@@ -541,6 +544,49 @@ export async function POST(request: NextRequest) {
     }
     
     console.log('[Q&A 생성] 최종 커스텀 서치 횟수:', customSearchCount)
+
+    // 검색 결과 기반 키워드 (상품명 연관 베스트 키워드) 추출
+    let searchKeywords: string[] = []
+    try {
+      if (collectedForKeywords.length > 0) {
+        const baseProduct = (productName || '').split(/\s+/)[0] || productName || ''
+        const candidates: string[] = []
+
+        for (const item of collectedForKeywords) {
+          const source = `${item.title || ''} ${item.snippet || ''}`.replace(/\s+/g, ' ').trim()
+          if (!source) continue
+
+          // 예: 운전자보험, 암보험 등 '...보험' 형태 키워드 추출
+          const regex = /([가-힣0-9A-Za-z]+보험)/g
+          let match: RegExpExecArray | null
+          while ((match = regex.exec(source)) !== null) {
+            const kw = match[1].trim()
+            if (!kw) continue
+            if (baseProduct && !kw.includes(baseProduct) && !kw.includes('보험')) continue
+            candidates.push(kw)
+          }
+        }
+
+        // 후보가 너무 적으면 상품명을 기반으로 패턴 키워드 추가
+        const fallbackBase = productName || collectedForKeywords[0]?.title || ''
+        if (candidates.length < 5 && fallbackBase) {
+          const base = fallbackBase.replace(/\s+/g, ' ').trim()
+          const fallbackCandidates = [
+            `${base} 추천`,
+            `${base} 비교`,
+            `${base} 보장 내용`,
+            `${base} 가입조건`,
+            `${base} 보험료`
+          ]
+          candidates.push(...fallbackCandidates)
+        }
+
+        searchKeywords = Array.from(new Set(candidates)).slice(0, 5)
+      }
+    } catch (keywordError) {
+      console.warn('[Q&A 생성] 검색 키워드 추출 중 오류:', keywordError)
+      searchKeywords = []
+    }
     
     // API 호출 헬퍼 함수 (재시도 및 폴백 로직 포함, 이미지 지원)
     // 
@@ -1417,11 +1463,11 @@ export async function POST(request: NextRequest) {
       }
       console.log('Step 3: 대화형 스레드 생성 중...', { conversationLength })
 
-      // 짝수만 허용 (8, 10) - 항상 설계사가 마무리하도록
-      const validLengths = [8, 10]
+      // 짝수만 허용 (4, 6, 8, 10) - 항상 설계사가 마무리하도록
+      const validLengths = [4, 6, 8, 10]
       const totalSteps = validLengths.includes(conversationLength) 
         ? conversationLength 
-        : 8 // 기본값: 8개
+        : 6 // 기본값: 6개 (댓글 4개)
       const conversationHistory: ConversationMessage[] = []
       
       // 첫 질문과 답변을 히스토리에 추가
@@ -1695,7 +1741,8 @@ export async function POST(request: NextRequest) {
         sellingPoint,
         answerTone: answerTone || 'friendly',
         conversationMode: conversationMode || false,
-        conversationLength: conversationLength || 0
+        conversationLength: conversationLength || 0,
+        searchKeywords: searchKeywords && searchKeywords.length > 0 ? searchKeywords : undefined
       }
     })
   } catch (error: any) {
