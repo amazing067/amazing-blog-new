@@ -398,6 +398,7 @@ export interface QAPromptData {
     specialClauses?: string[]
   }
   searchResultsText?: string // 최신 검색 결과 요약 (불릿 문자열)
+  searchKeywords?: string[] // 연관 키워드 (질문/답변 본문에 어색하지 않게 자연스럽게 포함)
 }
 
 export interface ConversationMessage {
@@ -422,7 +423,7 @@ export interface ConversationContext {
  * Step 1: 일반인 질문 생성 프롬프트
  */
 export function generateQuestionPrompt(data: QAPromptData): string {
-  const { productName, targetPersona, worryPoint, designSheetImage, designSheetAnalysis, searchResultsText } = data
+  const { productName, targetPersona, worryPoint, designSheetImage, designSheetAnalysis, searchResultsText, searchKeywords } = data
   
   // 코드 레벨 무작위성: 질문자 태도 & 제목 패턴 선택
   const selectedConcept = getRandomItem(QUESTION_CONCEPTS)
@@ -528,6 +529,11 @@ ${COMMON_GUIDELINES.SENTENCE_INTEGRITY}
 - 고민: ${worryPoint}
 ${designSheetAnalysis ? `- 설계서 내용: ${JSON.stringify(designSheetAnalysis)}` : ''}
 ${searchResultsText ? `- 최근 검색 요약: ${searchResultsText}` : ''}
+${searchKeywords && searchKeywords.length > 0 ? `- 연관 키워드 (아래 제목·본문에 반드시 포함): ${searchKeywords.join(', ')}` : ''}
+${searchKeywords && searchKeywords.length > 0 ? `
+[연관 키워드 반영 - 필수]
+- 위 "연관 키워드"를 **반드시** 제목 또는 본문 글 내용 안에 넣어주세요. 문맥에 맞게 자연스럽게 문장에 녹여 넣되, 주어진 키워드가 질문 글 안에 정확히 들어가야 합니다
+- 억지럽게 나열하지 말고, 문장 흐름에 맞게 자연스럽게 사용하세요` : ''}
 
 제목:
 [제목 작성]
@@ -542,7 +548,7 @@ ${searchResultsText ? `- 최근 검색 요약: ${searchResultsText}` : ''}
  * Step 2: 전문가 답변 생성 프롬프트
  */
 export function generateAnswerPrompt(data: QAPromptData, questionTitle: string, questionContent: string): string {
-  const { productName, sellingPoint, answerTone, targetPersona, designSheetAnalysis, answerLength, searchResultsText } = data
+  const { productName, sellingPoint, answerTone, targetPersona, designSheetAnalysis, answerLength, searchResultsText, searchKeywords } = data
   
   // 코드 레벨 무작위성: 답변 구조 랜덤 선택
   const selectedStructure = getRandomItem(ANSWER_STRUCTURES)
@@ -588,6 +594,10 @@ ${searchResultsText ? `
 - 링크나 출처를 본문에 남기지 말고 내용만 녹여서 전달하세요
 ${searchResultsText}
 ` : ''}
+${searchKeywords && searchKeywords.length > 0 ? `
+[연관 키워드 반영 - 필수]
+- 아래 연관 키워드를 **반드시** 답변 본문 글 내용 안에 넣어주세요: ${searchKeywords.join(', ')}
+- 문맥에 맞게 문장에 자연스럽게 녹여 넣되, 주어진 키워드가 답변 글 안에 정확히 들어가야 합니다. 억지럽게 나열하지 말고 문장 흐름에 맞게 사용하세요` : ''}
 
 [역할 설정]
 - 15년 이상의 경력을 가진 보험 전문가 (약관 해석, 상품 분석, 시장 동향에 정통)

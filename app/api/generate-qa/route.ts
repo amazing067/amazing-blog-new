@@ -806,7 +806,8 @@ export async function POST(request: NextRequest) {
             answerTone: answerTone || 'friendly',
             designSheetImage,
             designSheetAnalysis,
-            searchResultsText
+            searchResultsText,
+            searchKeywords: searchKeywords?.length ? searchKeywords : undefined
           })
 
           // 프롬프트 길이 로깅 (할당량 초과 진단용)
@@ -1334,7 +1335,8 @@ export async function POST(request: NextRequest) {
           answerLength: answerLength || 'default', // 답변 길이: 'default' (단계별)
           designSheetImage,
           designSheetAnalysis,
-          searchResultsText
+          searchResultsText,
+          searchKeywords: searchKeywords?.length ? searchKeywords : undefined
         },
         finalQuestionTitle,
         finalQuestionContent
