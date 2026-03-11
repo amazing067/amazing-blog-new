@@ -3,6 +3,7 @@ import { GoogleGenerativeAI } from '@google/generative-ai'
 import { generateQuestionPrompt, generateAnswerPrompt, generateConversationThreadPrompt, generateReviewMessagePrompt, generateReviewResponsePrompt, ConversationMessage } from '@/lib/prompts/qa-prompt'
 import { createClient } from '@/lib/supabase/server'
 import { searchGoogle, SearchResult } from '@/lib/google-search'
+import { getBestKeywordsFromNaverSearchAd } from '@/lib/naver-searchad'
 
 type TokenUsage = {
   model: string
@@ -546,11 +547,12 @@ export async function POST(request: NextRequest) {
     console.log('[Q&A 생성] 최종 커스텀 서치 횟수:', customSearchCount)
 
     // 검색 결과 기반 키워드 (상품명 연관 베스트 키워드) 추출
+    // 1차: 기존 Google Custom Search 기반 후보 생성
     let searchKeywords: string[] = []
+    const keywordCandidates: string[] = []
     try {
       if (collectedForKeywords.length > 0) {
         const baseProduct = (productName || '').split(/\s+/)[0] || productName || ''
-        const candidates: string[] = []
 
         for (const item of collectedForKeywords) {
           const source = `${item.title || ''} ${item.snippet || ''}`.replace(/\s+/g, ' ').trim()
@@ -563,13 +565,13 @@ export async function POST(request: NextRequest) {
             const kw = match[1].trim()
             if (!kw) continue
             if (baseProduct && !kw.includes(baseProduct) && !kw.includes('보험')) continue
-            candidates.push(kw)
+            keywordCandidates.push(kw)
           }
         }
 
         // 후보가 너무 적으면 상품명을 기반으로 패턴 키워드 추가
         const fallbackBase = productName || collectedForKeywords[0]?.title || ''
-        if (candidates.length < 5 && fallbackBase) {
+        if (keywordCandidates.length < 5 && fallbackBase) {
           const base = fallbackBase.replace(/\s+/g, ' ').trim()
           const fallbackCandidates = [
             `${base} 추천`,
@@ -578,14 +580,35 @@ export async function POST(request: NextRequest) {
             `${base} 가입조건`,
             `${base} 보험료`
           ]
-          candidates.push(...fallbackCandidates)
+          keywordCandidates.push(...fallbackCandidates)
         }
-
-        searchKeywords = Array.from(new Set(candidates)).slice(0, 5)
       }
     } catch (keywordError) {
       console.warn('[Q&A 생성] 검색 키워드 추출 중 오류:', keywordError)
-      searchKeywords = []
+    }
+
+    // 2차: 네이버 검색광고 API(키워드 도구)로 연관키워드·월간검색수 조회 후 상위 5개 사용 (환경 변수 설정 시)
+    try {
+      console.log('[Naver SearchAd] env check:', {
+        customerId: !!process.env.NAVER_SEARCHAD_CUSTOMER_ID,
+        accessLicense: !!process.env.NAVER_SEARCHAD_ACCESS_LICENSE,
+        secretKey: !!process.env.NAVER_SEARCHAD_SECRET_KEY
+      })
+
+      // 사람용 표현 그대로 전달; lib에서 공백·쉼표 제거 후 API 전송(11001 방지), 실패 시 실손보험 등 폴백 순차 재시도
+      const hintKeyword = (productName || '').trim() || '실손보험'
+      const ranked = await getBestKeywordsFromNaverSearchAd([hintKeyword], { maxKeywords: 5 })
+      if (ranked.length > 0) {
+        console.log('[Q&A 생성] Naver SearchAd 연관 키워드 상위 5개:', ranked)
+        searchKeywords = ranked
+      } else if (keywordCandidates.length > 0) {
+        searchKeywords = Array.from(new Set(keywordCandidates)).slice(0, 5)
+      }
+    } catch (keywordError) {
+      console.warn('[Q&A 생성] Naver SearchAd 연관 키워드 조회 중 오류:', keywordError)
+      if (keywordCandidates.length > 0) {
+        searchKeywords = Array.from(new Set(keywordCandidates)).slice(0, 5)
+      }
     }
     
     // API 호출 헬퍼 함수 (재시도 및 폴백 로직 포함, 이미지 지원)
