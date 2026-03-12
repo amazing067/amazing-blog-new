@@ -5,6 +5,9 @@ import { createClient } from '@/lib/supabase/server'
 import { searchGoogle, SearchResult } from '@/lib/google-search'
 import { getBestKeywordsFromNaverSearchAd } from '@/lib/naver-searchad'
 
+/** 문서 14절: 프롬프트·운영 명세 버전 (변경 시 문서 버전 표 업데이트) */
+const QA_PROMPT_VERSION = '1.2'
+
 type TokenUsage = {
   model: string
   promptTokens: number
@@ -595,19 +598,63 @@ export async function POST(request: NextRequest) {
         secretKey: !!process.env.NAVER_SEARCHAD_SECRET_KEY
       })
 
-      // 사람용 표현 그대로 전달; lib에서 공백·쉼표 제거 후 API 전송(11001 방지), 실패 시 실손보험 등 폴백 순차 재시도
-      const hintKeyword = (productName || '').trim() || '실손보험'
-      const ranked = await getBestKeywordsFromNaverSearchAd([hintKeyword], { maxKeywords: 5 })
+      // 상품명 + 관심 연관어로 여러 hint 전달 → Naver가 사망보험금, 30대 사망보험금 등 더 다양한 연관어 반환
+      const productNameTrim = (productName || '').trim() || '실손보험'
+      const nameLower = productNameTrim.toLowerCase()
+      const extraHints: string[] = []
+      if (/종신|만기|연금/.test(nameLower) || productNameTrim.includes('종신')) {
+        extraHints.push('종신보험', '사망보험금', '30대 사망보험금')
+      }
+      if (/암|유사암|암보험/.test(nameLower) || productNameTrim.includes('암')) {
+        extraHints.push('암보험', '암보험금')
+      }
+      if (/종합|종합보험/.test(nameLower) || productNameTrim.includes('종합')) {
+        extraHints.push('종합보험', '종합보험 추천')
+      }
+      if (/수술|수술비/.test(nameLower) || productNameTrim.includes('수술')) {
+        extraHints.push('수술비보험', '수술비')
+      }
+      if (/상해|상해보험/.test(nameLower) || productNameTrim.includes('상해')) {
+        extraHints.push('상해보험', '상해보험금')
+      }
+      if (/질병|질병보험/.test(nameLower) || productNameTrim.includes('질병')) {
+        extraHints.push('질병보험', '질병보험 추천')
+      }
+      if (/실손|실비|의료비/.test(nameLower) || productNameTrim.includes('실손')) {
+        extraHints.push('실손보험', '실손의료비')
+      }
+      if (/자동차|운전자|차량/.test(nameLower) || productNameTrim.includes('자동차')) {
+        extraHints.push('자동차보험')
+      }
+      if (/치아|치아보험/.test(nameLower)) extraHints.push('치아보험')
+      // 카테고리 미매칭이어도 상품명만으로는 1~2개만 나오므로, 기본 hint 하나 추가
+      if (extraHints.length === 0) extraHints.push('보험')
+      const hintKeywords = [productNameTrim, ...extraHints.filter((h, i, a) => a.indexOf(h) === i)]
+      const ranked = await getBestKeywordsFromNaverSearchAd(hintKeywords, { maxKeywords: 5 })
       if (ranked.length > 0) {
-        console.log('[Q&A 생성] Naver SearchAd 연관 키워드 상위 5개:', ranked)
-        searchKeywords = ranked
-      } else if (keywordCandidates.length > 0) {
-        searchKeywords = Array.from(new Set(keywordCandidates)).slice(0, 5)
+        // Naver가 1~2개만 주는 경우(상품명이 구체적일 때) Google 후보로 5개까지 채움
+        if (ranked.length < 5 && keywordCandidates.length > 0) {
+          const naverSet = new Set(ranked.map((k: string) => k.trim()))
+          const fromGoogle = Array.from(new Set(keywordCandidates))
+            .filter((k: string) => k && !naverSet.has(k.trim()))
+            .slice(0, 5 - ranked.length)
+          searchKeywords = [...ranked, ...fromGoogle].slice(0, 5)
+          console.log('[Q&A 생성] Naver SearchAd 연관 키워드 상위 5개 (Naver 부족분 Google로 보강):', searchKeywords)
+        } else {
+          searchKeywords = ranked
+          console.log('[Q&A 생성] Naver SearchAd 연관 키워드 상위 5개:', searchKeywords)
+        }
+      } else {
+        if (keywordCandidates.length > 0) {
+          searchKeywords = Array.from(new Set(keywordCandidates)).slice(0, 5)
+          console.log('[Q&A 생성] [실패 대응 9절] Naver SearchAd 결과 없음 → Google keywordCandidates 폴백 사용:', searchKeywords)
+        }
       }
     } catch (keywordError) {
       console.warn('[Q&A 생성] Naver SearchAd 연관 키워드 조회 중 오류:', keywordError)
       if (keywordCandidates.length > 0) {
         searchKeywords = Array.from(new Set(keywordCandidates)).slice(0, 5)
+        console.log('[Q&A 생성] [실패 대응 9절] Naver SearchAd 예외 → Google keywordCandidates 폴백 사용:', searchKeywords)
       }
     }
     
@@ -812,6 +859,16 @@ export async function POST(request: NextRequest) {
     let finalQuestionTitle = questionTitle
     let finalQuestionContent = questionContent
     let answerContent = '' // 답변 변수 미리 선언
+
+    // 문서 9절: persona 추출 결과 로깅 (기본값 사용 시 디버깅용)
+    const personaAgeMatch = targetPersona?.match(/(\d+)대|(\d+)세/)
+    const personaGenderExplicit = targetPersona && (targetPersona.includes('여') || targetPersona.includes('남') || targetPersona.includes('주부'))
+    if (!personaAgeMatch && targetPersona) {
+      console.log('[Q&A 생성] [실패 대응 9절] targetPersona에서 나이 추출 불가 → 프롬프트 내 기본값(30세) 사용:', targetPersona)
+    }
+    if (!personaGenderExplicit && targetPersona) {
+      console.log('[Q&A 생성] [실패 대응 9절] targetPersona에서 성별 미명시 → 프롬프트 내 기본값 사용:', targetPersona)
+    }
 
     // Step 1: 질문 생성
     if (requestedStep === 'question' || requestedStep === 'all') {
@@ -1610,11 +1667,16 @@ export async function POST(request: NextRequest) {
         console.log(`Step 3-${step} 완료:`, { role: newMessage.role, contentLength: threadContent.length })
       }
       
-      // 후기성 문구 자동 삽입 (대화 횟수에 포함되지 않음)
-      // reviewCount에 따라 고객 후기만 생성 (설계사 응답 없음)
-      const finalReviewCount = reviewCount !== undefined ? reviewCount : 0 // 기본값: 0 (생성 안 함)
-      
-      if (finalReviewCount > 0) {
+      // 후기성 문구 자동 삽입 (문서 11절: conversationLength 6 이상일 때만 허용)
+      const finalReviewCount = reviewCount !== undefined ? reviewCount : 0
+      const minConversationLengthForReview = 6
+      const allowReviewInsert = finalReviewCount > 0 && (conversationLength || 0) >= minConversationLengthForReview
+
+      if (finalReviewCount > 0 && !allowReviewInsert) {
+        console.log(`[Q&A 생성] [11절 후기 규칙] 후기 삽입 생략: 대화 길이 ${conversationLength ?? 0} < ${minConversationLengthForReview}`)
+      }
+
+      if (allowReviewInsert) {
         console.log(`후기성 문구 생성 중... (${finalReviewCount}개)`)
         
         const reviewMessages: ConversationMessage[] = []
@@ -1671,7 +1733,7 @@ export async function POST(request: NextRequest) {
         conversationHistory.push(...reviewMessages)
         
         console.log(`후기성 문구 ${finalReviewCount}개 삽입 완료`)
-      } else {
+      } else if (finalReviewCount === 0) {
         console.log('후기성 문구 생성 안 함 (reviewCount: 0)')
       }
       console.log('Step 3 완료:', { totalThreads: conversationThread.length })
@@ -1693,16 +1755,45 @@ export async function POST(request: NextRequest) {
     console.log('📊 총 토큰 사용량:', totalUsage)
     console.log('📊 서치 비용:', customSearchCost, '총 비용 (토큰 + 서치):', totalCostWithSearch)
 
-    // 사용량 로그 (실패해도 응답은 진행)
+    // 문서 8절: 품질 게이트 검수 기준 → 경고만 반환 (수동 검수·A/B 시 참고)
+    const qualityWarnings: string[] = []
+    const qTitle = (finalQuestionTitle || '').trim()
+    const qContent = (finalQuestionContent || '').trim()
+    const aContent = (answerContent || '').trim()
+    if (qTitle.length > 0) {
+      if (qTitle.length < 10) qualityWarnings.push('질문 제목이 너무 짧음(10자 미만)')
+      if (qTitle.length > 80) qualityWarnings.push('질문 제목이 너무 김(80자 초과)')
+    }
+    if (qContent.length > 0) {
+      if (qContent.length < 50) qualityWarnings.push('질문 본문이 너무 짧음(50자 미만)')
+      if (qContent.length > 800) qualityWarnings.push('질문 본문이 너무 김(800자 초과)')
+    }
+    if (aContent.length > 0) {
+      if (aContent.length < 100) qualityWarnings.push('답변 본문이 너무 짧음(100자 미만)')
+      if (aContent.length > 1200) qualityWarnings.push('답변 본문이 너무 김(1200자 초과)')
+    }
+    if (searchKeywords && searchKeywords.length > 0) {
+      const inTitle = searchKeywords.filter(kw => qTitle.includes(kw)).length
+      const inQuestion = searchKeywords.filter(kw => qContent.includes(kw)).length
+      if (inTitle > 2) qualityWarnings.push(`연관 키워드 제목 과다(${inTitle}개, 목표 최대 1~2개)`)
+      if (inQuestion > 4) qualityWarnings.push(`연관 키워드 질문 본문 과다(${inQuestion}개, 목표 최대 2개 수준)`)
+    }
+    if (qualityWarnings.length > 0) {
+      console.log('[Q&A 생성] [8절 품질 게이트] 경고:', qualityWarnings)
+    }
+
+    // 사용량 로그 (실패해도 응답은 진행) — 문서 13·14절: 버전·KPI 메타
     const usageLogMeta = {
       productName,
       conversationMode,
       generateStep: requestedStep,
-      tokenBreakdown: tokenUsage, // 모델별 토큰 사용량 (비용 계산용)
-      costEstimate: totalCostWithSearch, // 총 비용 (토큰 + 서치, USD)
-      tokenCost: costEstimate.totalCost, // 토큰 비용만 (USD)
-      customSearchCount: customSearchCount, // 커스텀 서치 횟수
-      customSearchCost: customSearchCost, // 커스텀 서치 비용 (USD, $0.0005 per search)
+      promptVersion: QA_PROMPT_VERSION, // 문서 14절
+      tokenBreakdown: tokenUsage,
+      costEstimate: totalCostWithSearch,
+      tokenCost: costEstimate.totalCost,
+      customSearchCount: customSearchCount,
+      customSearchCost: customSearchCost,
+      qualityWarnings: qualityWarnings.length > 0 ? qualityWarnings : undefined, // 문서 8절
     }
     
     console.log('[Q&A 생성] usage_logs 저장할 데이터:', {
@@ -1767,7 +1858,9 @@ export async function POST(request: NextRequest) {
         answerTone: answerTone || 'friendly',
         conversationMode: conversationMode || false,
         conversationLength: conversationLength || 0,
-        searchKeywords: searchKeywords && searchKeywords.length > 0 ? searchKeywords : undefined
+        searchKeywords: searchKeywords && searchKeywords.length > 0 ? searchKeywords : undefined,
+        promptVersion: QA_PROMPT_VERSION, // 문서 14절
+        qualityWarnings: qualityWarnings.length > 0 ? qualityWarnings : undefined, // 문서 8절
       }
     })
   } catch (error: any) {

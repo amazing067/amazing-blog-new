@@ -236,12 +236,15 @@ export default function LoginPage() {
             </button>
           </form>
 
-          <div className="mt-6 text-center">
+          <div className="mt-6 space-y-2 text-center">
             <p className="text-gray-600 dark:text-gray-300">
               계정이 없으신가요?{' '}
               <Link href="/signup" className="text-[#1e293b] dark:text-blue-400 font-semibold hover:underline">
                 회원가입
               </Link>
+            </p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              비밀번호 변경은 로그인 후 상단 메뉴의 <strong>비밀번호 변경</strong>에서 할 수 있습니다.
             </p>
           </div>
         </div>

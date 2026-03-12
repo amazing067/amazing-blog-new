@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
-import { Shield, LogOut, UserCheck, UserX, Sparkles, BarChart3, FileText } from 'lucide-react'
+import { Shield, LogOut, UserCheck, UserX, Sparkles, BarChart3, FileText, Lock } from 'lucide-react'
 import Link from 'next/link'
 
 export default async function AdminDashboardPage() {
@@ -162,6 +162,13 @@ export default async function AdminDashboardPage() {
               <FileText className="w-4 h-4" />
               PDF 관리
             </Link> */}
+            <Link
+              href="/dashboard/change-password"
+              className="flex items-center gap-2 px-4 py-2 bg-slate-600 text-white font-semibold rounded-lg hover:bg-slate-700 transition-colors"
+            >
+              <Lock className="w-4 h-4" />
+              비밀번호 변경
+            </Link>
             <form action="/api/auth/signout" method="post">
               <button
                 type="submit"

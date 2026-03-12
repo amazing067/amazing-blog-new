@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { Shield, LogOut, Sparkles, Copy, Send, FileDown, Clock, BookOpen, TrendingUp, ArrowLeft, UserCheck, History, BarChart3, FileText, Save, MessageSquare, Image as ImageIcon, Link as LinkIcon, Crown, Building2, MapPin, Users, User, RefreshCw, Wand2, Smartphone, Monitor } from 'lucide-react'
+import { Shield, LogOut, Sparkles, Copy, Send, FileDown, Clock, BookOpen, TrendingUp, ArrowLeft, UserCheck, History, BarChart3, FileText, Save, MessageSquare, Image as ImageIcon, Link as LinkIcon, Crown, Building2, MapPin, Users, User, RefreshCw, Wand2, Smartphone, Monitor, Lock } from 'lucide-react'
+import Link from 'next/link'
 import MembershipStatusBanner from './MembershipStatusBanner'
 import { createClient } from '@/lib/supabase/client'
 import type { BlogPost } from '@/types/blog.types'
@@ -2319,6 +2320,14 @@ h2 {
                 본부 통계
               </button>
             )}
+            {/* 비밀번호 변경 */}
+            <Link
+              href="/dashboard/change-password"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 bg-white/10 backdrop-blur-sm text-white text-sm font-semibold rounded-md hover:bg-white/20 transition-colors"
+            >
+              <Lock className="w-3.5 h-3.5" />
+              비밀번호 변경
+            </Link>
             {/* 로그아웃 버튼 (오른쪽 끝) */}
             <form 
               action="/api/auth/signout" 

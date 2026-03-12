@@ -74,15 +74,19 @@ export async function getBestKeywordsFromNaverSearchAd(
   const maxKeywords = options?.maxKeywords ?? 5
   const path = '/keywordstool'
 
-  // 시도할 키워드 순서: 정규화한 상품명 → 공백 없는 보험 관련 폴백
+  // 시도할 키워드: 사용자 힌트(정규화) + 폴백. 여러 힌트로 호출해 결과를 합친 뒤 검색량 순 상위 N개 반환
   const toTry: string[] = []
-  const normalizedFirst = normalizeForApi(hints[0])
-  if (normalizedFirst.length > 0) toTry.push(normalizedFirst)
+  for (const h of hints) {
+    const n = normalizeForApi(h)
+    if (n.length > 0 && !toTry.includes(n)) toTry.push(n)
+  }
   const fallbacks = ['실손보험', '실손의료보험', '실비보험']
   for (const fb of fallbacks) {
-    if (fb !== normalizedFirst && !toTry.includes(fb)) toTry.push(fb)
+    if (!toTry.includes(fb)) toTry.push(fb)
   }
   if (toTry.length === 0) return []
+
+  const merged: Array<{ keyword: string; volume: number }> = []
 
   for (const apiKeyword of toTry) {
     try {
@@ -110,6 +114,7 @@ export async function getBestKeywordsFromNaverSearchAd(
       if (!response.ok) {
         const text = await response.text()
         console.warn('[Naver SearchAd] keywordstool 실패:', response.status, apiKeyword, text.substring(0, 200))
+        await new Promise((r) => setTimeout(r, 150))
         continue
       }
 
@@ -117,11 +122,10 @@ export async function getBestKeywordsFromNaverSearchAd(
       const list = json.keywordList ?? []
 
       if (list.length === 0) {
-        console.warn('[Naver SearchAd] keywordList 비어 있음, 다음 키워드 시도:', apiKeyword)
+        await new Promise((r) => setTimeout(r, 150))
         continue
       }
 
-      // PC + 모바일 월간검색수 합산 후 내림차순 정렬
       const withVolume = list
         .map((item) => ({
           keyword: (item.relKeyword ?? '').trim(),
@@ -129,14 +133,22 @@ export async function getBestKeywordsFromNaverSearchAd(
         }))
         .filter((x) => x.keyword.length > 0)
 
-      const sorted = withVolume.sort((a, b) => b.volume - a.volume)
-      const top = sorted.slice(0, maxKeywords).map((x) => x.keyword)
-      return Array.from(new Set(top))
+      for (const x of withVolume) {
+        const existing = merged.find((m) => m.keyword === x.keyword)
+        if (existing) existing.volume = Math.max(existing.volume, x.volume)
+        else merged.push({ keyword: x.keyword, volume: x.volume })
+      }
+
+      await new Promise((r) => setTimeout(r, 150))
     } catch (error) {
       console.warn('[Naver SearchAd] keywordstool 조회 오류:', apiKeyword, error)
-      continue
+      await new Promise((r) => setTimeout(r, 150))
     }
   }
 
-  return []
+  if (merged.length === 0) return []
+
+  const sorted = merged.sort((a, b) => b.volume - a.volume)
+  const top = sorted.slice(0, maxKeywords).map((x) => x.keyword)
+  return Array.from(new Set(top))
 }
