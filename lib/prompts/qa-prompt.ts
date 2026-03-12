@@ -423,7 +423,7 @@ export interface ConversationContext {
  * Step 1: 일반인 질문 생성 프롬프트
  */
 export function generateQuestionPrompt(data: QAPromptData): string {
-  const { productName, targetPersona, worryPoint, designSheetImage, designSheetAnalysis, searchResultsText, searchKeywords } = data
+  const { productName, targetPersona, worryPoint, sellingPoint, designSheetImage, designSheetAnalysis, searchResultsText, searchKeywords } = data
   
   // 코드 레벨 무작위성: 질문자 태도 & 제목 패턴 선택
   const selectedConcept = getRandomItem(QUESTION_CONCEPTS)
@@ -497,22 +497,30 @@ export function generateQuestionPrompt(data: QAPromptData): string {
   // 랜덤 상황 노이즈 추가
   const randomSituation = getRandomContext()
 
+  // 연령 표기: 입력이 "50대"면 출력에도 "50대"만 사용. "55세" 등 구체 나이를 임의로 넣지 않도록 프롬프트에도 동일 표기
+  const profileAgeLabel = ageDecadeMatch
+    ? `${ageDecadeMatch[0]} ${gender === '남' ? '남성' : '여성'}`
+    : `${age}세 ${gender === '남' ? '남성' : '여성'}`
+
   const prompt = `당신은 보험 가입을 고민 중인 일반인입니다. 커뮤니티에 질문글을 작성합니다.
 
 [화자 프로필]
-- ${age}세 ${gender === '남' ? '남성' : '여성'} (${targetPersona})
+- ${profileAgeLabel} (${targetPersona})
 - 현재 상황/기분: **${randomSituation}** (이 설정을 말투에 깊게 반영하세요)
 ${searchResultsText ? `
 [최근 검색 요약]
-- 아래 검색 요약을 근거로 최신/구체 정보를 자연스럽게 반영하세요
-- 링크나 출처를 본문에 남기지 말고 내용만 녹여서 전달하세요
+- 검색 요약은 **일반론**으로만 반영하세요. "일부 상품에서는", "보통", "찾아보니" 등 가능성 문장으로 쓸 것.
+- 링크나 출처를 본문에 남기지 말고 내용만 녹여서 전달하세요.
 ${searchResultsText}
 ` : ''}
 
 [작성 미션]
-1. 제목: [${selectedTitlePattern.type}] 스타일로 작성 (${selectedTitlePattern.guide})
+1. 제목: [${selectedTitlePattern.type}] 스타일로 작성 (${selectedTitlePattern.guide}). 
+   - **제목에는 반드시 아래 핵심키워드(검색형 요약어) 중 1개 이상을 포함하세요.** 예: 간편건강보험, 해약환급금, 암보험, 보험료, 실손보험 등.
+   - **정식 상품명 전체(회사명·버전·코드·괄호까지 포함된 긴 이름)는 제목에 그대로 쓰지 말고, 본문에서만 1번 언급하세요.** 제목은 짧은 검색형 키워드 + 고민 한 줄(예: "간편건강보험, 해약환급금 없는 설계 괜찮을까요?")처럼 작성하세요.
+   - "보험 이거 맞나요?"처럼 키워드 없이 너무 일반적인 제목만 쓰지 마세요.
 2. 본문:
-   - 설계서 내용(${premiumInfo || '보험료'}, ${coverageInfo || '주요보장'})을 언급하며 궁금한 점을 물어보세요.
+   - ${premiumInfo || coverageInfo ? `설계서 내용(${premiumInfo || '보험료'}, ${coverageInfo || '주요보장'})을 언급하며` : '고민과 강조점을 반영하여'} 궁금한 점을 물어보세요.
    - 태도: **${selectedConcept.tone}**
    - 길게 쓰지 마세요. 300~500자 내외로, 문단은 2~3개면 충분합니다.
    - **문장 중간에 엔터를 치지 마세요.** 말이 다 끝난 뒤(물음표, 느낌표 뒤)에만 줄을 바꾸세요.
@@ -521,13 +529,21 @@ ${searchResultsText}
 
 ${COMMON_GUIDELINES.SENTENCE_INTEGRITY}
 
+[사실성 - 필수 (위반 시 심각한 오류)]
+- 질문 본문에 넣는 **구체적 수치·조건·상품 특성**은 반드시 아래 [입력 데이터]에 적힌 내용만 사용하세요.
+- **연령**: 입력에 "50대", "40대"처럼 연령대만 있으면 본문에도 **반드시 그 연령대만** 사용하세요. 55세, 51세, 58세 등 구체 나이를 임의로 넣지 마세요.
+- **입력에 없는** 보험료 금액(예: 10만원대, 3만원), 보장 기간(100세, 비갱신형/갱신형), 보장 금액(1억, 3000만), 할인명(비흡연자 할인 등), 특약명·상품명 세부사항을 **임의로 만들어 넣지 마세요.**
+- 설계서 분석이 제공된 경우에만 그 내용을 참고하고, 없으면 고민(worryPoint)과 강조점(sellingPoint)만 일반적으로 반영하세요. 검색 요약은 "일반적으로", "일부 상품에서는" 등 가능성 문장으로만 쓸 것.
+- **광고성 표현 자제**: "비교 어플", "실시간 보험료 견적", "실시간 견적" 같은 표현은 제목·첫 문단에서 쓰지 마세요. "알아보니 이런 얘기도 있다던데" 정도로만.
+
 [금지 사항]
 - 너무 전문가처럼 보이거나, 너무 정중하게 쓰지 마세요. 커뮤니티 글처럼 자연스럽게.
 
 [입력 데이터]
 - 상품: ${productName}
 - 고민: ${worryPoint}
-${designSheetAnalysis ? `- 설계서 내용: ${JSON.stringify(designSheetAnalysis)}` : ''}
+- 강조점(판매 포인트): ${sellingPoint}
+${designSheetAnalysis ? `- 설계서 내용: ${JSON.stringify(designSheetAnalysis)}` : '- 설계서: 없음 (위 고민·강조점만 사용)'}
 ${searchResultsText ? `- 최근 검색 요약: ${searchResultsText}` : ''}
 ${searchKeywords && searchKeywords.length > 0 ? `- 연관 키워드 (상위 1~2개 필수, 나머지 가능하면): ${searchKeywords.join(', ')}` : ''}
 ${searchKeywords && searchKeywords.length > 0 ? `
@@ -713,7 +729,7 @@ ${COMMON_GUIDELINES.NO_PERIOD}
    - 가이드: ${selectedStructure.guide}
 
 8. **답변 길이 제어**:
-   - **총 길이는 300-500자 이내**로 제한합니다
+   - **총 길이는 300-500자 이내**로 작성하세요 (짧으면 조언이 부족해 보이므로 적당히 풍부하게)
    - **문단은 2-3개로 자유롭게** 구성하세요
    - **핵심 결론부터** 빠르게 답변하세요 (서론이 길면 고객이 이탈합니다)
    - **공감은 짧게(한 줄), 분석은 날카롭게** 하세요
@@ -900,7 +916,7 @@ export function generateConversationThreadPrompt(
 
 [작성 지침]
 1. **말투: 무조건 존댓말(해요체/하십시오체)을 사용하세요.** (반말 금지)
-2. 내용: 이전 댓글들과 겹치지 않는 새로운 질문/반응을 딱 한 마디만 하세요.
+2. 내용: 이전 댓글들과 겹치지 않는 새로운 질문/반응을 하세요. **최소 80자 이상**으로, 고민이나 반응을 2~3문장으로 풀어서 쓰세요.
    ${previousTopics.length > 0 ? `- 이미 다룬 주제: ${previousTopics.join(', ')} (이 주제는 피하세요)` : ''}
 3. 주의: 가입 '후기'가 아니라 가입 전 '문의'입니다.
 4. 형식: 
@@ -933,8 +949,9 @@ ${historyText ? `이전 댓글들:\n${historyText}` : ''}
 [작성 지침]
 1. **말투: 친절하고 정중한 존댓말 사용.** ("~님", "~요" 사용)
 2. 내용: 고객의 질문에 대해 **동문서답하지 말고 딱 그 내용만** 답변하세요.
-3. 요령: 기계적인 인사는 생략하고, 답변 후 자연스럽게 쪽지/상담을 넌지시 언급하세요.
-4. 형식: 
+3. **범위 제한**: 답변은 이 상품의 해약환급금·간편심사·특약·보험료·가입조건·보장 범위 안에서만 하세요. 보험사 재무건전성·파산·예금자보호·역사 등 다른 주제로 확장하지 마세요.
+4. 요령: 기계적인 인사는 생략하고, 답변 후 자연스럽게 쪽지/상담을 넌지시 언급하세요.
+5. 형식: 
    - 마침표 사용 자제
    - **문장 중간에 줄바꿈 금지**: 한 문장은 반드시 한 줄에 이어 쓰세요. 문장이 끝난 뒤에만 줄바꿈하세요.
 

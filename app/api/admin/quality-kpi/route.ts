@@ -1,0 +1,190 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { createClient } from '@/lib/supabase/server'
+import { createClient as createAdminClient } from '@supabase/supabase-js'
+
+/**
+ * 관리자 전용: 품질 경고 이력 + KPI 요약
+ * - qualityLogs: meta.qualityWarnings가 있는 최근 usage_logs
+ * - kpiSummary: 기간 내 Q&A/블로그 건수, 토큰 합계, 비용, 품질 경고 발생 건수
+ */
+export async function GET(request: NextRequest) {
+  try {
+    const supabase = await createClient()
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+
+    if (!user) return NextResponse.json({ error: '인증이 필요합니다' }, { status: 401 })
+
+    let adminClient: ReturnType<typeof createAdminClient> | null = null
+    if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
+      const key = process.env.SUPABASE_SERVICE_ROLE_KEY.trim().replace(/[\r\n\t]/g, '').replace(/\s+/g, '')
+      if (key.length >= 50 && key.startsWith('eyJ')) {
+        adminClient = createAdminClient(
+          process.env.NEXT_PUBLIC_SUPABASE_URL!,
+          key
+        ) as ReturnType<typeof createAdminClient>
+      }
+    }
+
+    const client = adminClient || supabase
+
+    const { data: profile } = await client
+      .from('profiles')
+      .select('role')
+      .eq('id', user.id)
+      .single()
+
+    if (!profile || profile.role !== 'admin') {
+      return NextResponse.json({ error: '관리자 권한이 필요합니다' }, { status: 403 })
+    }
+
+    const { searchParams } = new URL(request.url)
+    const days = Math.min(90, Math.max(1, parseInt(searchParams.get('days') || '30', 10)))
+    const since = new Date()
+    since.setDate(since.getDate() - days)
+    const sinceIso = since.toISOString()
+
+    // 최근 usage_logs (qa 위주로 품질 경고 확인용 + KPI 집계용)
+    const { data: usageRows, error: usageError } = await client
+      .from('usage_logs')
+      .select('id, user_id, type, total_tokens, meta, created_at')
+      .gte('created_at', sinceIso)
+      .order('created_at', { ascending: false })
+      .limit(2000)
+
+    if (usageError) {
+      console.error('[admin/quality-kpi] usage_logs 조회 오류:', usageError)
+      return NextResponse.json({ error: usageError.message }, { status: 500 })
+    }
+
+    const userIds = [...new Set((usageRows || []).map((r) => r.user_id).filter(Boolean))]
+    const { data: profiles } = await client
+      .from('profiles')
+      .select('id, username, full_name')
+      .in('id', userIds)
+
+    const profileMap = new Map((profiles || []).map((p) => [p.id, p]))
+
+    // 품질 경고가 있는 로그만 (Q&A 생성 시 8절 품질 게이트)
+    const qualityLogs = (usageRows || [])
+      .filter((r) => r.meta && Array.isArray((r.meta as any).qualityWarnings) && (r.meta as any).qualityWarnings.length > 0)
+      .slice(0, 100)
+      .map((r) => {
+        const p = profileMap.get(r.user_id)
+        const meta = r.meta as any
+        return {
+          id: r.id,
+          user_id: r.user_id,
+          username: p?.username ?? '-',
+          full_name: p?.full_name ?? '-',
+          created_at: r.created_at,
+          type: r.type,
+          total_tokens: r.total_tokens ?? 0,
+          questionTitle: meta?.questionTitle ?? null,
+          questionContentSnippet: meta?.questionContentSnippet ?? null,
+          promptVersion: meta?.promptVersion ?? '-',
+          qualityWarnings: meta?.qualityWarnings ?? [],
+          costEstimate: meta?.costEstimate ?? null,
+        }
+      })
+
+    // KPI 요약 (기간 내)
+    const usdToKrw = parseFloat(process.env.USD_TO_KRW_RATE || '1300') || 1300
+    let totalQa = 0
+    let totalBlog = 0
+    let totalTokens = 0
+    let totalCostUsd = 0
+    let qualityWarningCount = 0
+
+    // 경고 유형별 건수 (동일 문구가 여러 건에서 나오면 합산)
+    const warningTypeCounts: Record<string, number> = {}
+
+    ;(usageRows || []).forEach((r) => {
+      if (r.type === 'qa') totalQa++
+      else if (r.type === 'blog') totalBlog++
+      totalTokens += r.total_tokens || 0
+      const meta = r.meta as any
+      if (meta?.costEstimate != null) totalCostUsd += Number(meta.costEstimate)
+      else if (meta?.tokenBreakdown && Array.isArray(meta.tokenBreakdown)) {
+        const rates: Record<string, { prompt: number; completion: number }> = {
+          'gemini-2.0-flash': { prompt: 0.10, completion: 0.40 },
+          'gemini-2.5-flash': { prompt: 0.075, completion: 0.30 },
+          'gemini-2.5-pro': { prompt: 1.25, completion: 10.0 },
+        }
+        meta.tokenBreakdown.forEach((u: any) => {
+          const rate = rates[u.model]
+          if (rate) totalCostUsd += (u.promptTokens || 0) / 1e6 * rate.prompt + (u.candidatesTokens || 0) / 1e6 * rate.completion
+        })
+      }
+      if (meta?.qualityWarnings?.length > 0) {
+        qualityWarningCount++
+        ;(meta.qualityWarnings as string[]).forEach((w: string) => {
+          warningTypeCounts[w] = (warningTypeCounts[w] || 0) + 1
+        })
+      }
+    })
+
+    const totalWithWarnings = totalQa + totalBlog
+    const qualityWarningRate = totalWithWarnings > 0
+      ? Math.round((qualityWarningCount / totalWithWarnings) * 1000) / 10
+      : 0
+    const avgCostPerQa = totalQa > 0 ? Math.round((totalCostUsd * usdToKrw) / totalQa) : 0
+    const avgCostPerBlog = totalBlog > 0 ? Math.round((totalCostUsd * usdToKrw) / totalBlog) : 0
+
+    const kpiSummary = {
+      days,
+      since: sinceIso,
+      totalQa,
+      totalBlog,
+      totalTokens,
+      totalCostUsd: Math.round(totalCostUsd * 1e6) / 1e6,
+      totalCostKrw: Math.round(totalCostUsd * usdToKrw),
+      qualityWarningCount,
+      qualityWarningRate,
+      avgCostPerQa,
+      avgCostPerBlog,
+      warningTypeCounts,
+    }
+
+    // 연관 키워드 사용 현황 (키워드·검색량 잘 잡히는지 확인용)
+    const keywordLogs = (usageRows || [])
+      .filter((r) => {
+        const meta = r.meta as any
+        return r.type === 'qa' && meta && (
+          (Array.isArray(meta.searchKeywordsWithVolume) && meta.searchKeywordsWithVolume.length > 0) ||
+          (Array.isArray(meta.searchKeywords) && meta.searchKeywords.length > 0)
+        )
+      })
+      .slice(0, 80)
+      .map((r) => {
+        const p = profileMap.get(r.user_id)
+        const meta = r.meta as any
+        const withVol = meta?.searchKeywordsWithVolume as Array<{ keyword: string; volume: number | null }> | undefined
+        const keywordsOnly = meta?.searchKeywords as string[] | undefined
+        return {
+          id: r.id,
+          user_id: r.user_id,
+          username: p?.username ?? '-',
+          full_name: p?.full_name ?? '-',
+          created_at: r.created_at,
+          productName: meta?.productName ?? '-',
+          searchKeywords: keywordsOnly ?? [],
+          searchKeywordsWithVolume: withVol ?? (keywordsOnly?.map((k) => ({ keyword: k, volume: null as number | null })) ?? []),
+        }
+      })
+
+    return NextResponse.json({
+      success: true,
+      qualityLogs,
+      kpiSummary,
+      keywordLogs,
+    })
+  } catch (err: unknown) {
+    console.error('[admin/quality-kpi] 오류:', err)
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : '서버 오류' },
+      { status: 500 }
+    )
+  }
+}

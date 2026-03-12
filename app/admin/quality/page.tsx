@@ -2,82 +2,58 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { Shield, LogOut, BarChart3, ClipboardCheck } from 'lucide-react'
 import Link from 'next/link'
-import StatsTable from './StatsTable'
+import QualityKpiPanel from './QualityKpiPanel'
 
-export default async function AdminStatsPage() {
+export default async function AdminQualityPage() {
   const supabase = await createClient()
-
   const {
     data: { user },
   } = await supabase.auth.getUser()
 
-  if (!user) {
-    redirect('/login')
-  }
+  if (!user) redirect('/login')
 
-  // 관리자 권한 확인 (SERVICE_ROLE_KEY 사용 시도 - RLS 우회)
   let profile: { id: string; role: string } | null = null
-  let profileError: any = null
-
   try {
-    // SERVICE_ROLE_KEY 사용 시도
     const rawServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
     if (rawServiceRoleKey) {
       const serviceRoleKey = rawServiceRoleKey.trim().replace(/[\r\n\t]/g, '').replace(/\s+/g, '')
-      
       if (serviceRoleKey && serviceRoleKey.length >= 50 && serviceRoleKey.startsWith('eyJ')) {
         const { createClient: createAdminClient } = await import('@supabase/supabase-js')
         const adminClient = createAdminClient(
           process.env.NEXT_PUBLIC_SUPABASE_URL!,
           serviceRoleKey
         ) as any
-
-        const { data: profileData, error: err } = await adminClient
+        const { data: profileData, error } = await adminClient
           .from('profiles')
           .select('id, role')
           .eq('id', user.id)
           .single()
-
-        if (!err && profileData) {
-          profile = profileData
-        } else {
-          profileError = err
-        }
+        if (!error && profileData) profile = profileData
       }
     }
-
-    // SERVICE_ROLE_KEY가 없거나 실패한 경우 일반 클라이언트 사용
     if (!profile) {
-      const { data: profileData, error: err } = await supabase
+      const { data: profileData, error } = await supabase
         .from('profiles')
         .select('id, role')
         .eq('id', user.id)
         .single()
-
-      if (err) {
-        profileError = err
-      } else if (profileData) {
-        profile = profileData
-      }
+      if (!error && profileData) profile = profileData
     }
-  } catch (error: any) {
-    console.error('프로필 조회 중 오류:', error)
-    profileError = error
+  } catch (e) {
+    console.error('프로필 조회 오류:', e)
   }
 
   if (!profile || profile.role !== 'admin') {
-    console.error('관리자 권한 없음 또는 프로필 조회 실패:', { profile, profileError })
     redirect('/dashboard')
   }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
-      {/* Header */}
       <header className="bg-[#1e293b] shadow-md">
         <div className="container mx-auto px-4 py-4 flex justify-between items-center">
           <div className="flex items-center gap-3">
-            <Shield className="w-8 h-8 text-white" />
-            <h1 className="text-2xl font-bold text-white">관리자 통계</h1>
+            <ClipboardCheck className="w-8 h-8 text-white" />
+            <h1 className="text-2xl font-bold text-white">품질 · 실패 · KPI 관리</h1>
           </div>
           <div className="flex items-center gap-3">
             <Link
@@ -87,11 +63,11 @@ export default async function AdminStatsPage() {
               대시보드
             </Link>
             <Link
-              href="/admin/quality"
-              className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white font-semibold rounded-lg hover:bg-emerald-700 transition-colors"
+              href="/admin/stats"
+              className="flex items-center gap-2 px-4 py-2 bg-amber-500 text-white font-semibold rounded-lg hover:bg-amber-600 transition-colors"
             >
-              <ClipboardCheck className="w-4 h-4" />
-              품질·KPI
+              <BarChart3 className="w-4 h-4" />
+              통계
             </Link>
             <form action="/api/auth/signout" method="post">
               <button
@@ -109,20 +85,20 @@ export default async function AdminStatsPage() {
       <main className="container mx-auto px-4 py-10">
         <div className="max-w-7xl mx-auto space-y-6">
           <div className="flex items-center gap-3">
-            <div className="bg-blue-100 p-3 rounded-xl">
-              <BarChart3 className="w-6 h-6 text-blue-700" />
+            <div className="bg-amber-100 p-3 rounded-xl">
+              <Shield className="w-6 h-6 text-amber-700" />
             </div>
             <div>
-              <h2 className="text-xl font-bold text-gray-800">회원 활동/토큰 통계</h2>
-              <p className="text-sm text-gray-500">글 수, Q&A 수, 토큰 사용량을 한눈에 확인하세요.</p>
+              <h2 className="text-xl font-bold text-gray-800">품질 게이트 · 실패 대응 · KPI</h2>
+              <p className="text-sm text-gray-500">
+                품질 경고 이력, KPI 요약, 실패 케이스 사전을 한 화면에서 확인하세요.
+              </p>
             </div>
           </div>
 
-          <StatsTable />
+          <QualityKpiPanel />
         </div>
       </main>
     </div>
   )
 }
-
-

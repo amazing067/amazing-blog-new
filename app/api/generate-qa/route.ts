@@ -101,6 +101,29 @@ const formatSearchResultsForPrompt = (results: SearchResult[]): string => {
     .join('\n')
 }
 
+// 상품명에서 검색·키워드용 핵심 부분만 추출 (회사명·버전·코드·괄호 등 제거)
+const normalizeProductNameForSearch = (raw?: string | null): string => {
+  if (!raw) return ''
+  let name = raw.trim()
+  // 회사명/법인 표기 제거
+  name = name
+    .replace(/보험\(주\)/g, '')
+    .replace(/\(주\)/g, '')
+    .replace(/주식회사/g, '')
+    .replace(/라이나생명보험/g, '라이나생명')
+    .replace(/라이나생명보험주식회사/g, '라이나생명')
+  // 괄호와 내부 코드/버전 제거
+  name = name.replace(/\([^)]*\)/g, '')
+  // 연속 공백 정리
+  name = name.replace(/\s+/g, ' ').trim()
+  // 너무 길면 앞쪽 2~3단어만 사용
+  const parts = name.split(' ')
+  if (parts.length > 3) {
+    name = parts.slice(0, 3).join(' ')
+  }
+  return name
+}
+
 // 한국어 문장 끝 패턴 찾기 (자연스러운 문장 완성 지점)
 const findKoreanSentenceEnd = (text: string, maxPos: number, searchRange: number = 30): number | null => {
   // 안전성 검사
@@ -497,19 +520,25 @@ export async function POST(request: NextRequest) {
     // 키워드 추출용으로 검색 결과를 따로 보관
     let collectedForKeywords: SearchResult[] = []
     try {
-      // 검색 쿼리: 가격 정보, 장점, 특징, 정보 등을 찾기 위한 다양한 쿼리 생성
+      // 검색 쿼리: 짧은 키워드형만 사용 (긴 문장형 worryPoint/sellingPoint 절삭 — 검색 효율·품질 저하 방지)
+      const shortProductName = normalizeProductNameForSearch(productName)
+      const shortPersonaRaw = (targetPersona || '').replace(/\s+/g, ' ').trim()
+      // 검색 쿼리에서도 정확 나이(36세) 대신 연령대(30대)로 버킷화하여 너무 정밀한 문자열을 피함
+      const shortPersona = shortPersonaRaw.replace(/(\d{1,2})세/g, (_: string, n: string) => {
+        const decade = Math.floor(parseInt(n, 10) / 10) * 10
+        return `${decade}대`
+      }).replace(/\s+/g, ' ').trim()
       const searchQueries = Array.from(new Set([
-        `${productName} 보험료 가격`,
-        `${productName} 보험료 비교`,
-        `${productName} 장점 특징`,
-        `${productName} 특약 구성`,
-        `${productName} 보장 내용`,
-        `${productName} 후기`,
-        `${productName} ${targetPersona} 보험료`,
-        `${productName} ${targetPersona} 추천`,
-        `${productName} ${worryPoint}`,
-        `${productName} ${sellingPoint}`
-      ]))
+        `${shortProductName} 보험료`,
+        `${shortProductName} 보험료 비교`,
+        `${shortProductName} 장단점`,
+        `${shortProductName} 특약`,
+        `${shortProductName} 보장 내용`,
+        `${shortProductName} 후기`,
+        shortPersona ? `${shortProductName} ${shortPersona} 보험료` : '',
+        shortPersona ? `${shortProductName} ${shortPersona} 추천` : '',
+        shortPersona ? `${shortProductName} ${shortPersona} 가입 고민` : ''
+      ].filter(Boolean)))
       
       const collected: SearchResult[] = []
       const seen = new Set<string>()
@@ -552,6 +581,7 @@ export async function POST(request: NextRequest) {
     // 검색 결과 기반 키워드 (상품명 연관 베스트 키워드) 추출
     // 1차: 기존 Google Custom Search 기반 후보 생성
     let searchKeywords: string[] = []
+    let searchKeywordsWithVolume: Array<{ keyword: string; volume: number | null }> = [] // 사람들이 많이 찾는 키워드·검색량 저장용
     const keywordCandidates: string[] = []
     try {
       if (collectedForKeywords.length > 0) {
@@ -599,8 +629,29 @@ export async function POST(request: NextRequest) {
       })
 
       // 상품명 + 관심 연관어로 여러 hint 전달 → Naver가 사망보험금, 30대 사망보험금 등 더 다양한 연관어 반환
-      const productNameTrim = (productName || '').trim() || '실손보험'
+      const productNameTrim = normalizeProductNameForSearch(productName) || '실손보험'
       const nameLower = productNameTrim.toLowerCase()
+
+      // 상품군 판별: SearchAd 힌트/후보는 이 상품군에만 맞춤. 다른 상품군 키워드는 탈락.
+      type ProductGroup = 'cancer' | 'silsan' | 'simple' | 'jongsin' | 'driver' | 'other'
+      let productGroup: ProductGroup = 'other'
+      if (/암|유사암|암보험/.test(nameLower) || productNameTrim.includes('암')) productGroup = 'cancer'
+      else if (/실손|실비|의료비/.test(nameLower) || productNameTrim.includes('실손')) productGroup = 'silsan'
+      else if (/간편|유병/.test(nameLower)) productGroup = 'simple'
+      else if (/종신|만기|연금/.test(nameLower) || productNameTrim.includes('종신')) productGroup = 'jongsin'
+      else if (/자동차|운전자|차량/.test(nameLower) || productNameTrim.includes('자동차')) productGroup = 'driver'
+
+      // 롱테일/노출용 키워드는 상품명이 길 때(18자 초과) 상품군별 짧은 이름 사용. 예: "36세 여성 간편건강보험"
+      const SHORT_KEYWORD_NAME_BY_GROUP: Record<ProductGroup, string> = {
+        cancer: '암보험',
+        silsan: '실손보험',
+        simple: '간편건강보험',
+        jongsin: '종신보험',
+        driver: '운전자보험',
+        other: productNameTrim.length <= 12 ? productNameTrim : '보험'
+      }
+      const shortKeywordName = productNameTrim.length > 18 ? (SHORT_KEYWORD_NAME_BY_GROUP[productGroup] || productNameTrim) : productNameTrim
+
       const extraHints: string[] = []
       if (/종신|만기|연금/.test(nameLower) || productNameTrim.includes('종신')) {
         extraHints.push('종신보험', '사망보험금', '30대 사망보험금')
@@ -627,10 +678,243 @@ export async function POST(request: NextRequest) {
         extraHints.push('자동차보험')
       }
       if (/치아|치아보험/.test(nameLower)) extraHints.push('치아보험')
+      if (/간편|유병/.test(nameLower)) extraHints.push('간편건강보험', '유병자보험')
+      if (/해약환급금/.test(nameLower)) extraHints.push('해약환급금미지급형', '해약환급금 없는 보험')
       // 카테고리 미매칭이어도 상품명만으로는 1~2개만 나오므로, 기본 hint 하나 추가
       if (extraHints.length === 0) extraHints.push('보험')
+      // 롱테일 핵심키워드 수급: 타깃(50대 남자 등) + 상품명 힌트. "직장인" 제외. 정확 나이(36세)는 검색용으로 연령대(30대)로 버킷화
+      const shortPersona = (targetPersona || '').replace(/\s+/g, ' ').trim()
+      let shortPersonaForKeyword = shortPersona.replace(/\s*직장인\s*/g, ' ').replace(/\s+/g, ' ').trim()
+      shortPersonaForKeyword = shortPersonaForKeyword.replace(/(\d{1,2})세/g, (_: string, n: string) => {
+        const decade = Math.floor(parseInt(n, 10) / 10) * 10
+        return `${decade}대`
+      }).replace(/\s+/g, ' ').trim()
+      if (shortPersonaForKeyword) {
+        const nameForHint = productNameTrim.length > 18 ? shortKeywordName : productNameTrim
+        extraHints.push(`${shortPersonaForKeyword} ${nameForHint}`, `${nameForHint} ${shortPersonaForKeyword} 보험료`)
+      }
       const hintKeywords = [productNameTrim, ...extraHints.filter((h, i, a) => a.indexOf(h) === i)]
-      const ranked = await getBestKeywordsFromNaverSearchAd(hintKeywords, { maxKeywords: 5 })
+      console.log('[Q&A 생성] SearchAd hintKeywords(상품군별만, 롱테일힌트 포함):', hintKeywords, 'productGroup:', productGroup)
+      // 상품과 무관한 고검색량 키워드(건강보험·실비·경쟁사명 등) 제거: 후보 15개 받아서 상품 타입 관련어 우선 정렬 후 상위 5개
+      const rankedWithVolumeRaw = await getBestKeywordsFromNaverSearchAd(hintKeywords, { maxKeywords: 15 })
+
+      // 상품군·문맥 관련성에 따라 점수 부여 (검색량은 보조 지표로만 사용)
+      const relevanceTerms: string[] = []
+      if (/암|유사암/.test(nameLower) || productNameTrim.includes('암')) relevanceTerms.push('암')
+      if (/종신|만기|연금/.test(nameLower) || productNameTrim.includes('종신')) relevanceTerms.push('종신', '사망')
+      if (/실손|실비|의료비/.test(nameLower) || productNameTrim.includes('실손')) relevanceTerms.push('실손', '실비')
+      if (/종합|종합보험/.test(nameLower) || productNameTrim.includes('종합')) relevanceTerms.push('종합')
+      if (/수술|수술비/.test(nameLower) || productNameTrim.includes('수술')) relevanceTerms.push('수술')
+      if (/상해|상해보험/.test(nameLower) || productNameTrim.includes('상해')) relevanceTerms.push('상해')
+      if (/질병|질병보험/.test(nameLower) || productNameTrim.includes('질병')) relevanceTerms.push('질병')
+      if (/자동차|운전자|차량/.test(nameLower) || productNameTrim.includes('자동차')) relevanceTerms.push('자동차')
+      if (/치아|치아보험/.test(nameLower)) relevanceTerms.push('치아')
+      if (/간편|유병/.test(nameLower)) relevanceTerms.push('간편', '유병자')
+      if (/해약환급금/.test(nameLower)) relevanceTerms.push('해약환급금')
+      const isRelevant = (kw: string) => relevanceTerms.some((t) => kw.includes(t))
+
+      /** 현재 상품군이 아닌 다른 상품군 키워드 포함 시 탈락 (감점이 아닌 컷오프) */
+      const OTHER_GROUP_PATTERNS: Record<ProductGroup, RegExp[]> = {
+        cancer: [/실손보험/, /실손의료/, /실비보험/, /도수치료/, /입원일당/, /급여.*보험|비급여/, /4세대실손|5세대실손/, /자동차보험/, /운전자보험/, /치아보험/, /종신보험/, /연금보험/],
+        silsan: [/암보험|암진단|비갱신암|고액암/, /종신보험/, /연금보험/, /자동차보험/, /운전자보험/, /치아보험/],
+        simple: [/실손보험|실비보험/, /암보험/, /종신보험/, /자동차보험/, /운전자보험/, /치아보험/],
+        jongsin: [/실손보험|실비보험/, /암보험/, /자동차보험/, /운전자보험/, /치아보험/],
+        driver: [/실손보험|실비보험/, /암보험/, /종신보험/, /치아보험/],
+        other: []
+      }
+
+      const GENERIC_BAD_KEYWORDS = ['보험', '건강보험', '건강보험료', '국민건강보험', '내보험조회', '보험조회']
+      const INTENT_WORDS = ['보험료', '보장', '보장 내용', '가입', '가입조건', '비교', '추천']
+      const PERSONA_PATTERN = /(10대|20대|30대|40대|50대|60대|70대|직장인|주부|자영업자|유병자|노년|시니어)/
+      const COMPETITOR_KEYWORDS = ['삼성화재', '현대해상', 'DB손해보험', 'DB생명', 'KB손해보험', '메리츠', '흥국화재', 'AIG', 'AIG손해보험']
+      const CLAIM_WORDS = ['청구서류', '청구 서류', '청구', '서류']
+
+      /** 핵심키워드: 상품명 + 의도(보험료/보장/가입/비교 등) 또는 상품명 + 타깃(50대 등) 또는 상품명 자체. 연관/서브토픽·비교사이트형은 제외 */
+      const isCoreKeyword = (kw: string) => {
+        const k = kw.trim()
+        if (!productNameTrim || !k) return false
+        if (/비교사이트|비교몰|비교앱|비교어플/.test(k)) return false
+        const hasProduct = k.includes(productNameTrim) || relevanceTerms.some((t) => k.includes(t))
+        if (!hasProduct) return false
+        if (k === productNameTrim) return true
+        if (INTENT_WORDS.some((w) => k.includes(w))) return true
+        if (PERSONA_PATTERN.test(k)) return true
+        return false
+      }
+
+      const scoreKeyword = (kw: string, volume: number) => {
+        let score = 0
+        const buckets: string[] = []
+
+        // 상품군 관련성 (실손/암/종신 등)
+        if (isRelevant(kw)) {
+          score += 40
+          buckets.push('product')
+        }
+
+        // 의도/행동어 (보험료·보장내용·가입조건·비교·추천 등)
+        if (INTENT_WORDS.some((w) => kw.includes(w))) {
+          score += 25
+          buckets.push('intent')
+        }
+
+        // 타깃/페르소나
+        if (PERSONA_PATTERN.test(kw)) {
+          score += 15
+          buckets.push('persona')
+        }
+
+        // 핵심키워드: 상품+의도/타깃 또는 상품명 자체 → 가산 (연관키워드보다 우선)
+        if (isCoreKeyword(kw)) {
+          score += 30
+          buckets.push('core')
+        }
+        // 롱테일 핵심키워드: 상품+타깃(50대 남자 암보험 등) → 경쟁 적고 노출·전환에 유리하므로 추가 가산
+        if (isCoreKeyword(kw) && PERSONA_PATTERN.test(kw)) {
+          score += 25
+          buckets.push('longtail_core')
+        }
+
+        // 지나치게 포괄적인 제도/조회성 키워드 강한 감점
+        if (GENERIC_BAD_KEYWORDS.some((bad) => kw === bad || kw.startsWith(bad))) {
+          score -= 80
+          buckets.push('generic')
+        }
+
+        // 타사 브랜드/경쟁사 키워드 감점
+        if (COMPETITOR_KEYWORDS.some((c) => kw.includes(c))) {
+          score -= 60
+          buckets.push('competitor')
+        }
+
+        // 청구/서류 중심 키워드는 이번 Q&A 문맥에선 보조적이므로 감점
+        if (CLAIM_WORDS.some((w) => kw.includes(w))) {
+          score -= 30
+          buckets.push('claim')
+        }
+
+        // 비교몰/비교사이트형: Q&A 문서 목적과 어긋나 상위 단독 노출 억제 (감점)
+        if (/비교사이트|비교몰|비교앱|비교어플/.test(kw)) {
+          score -= 35
+          buckets.push('comparison_site')
+        }
+
+        // 검색량은 보조 지표로만 사용 (log 스케일)
+        const volBonus = volume > 0 ? Math.log10(volume + 1) * 3 : 0
+        score += volBonus
+
+        return { score, buckets }
+      }
+
+      const scored = rankedWithVolumeRaw.map((x) => {
+        const { score, buckets } = scoreKeyword(x.keyword, x.volume)
+        return { ...x, score, buckets }
+      })
+
+      // 상품군 불일치 키워드 탈락 (다른 상품군 키워드는 점수와 관계없이 제외)
+      const otherPatterns = OTHER_GROUP_PATTERNS[productGroup]
+      const scoredInGroup = otherPatterns.length === 0
+        ? scored
+        : scored.filter((x) => !otherPatterns.some((pat) => pat.test(x.keyword)))
+      const droppedByGroup = scored.length - scoredInGroup.length
+      if (droppedByGroup > 0) {
+        console.log('[Q&A 생성] 상품군 불일치 탈락:', droppedByGroup, '건 (productGroup:', productGroup, ')')
+      }
+
+      // 핵심키워드만 사용 (연관키워드·서브토픽 제외): core 버킷 있는 것만 후보. 롱테일(상품+타깃) 우선 정렬
+      const coreCandidates = scoredInGroup.filter(
+        (x) => x.score > 0 && x.buckets && x.buckets.includes('core') && !x.buckets.includes('generic')
+      )
+      const sortedCore = [...coreCandidates].sort((a, b) => {
+        const aLong = a.buckets?.includes('longtail_core') ? 1 : 0
+        const bLong = b.buckets?.includes('longtail_core') ? 1 : 0
+        if (bLong !== aLong) return bLong - aLong
+        return b.score - a.score
+      })
+      if (coreCandidates.length > 0) {
+        console.log('[Q&A 생성] 핵심키워드 후보(SearchAd):', coreCandidates.length, '개', coreCandidates.map((x) => x.keyword))
+      }
+
+      // simple(간편건강보험) 상품군: SearchAd 유효 후보가 2개 미만이면 규칙 기반 핵심키워드만 사용 (정식상품명은 본문용, 검색형 요약어만 노출)
+      const SIMPLE_RULE_BASED_KEYWORDS = [
+        '간편건강보험',
+        '유병자보험',
+        '해약환급금미지급형',
+        '간편건강보험 보험료',
+        shortPersonaForKeyword ? `${shortPersonaForKeyword} 간편건강보험` : '간편건강보험 가입'
+      ].slice(0, 5)
+
+      const TEMPLATE_BY_GROUP: Record<ProductGroup, string[]> = {
+        cancer: ['암보험', '암보험 보험료', '암보험 보장내용', '암보험 비교', '암보험 가입'],
+        silsan: ['실손보험', '실손보험 보험료', '실손보험 보장내용', '실손보험 비교', '실손보험 가입'],
+        simple: ['간편건강보험', '유병자보험', '간편건강보험 보험료', '유병자 가입'],
+        jongsin: ['종신보험', '종신보험 보험료', '사망보험금', '종신보험 비교'],
+        driver: ['자동차보험', '운전자보험', '자동차보험 보험료', '운전자보험 비교'],
+        other: ['보험', '보험료', '보험 비교']
+      }
+
+      const selected: typeof sortedCore = []
+      const used = new Set<string>()
+      for (const x of sortedCore) {
+        if (selected.length >= 5) break
+        if (used.has(x.keyword)) continue
+        selected.push(x)
+        used.add(x.keyword)
+      }
+      let rankedWithVolume = selected.slice(0, 5)
+
+      if (productGroup === 'simple' && coreCandidates.length < 2) {
+        rankedWithVolume = SIMPLE_RULE_BASED_KEYWORDS.map((kw) => ({ keyword: kw, volume: 0, score: 0, buckets: ['core'] as string[] }))
+        console.log('[Q&A 생성] simple 그룹 SearchAd 유효 후보 부족 → 규칙 기반 핵심키워드:', rankedWithVolume.map((x) => x.keyword))
+      }
+
+      // 핵심키워드 5개 미만이면 상품군별 템플릿으로 채움. 타깃 있으면 롱테일(50대 남자 암보험 등)을 앞에 넣어 경쟁 회피·노출 우선 (직장인 제외)
+      if (rankedWithVolume.length < 5) {
+        const existingSet = new Set(rankedWithVolume.map((x) => x.keyword.trim()))
+        const baseTemplate = TEMPLATE_BY_GROUP[productGroup]
+        const longTailFirst = shortPersonaForKeyword
+          ? [
+              `${shortPersonaForKeyword} ${shortKeywordName}`,
+              `${shortKeywordName} ${shortPersonaForKeyword} 보험료`,
+              `${shortKeywordName} ${shortPersonaForKeyword} 가입`,
+              ...baseTemplate
+            ]
+          : baseTemplate
+        for (const kw of longTailFirst) {
+          if (rankedWithVolume.length >= 5) break
+          const k = kw.trim()
+          if (!k || existingSet.has(k)) continue
+          existingSet.add(k)
+          rankedWithVolume = [...rankedWithVolume, { keyword: k, volume: 0, score: 0, buckets: ['core'] }]
+        }
+      }
+
+      // 정식 상품명(18자 초과)이 키워드에 들어가 있으면 검색형 요약어(shortKeywordName)로 치환 (정식명은 본문 엔티티용, 노출 키워드는 짧게)
+      if (productNameTrim.length > 18 && shortKeywordName !== productNameTrim) {
+        rankedWithVolume = rankedWithVolume.map((x) => {
+          const k = x.keyword
+          if (k.includes(productNameTrim)) {
+            const normalized = k.replace(new RegExp(productNameTrim.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), shortKeywordName).trim()
+            return { ...x, keyword: normalized }
+          }
+          return x
+        })
+      }
+
+      // 디버깅용: 어떤 기준으로 상위 키워드가 선택됐는지 로그
+      console.log(
+        '[Q&A 생성] 키워드 스코어링 상위 10개:',
+        scored
+          .sort((a, b) => b.score - a.score)
+          .slice(0, 10)
+          .map((x) => ({
+            keyword: x.keyword,
+            volume: x.volume,
+            score: Math.round(x.score * 10) / 10,
+            buckets: x.buckets,
+          }))
+      )
+      const ranked = rankedWithVolume.map((x) => x.keyword)
       if (ranked.length > 0) {
         // Naver가 1~2개만 주는 경우(상품명이 구체적일 때) Google 후보로 5개까지 채움
         if (ranked.length < 5 && keywordCandidates.length > 0) {
@@ -639,22 +923,29 @@ export async function POST(request: NextRequest) {
             .filter((k: string) => k && !naverSet.has(k.trim()))
             .slice(0, 5 - ranked.length)
           searchKeywords = [...ranked, ...fromGoogle].slice(0, 5)
-          console.log('[Q&A 생성] Naver SearchAd 연관 키워드 상위 5개 (Naver 부족분 Google로 보강):', searchKeywords)
+          searchKeywordsWithVolume = [
+            ...rankedWithVolume.map((x) => ({ keyword: x.keyword, volume: x.volume })),
+            ...fromGoogle.map((k) => ({ keyword: k, volume: null as number | null }))
+          ].slice(0, 5)
+          console.log('[Q&A 생성] 핵심 키워드 5개 (부족분 Google 보강):', searchKeywords)
         } else {
           searchKeywords = ranked
-          console.log('[Q&A 생성] Naver SearchAd 연관 키워드 상위 5개:', searchKeywords)
+          searchKeywordsWithVolume = rankedWithVolume.map((x) => ({ keyword: x.keyword, volume: x.volume }))
+          console.log('[Q&A 생성] 핵심 키워드 5개:', searchKeywords)
         }
       } else {
         if (keywordCandidates.length > 0) {
           searchKeywords = Array.from(new Set(keywordCandidates)).slice(0, 5)
-          console.log('[Q&A 생성] [실패 대응 9절] Naver SearchAd 결과 없음 → Google keywordCandidates 폴백 사용:', searchKeywords)
+          searchKeywordsWithVolume = searchKeywords.map((k) => ({ keyword: k, volume: null as number | null }))
+          console.log('[Q&A 생성] [실패 대응 9절] SearchAd 없음 → Google 후보 폴백:', searchKeywords)
         }
       }
     } catch (keywordError) {
-      console.warn('[Q&A 생성] Naver SearchAd 연관 키워드 조회 중 오류:', keywordError)
+      console.warn('[Q&A 생성] Naver SearchAd 키워드 조회 중 오류:', keywordError)
       if (keywordCandidates.length > 0) {
         searchKeywords = Array.from(new Set(keywordCandidates)).slice(0, 5)
-        console.log('[Q&A 생성] [실패 대응 9절] Naver SearchAd 예외 → Google keywordCandidates 폴백 사용:', searchKeywords)
+        searchKeywordsWithVolume = searchKeywords.map((k) => ({ keyword: k, volume: null as number | null }))
+        console.log('[Q&A 생성] [실패 대응 9절] SearchAd 예외 → Google 후보 폴백:', searchKeywords)
       }
     }
     
@@ -930,9 +1221,12 @@ export async function POST(request: NextRequest) {
       // "제목:"과 "본문:" 형식으로 명확히 구분되어 있는지 확인
       const titleSectionMatch = questionText.match(/제목[:\s]*\n?([\s\S]*?)(?:\n\s*본문[:\s]*\n?|$)/i)
       const contentSectionMatch = questionText.match(/본문[:\s]*\n?([\s\S]*?)$/i)
+      // "[제목] ..." 한 줄 형식 (괄호만 있고 개행 없이 본문이 이어지는 경우)
+      const bracketTitleMatch = questionText.match(/\[제목\]\s*([^\n]+)/)
       
       console.log('[Q&A 생성] [Step 1] titleSectionMatch:', titleSectionMatch ? '찾음' : '없음')
       console.log('[Q&A 생성] [Step 1] contentSectionMatch:', contentSectionMatch ? '찾음' : '없음')
+      console.log('[Q&A 생성] [Step 1] bracketTitleMatch:', bracketTitleMatch ? '찾음' : '없음')
       
       // 본문 시작 패턴 감지 함수
       const findBodyStartPattern = (text: string): number => {
@@ -953,6 +1247,10 @@ export async function POST(request: NextRequest) {
           /제안서를/i,
           /보험료가/i,
           /보험을/i,
+          /회사\s*업무/i,
+          /죄송합니다/i,
+          /\d+세\s*남자/i,
+          /\d+세\s*여자/i,
         ]
         
         for (const pattern of bodyStartPatterns) {
@@ -966,7 +1264,16 @@ export async function POST(request: NextRequest) {
       }
       
       // 제목 추출 (1줄, 최대 50자, 본문 시작 패턴 감지)
-      if (titleSectionMatch && titleSectionMatch[1]) {
+      if (bracketTitleMatch && bracketTitleMatch[1]) {
+        // "[제목] ..." 형식: ] 없이 깔끔하게 추출, 본문 시작 전까지만
+        let titleText = bracketTitleMatch[1]
+          .trim()
+          .replace(/<ctrl\d+>/gi, '')
+          .replace(/[\x00-\x1F\x7F]/g, '')
+        const bodyStartIndex = findBodyStartPattern(titleText)
+        if (bodyStartIndex > 0) titleText = titleText.substring(0, bodyStartIndex).trim()
+        finalQuestionTitle = titleText.length > 50 ? titleText.substring(0, 50).trim() : titleText.trim()
+      } else if (titleSectionMatch && titleSectionMatch[1]) {
         // "제목:" 형식이 있으면 해당 부분만 추출
         let titleText = titleSectionMatch[1]
           .trim()
@@ -1059,6 +1366,20 @@ export async function POST(request: NextRequest) {
           }
           
           finalQuestionTitle = titleCandidate.trim()
+          // 첫 줄만 제목인데 20자 미만이면 다음 줄 앞부분으로 보강 (25~40자 목표)
+          if (finalQuestionTitle.length < 20 && lines.length > 1) {
+            const extra = lines[1]
+              .replace(/<ctrl\d+>/gi, '')
+              .replace(/[\x00-\x1F\x7F]/g, '')
+              .trim()
+            const take = Math.min(extra.length, Math.max(0, 38 - finalQuestionTitle.length))
+            if (take > 5) {
+              let ext = extra.substring(0, take).trim()
+              const lastSpace = ext.lastIndexOf(' ')
+              if (lastSpace > 8) ext = ext.substring(0, lastSpace)
+              if (ext.length > 0) finalQuestionTitle = (finalQuestionTitle + ' ' + ext).trim()
+            }
+          }
         } else {
           // 줄이 없으면 전체를 제목으로 (최대 50자, 본문 시작 패턴 감지)
           let titleCandidate = questionText
@@ -1075,6 +1396,26 @@ export async function POST(request: NextRequest) {
           
           finalQuestionTitle = titleCandidate.substring(0, 50).trim()
         }
+      }
+
+      // 제목 후처리: 마크다운/괄호·메타 제거, 40자 이내로 정리 (카페 제목 가독성)
+      if (finalQuestionTitle && typeof finalQuestionTitle === 'string') {
+        let titleCleaned = finalQuestionTitle
+          .replace(/^#{1,6}\s*/, '')          // "## 제목" 같은 마크다운 헤딩 제거
+          .replace(/^\s*\]\s*/, '')           // [제목] 파싱 시 남는 ]
+          .replace(/^\s*\[제목\]\s*/i, '')   // [제목] 메타표현 제거
+          .replace(/^\s*제목\s*[:\s]*/i, '') // "제목:" 접두사 제거
+          .trim()
+        if (titleCleaned.length > 40) {
+          // 단순 절단 대신, 40자 이내에서 마지막 공백 기준으로 자연스럽게 자르기
+          const cut = titleCleaned.lastIndexOf(' ', 40)
+          if (cut >= 20) {
+            titleCleaned = titleCleaned.substring(0, cut).trim()
+          } else {
+            titleCleaned = titleCleaned.substring(0, 40).trim()
+          }
+        }
+        if (titleCleaned.length > 0) finalQuestionTitle = titleCleaned
       }
       
       // 본문 추출
@@ -1305,6 +1646,87 @@ export async function POST(request: NextRequest) {
           console.log('[Q&A 생성] [Step 1] 포맷팅 후 제목 길이:', finalQuestionTitle?.length || 0)
           console.log('[Q&A 생성] [Step 1] 포맷팅 후 본문 길이:', finalQuestionContent?.length || 0)
 
+          // 제목 최종 보정: 인삿말/일반 문장 대신 핵심키워드 중심 규칙형 제목으로 교체
+          try {
+            const hasCoreInTitle =
+              Array.isArray(searchKeywords) &&
+              searchKeywords.some((kw) => kw && finalQuestionTitle?.includes(kw))
+
+            const looksLikeGreeting =
+              !!finalQuestionTitle &&
+              /안녕하세요|언니들|가입했습니다|글 남겨요|글 남겨|회사 업무/i.test(finalQuestionTitle)
+
+            // 규칙형 제목 생성: 핵심키워드 + 고민형 꼬리
+            // shortKeywordName는 SearchAd 블록 내부 지역변수이므로 여기서는 사용하지 않고,
+            // searchKeywords와 productName만으로 안전하게 결정한다.
+            const primaryKeyword =
+              (Array.isArray(searchKeywords) && searchKeywords[0]) ||
+              normalizeProductNameForSearch(productName) ||
+              productName ||
+              '보험'
+            
+            // 제목용 페르소나(30대 여성 자영업자 등) 재계산: targetPersona 기반, 연령은 10단위 버킷
+            let personaForTitle = ''
+            if (targetPersona) {
+              const norm = targetPersona.replace(/\s+/g, ' ').trim()
+              const mDecade = norm.match(/(\d{1,2})대/)
+              const mYear = norm.match(/(\d{1,2})세/)
+              let ageBucket = ''
+              if (mDecade) {
+                ageBucket = `${mDecade[1]}대`
+              } else if (mYear) {
+                const decade = Math.floor(parseInt(mYear[1], 10) / 10) * 10
+                ageBucket = `${decade}대`
+              }
+              const jobMatch = norm.match(/(자영업자|직장인|주부|프리랜서)/)
+              const job = jobMatch ? jobMatch[1] : ''
+              personaForTitle = [ageBucket, job].filter(Boolean).join(' ').trim()
+            }
+
+            const personaPrefix =
+              personaForTitle && !primaryKeyword.includes(personaForTitle)
+                ? `${personaForTitle} `
+                : ''
+            const baseKeywordFull = `${personaPrefix}${primaryKeyword}`.trim()
+
+            // 길이에 따라 여러 템플릿 후보 생성: 항상 "완성된 한 문장" 형태 유지
+            const titleCandidates: string[] = []
+            if (baseKeywordFull) {
+              titleCandidates.push(`${baseKeywordFull}, 이 설계 괜찮을까요?`)
+            }
+            if (primaryKeyword && primaryKeyword !== baseKeywordFull) {
+              titleCandidates.push(`${primaryKeyword}, 이 설계 괜찮을까요?`)
+              titleCandidates.push(`${primaryKeyword} 설계, 괜찮을까요?`)
+            }
+
+            // 40자 이내인 첫 번째 후보 선택, 없으면 가장 짧은 후보 선택
+            let ruleTitle = titleCandidates.find(t => t.length <= 40)
+            if (!ruleTitle && titleCandidates.length > 0) {
+              ruleTitle = titleCandidates.reduce((min, cur) => (cur.length < min.length ? cur : min), titleCandidates[0])
+            }
+            if (!ruleTitle) {
+              ruleTitle = finalQuestionTitle
+            } else if (ruleTitle.length > 40) {
+              // 여전히 길면 마지막 공백 기준으로 자연스럽게 자르기
+              const cut = ruleTitle.lastIndexOf(' ', 40)
+              if (cut >= 20) {
+                ruleTitle = ruleTitle.substring(0, cut).trim()
+              } else {
+                ruleTitle = ruleTitle.substring(0, 40).trim()
+              }
+            }
+
+            // 제목이 너무 일반적이거나, 핵심키워드가 전혀 없으면 규칙형으로 교체
+            if (!hasCoreInTitle || looksLikeGreeting) {
+              if (ruleTitle && typeof ruleTitle === 'string') {
+                finalQuestionTitle = ruleTitle.trim()
+                console.log('[Q&A 생성] [Step 1] 규칙형 제목 적용:', finalQuestionTitle)
+              }
+            }
+          } catch (e) {
+            console.warn('[Q&A 생성] [Step 1] 규칙형 제목 보정 중 오류:', e)
+          }
+
           // 질문 생성 후 값이 제대로 설정되었는지 확인 (더 유연한 검증)
           const titleValid = finalQuestionTitle && finalQuestionTitle.trim().length > 0
           const contentValid = finalQuestionContent && finalQuestionContent.trim().length > 0
@@ -1524,8 +1946,13 @@ export async function POST(request: NextRequest) {
       // 6. 최종 정리 (앞뒤 공백 제거)
       answerContent = answerContent.trim()
       
-      // 7. 첫 답변 길이: 프롬프트에서 200-300자 목표로 생성하지만, API에서는 제한하지 않음
-      console.log(`[Q&A 생성] [Step 2] 답변 길이: ${answerContent.length}자 (프롬프트 목표: 200-300자)`)
+      // 7. 답변 길이: 500자 초과 시에만 450자로 soft cap (카페용 가독성, 89자처럼 과도하게 잘리지 않도록)
+      const ANSWER_SOFT_CAP = 450
+      if (answerContent.length > ANSWER_SOFT_CAP) {
+        answerContent = enforceAnswerLength(answerContent, ANSWER_SOFT_CAP)
+        console.log(`[Q&A 생성] [Step 2] 답변 길이 soft cap 적용: ${ANSWER_SOFT_CAP}자 이내 (원본 초과분 절단)`)
+      }
+      console.log(`[Q&A 생성] [Step 2] 답변 길이: ${answerContent.length}자 (목표: 300-500자)`)
 
       console.log('Step 2 완료:', { answerContentLength: answerContent.length })
     } else {
@@ -1618,6 +2045,14 @@ export async function POST(request: NextRequest) {
         threadContent = threadContent.replace(/```[\s\S]*?```/g, '').trim()
         threadContent = threadContent.replace(/\[생성된 댓글\]/g, '').trim()
         threadContent = threadContent.trim()
+
+        // 고객 댓글 최소 길이 보장 (너무 짧으면 보조 문장으로 보강)
+        const MIN_CUSTOMER_COMMENT_LENGTH = 80
+        if (isCustomerTurn && threadContent.length > 0 && threadContent.length < MIN_CUSTOMER_COMMENT_LENGTH) {
+          const suffix = ' 저도 비슷한 고민이에요. 조언 부탁드립니다.'
+          threadContent = (threadContent + suffix).trim()
+          console.log(`[Q&A 생성] [Step 3-${step}] 고객 댓글 최소 길이 보강: ${threadContent.length}자`)
+        }
         
         // 대화형 스레드 댓글 길이 확인 및 로깅 (프롬프트에서 길이 제어, API에서는 최소한의 보호만)
         const stepNumber = Math.ceil(step / 2) // 몇 번째 댓글인지
@@ -1766,10 +2201,10 @@ export async function POST(request: NextRequest) {
     }
     if (qContent.length > 0) {
       if (qContent.length < 50) qualityWarnings.push('질문 본문이 너무 짧음(50자 미만)')
-      if (qContent.length > 800) qualityWarnings.push('질문 본문이 너무 김(800자 초과)')
+    if (qContent.length > 800) qualityWarnings.push('질문 본문이 너무 김(800자 초과)')
     }
     if (aContent.length > 0) {
-      if (aContent.length < 100) qualityWarnings.push('답변 본문이 너무 짧음(100자 미만)')
+      if (aContent.length < 220) qualityWarnings.push('답변 본문이 너무 짧음(220자 미만)')
       if (aContent.length > 1200) qualityWarnings.push('답변 본문이 너무 김(1200자 초과)')
     }
     if (searchKeywords && searchKeywords.length > 0) {
@@ -1794,6 +2229,10 @@ export async function POST(request: NextRequest) {
       customSearchCount: customSearchCount,
       customSearchCost: customSearchCost,
       qualityWarnings: qualityWarnings.length > 0 ? qualityWarnings : undefined, // 문서 8절
+      questionTitle: (finalQuestionTitle || '').trim().substring(0, 200) || undefined, // Q&A 질문 제목 (관리 화면 표시용)
+      questionContentSnippet: (finalQuestionContent || '').trim().replace(/\s+/g, ' ').substring(0, 300) || undefined, // Q&A 질문 본문 요약 (관리 화면 표시용)
+      searchKeywords: searchKeywords && searchKeywords.length > 0 ? searchKeywords : undefined, // 연관 키워드 수집 현황 확인용
+      searchKeywordsWithVolume: searchKeywordsWithVolume.length > 0 ? searchKeywordsWithVolume : undefined, // 키워드별 월간 검색량(Naver) — 사람들이 많이 찾는 키워드 저장
     }
     
     console.log('[Q&A 생성] usage_logs 저장할 데이터:', {

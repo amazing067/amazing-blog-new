@@ -50,7 +50,7 @@ function buildSignature(secretKey: string, timestamp: string, path: string): str
 export async function getBestKeywordsFromNaverSearchAd(
   hintKeywords: string[],
   options?: { maxKeywords?: number }
-): Promise<string[]> {
+): Promise<Array<{ keyword: string; volume: number }>> {
   const customerId = process.env.NAVER_SEARCHAD_CUSTOMER_ID
   const accessLicense = process.env.NAVER_SEARCHAD_ACCESS_LICENSE
   const secretKey = process.env.NAVER_SEARCHAD_SECRET_KEY
@@ -74,15 +74,11 @@ export async function getBestKeywordsFromNaverSearchAd(
   const maxKeywords = options?.maxKeywords ?? 5
   const path = '/keywordstool'
 
-  // 시도할 키워드: 사용자 힌트(정규화) + 폴백. 여러 힌트로 호출해 결과를 합친 뒤 검색량 순 상위 N개 반환
+  // 시도할 키워드: 호출처에서 넘긴 힌트만 사용 (상품군별 hint는 generate-qa에서만 넣음. 여기서 공통 폴백 추가 금지)
   const toTry: string[] = []
   for (const h of hints) {
     const n = normalizeForApi(h)
     if (n.length > 0 && !toTry.includes(n)) toTry.push(n)
-  }
-  const fallbacks = ['실손보험', '실손의료보험', '실비보험']
-  for (const fb of fallbacks) {
-    if (!toTry.includes(fb)) toTry.push(fb)
   }
   if (toTry.length === 0) return []
 
@@ -149,6 +145,24 @@ export async function getBestKeywordsFromNaverSearchAd(
   if (merged.length === 0) return []
 
   const sorted = merged.sort((a, b) => b.volume - a.volume)
-  const top = sorted.slice(0, maxKeywords).map((x) => x.keyword)
-  return Array.from(new Set(top))
+  const seen = new Set<string>()
+  const top: Array<{ keyword: string; volume: number }> = []
+  for (const x of sorted) {
+    if (top.length >= maxKeywords) break
+    if (seen.has(x.keyword)) continue
+    seen.add(x.keyword)
+    top.push({ keyword: x.keyword, volume: x.volume })
+  }
+  return top
+}
+
+/**
+ * 기존 호환: 키워드 문자열 배열만 필요할 때
+ */
+export async function getBestKeywordsFromNaverSearchAdStrings(
+  hintKeywords: string[],
+  options?: { maxKeywords?: number }
+): Promise<string[]> {
+  const result = await getBestKeywordsFromNaverSearchAd(hintKeywords, options)
+  return result.map((x) => x.keyword)
 }

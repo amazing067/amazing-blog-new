@@ -84,27 +84,19 @@ export default function StatsTable() {
     )
   })
 
-  // 역할별 정렬 순서: 관리자 > 본부장 > 지사장 > 팀장 > FC
-  const getRoleOrder = (role: string | null): number => {
-    if (!role || role === 'user') return 5 // FC
-    switch (role) {
-      case 'admin': return 0 // 관리자
-      case 'department_head': return 1 // 본부장
-      case 'branch_head': return 2 // 지사장
-      case 'team_leader': return 3 // 팀장
-      case 'fc': return 4 // FC
-      default: return 5
-    }
+  // 최근 활동일 (last_usage, last_blog, last_qa 중 가장 늦은 날짜)
+  const getLastActivity = (u: (typeof filtered)[0]) => {
+    const dates = [u.last_usage, u.last_blog, u.last_qa].filter(Boolean) as string[]
+    return dates.length
+      ? dates.reduce((a, b) => (new Date(a).getTime() > new Date(b).getTime() ? a : b))
+      : u.created_at
   }
 
-  // 역할 순서로 정렬
+  // 활동순 정렬 (최근 활동일 내림차순 → 같은 경우 이름순)
   const sorted = [...filtered].sort((a, b) => {
-    const orderA = getRoleOrder(a.role)
-    const orderB = getRoleOrder(b.role)
-    if (orderA !== orderB) {
-      return orderA - orderB
-    }
-    // 같은 역할이면 이름순으로 정렬
+    const tA = new Date(getLastActivity(a)).getTime()
+    const tB = new Date(getLastActivity(b)).getTime()
+    if (tB !== tA) return tB - tA // 최근 활동 먼저
     return (a.full_name || a.username).localeCompare(b.full_name || b.username, 'ko')
   })
 
@@ -196,7 +188,7 @@ export default function StatsTable() {
             </thead>
             <tbody className="divide-y divide-gray-100">
               {sorted.map((u) => {
-                const lastActivity = u.last_usage || u.last_blog || u.last_qa || u.created_at
+                const lastActivity = getLastActivity(u)
                 return (
                   <tr key={u.user_id} className="hover:bg-gray-50">
                     <td className="px-2 py-3 text-xs font-semibold text-gray-900 whitespace-nowrap">{u.username}</td>

@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
-import { Shield, LogOut, UserCheck, UserX, Sparkles, BarChart3, FileText, Lock } from 'lucide-react'
+import { Shield, LogOut, UserCheck, UserX, Sparkles, BarChart3, FileText, Lock, ClipboardCheck } from 'lucide-react'
 import Link from 'next/link'
 
 export default async function AdminDashboardPage() {
@@ -153,6 +153,13 @@ export default async function AdminDashboardPage() {
             >
               <BarChart3 className="w-4 h-4" />
               통계
+            </Link>
+            <Link
+              href="/admin/quality"
+              className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white font-semibold rounded-lg hover:bg-emerald-700 transition-colors"
+            >
+              <ClipboardCheck className="w-4 h-4" />
+              품질·KPI
             </Link>
             {/* PDF 관리 기능 - 내일 개별 PDF 준비되면 활성화 예정 */}
             {/* <Link

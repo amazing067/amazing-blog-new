@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { Shield, LogOut, Sparkles, Copy, Send, FileDown, Clock, BookOpen, TrendingUp, ArrowLeft, UserCheck, History, BarChart3, FileText, Save, MessageSquare, Image as ImageIcon, Link as LinkIcon, Crown, Building2, MapPin, Users, User, RefreshCw, Wand2, Smartphone, Monitor, Lock } from 'lucide-react'
+import { Shield, LogOut, Sparkles, Copy, Send, FileDown, Clock, BookOpen, TrendingUp, ArrowLeft, UserCheck, History, BarChart3, FileText, Save, MessageSquare, Image as ImageIcon, Link as LinkIcon, Crown, Building2, MapPin, Users, User, RefreshCw, Wand2, Smartphone, Monitor, Lock, ClipboardCheck } from 'lucide-react'
 import Link from 'next/link'
 import MembershipStatusBanner from './MembershipStatusBanner'
 import { createClient } from '@/lib/supabase/client'
@@ -2269,6 +2269,28 @@ h2 {
                 >
                   <BarChart3 className="w-3.5 h-3.5" />
                   통계
+                </button>
+                <button
+                  onClick={() => router.push('/admin/quality')}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 bg-emerald-600 text-white text-sm font-semibold rounded-md hover:bg-emerald-700 transition-colors"
+                  style={isEditMode ? {
+                    padding: '0.375rem 0.625rem',
+                    fontSize: '0.875rem',
+                    fontWeight: 600,
+                    margin: 0,
+                    height: 'auto',
+                    minHeight: 'auto',
+                    maxHeight: 'none',
+                    lineHeight: 'normal',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.375rem',
+                    whiteSpace: 'nowrap',
+                    boxSizing: 'border-box'
+                  } : {}}
+                >
+                  <ClipboardCheck className="w-3.5 h-3.5" />
+                  품질
                 </button>
               </div>
             )}
@@ -6415,11 +6437,11 @@ function QAGenerator({
                     <h4 className="font-bold text-gray-900 dark:text-white text-xl mb-4">
                       {generatedQuestion.title}
                     </h4>
-                    {/* 연관 키워드 (검색 API 기반) */}
+                    {/* 핵심 키워드 (검색 API 기반) */}
                     {qaSearchKeywords.length > 0 && (
                       <div className="mb-4 flex flex-wrap items-center gap-2">
                         <span className="text-xs font-semibold text-gray-500 dark:text-gray-400">
-                          🔍 연관 키워드
+                          🔍 핵심 키워드
                         </span>
                         {qaSearchKeywords.map((kw) => (
                           <span

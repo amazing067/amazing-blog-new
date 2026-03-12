@@ -86,7 +86,9 @@ export async function GET(request: NextRequest) {
         .select('user_id, created_at', { count: 'exact', head: false }),
       statsClient
         .from('usage_logs')
-        .select('user_id, type, total_tokens, meta, created_at', { count: 'exact', head: false }),
+        .select('user_id, type, total_tokens, meta, created_at', { count: 'exact', head: false })
+        .order('created_at', { ascending: false })
+        .limit(20000), // 최근 활동 정확도: 최신 로그 우선 조회
     ])
 
     if (profilesRes.error) throw profilesRes.error
