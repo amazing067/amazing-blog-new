@@ -38,6 +38,16 @@ export interface GateResult {
   score: number // 0~100
 }
 
+export type FailureTag =
+  | 'title_too_short' | 'title_too_long' | 'title_blog_style' | 'title_internal_code'
+  | 'body_no_paragraph' | 'body_formal_tone' | 'body_too_short' | 'body_too_long' | 'body_exclamation'
+  | 'answer_role_leakage' | 'answer_no_judgment' | 'answer_doc_style' | 'answer_too_short' | 'answer_too_long'
+  | 'thread_sales_ending' | 'thread_role_break' | 'thread_too_short' | 'thread_too_long'
+  | 'human_self_intro' | 'human_excessive_cta' | 'human_first_sentence_repeat' | 'human_formal_tone' | 'human_role_leakage'
+  | 'evidence_outside_facts' | 'evidence_forbidden_pattern'
+  | 'keyword_missing' | 'keyword_overweight' | 'keyword_zero_volume' | 'keyword_no_title'
+  | 'operational_regen_no_improvement' | 'operational_family_repeat' | 'operational_first_sentence_repeat' | 'operational_no_analysis'
+
 // ── 제목 게이트 ──
 export function gateTitle(
   title: string,
@@ -527,6 +537,144 @@ export function gateEvidenceConsistency(
   return { passed: failures.length === 0, field: 'evidenceConsistency', failures, score: Math.max(0, score) }
 }
 
+// ── 키워드 건강 게이트 ──
+export function gateKeywordHealth(
+  searchKeywords: string[] | undefined,
+  title: string,
+  body: string,
+  searchKeywordsWithVolume?: Array<{ keyword: string; volume: number | null }>,
+  topicConcern?: string
+): GateResult {
+  const failures: string[] = []
+  let score = 100
+
+  if (!searchKeywords || searchKeywords.length === 0) {
+    failures.push('검색 키워드 없음')
+    score -= 30
+    return { passed: false, field: 'keywordHealth', failures, score: Math.max(0, score) }
+  }
+
+  const kwInTitle = searchKeywords.filter(kw => title.includes(kw)).length
+  if (kwInTitle === 0) {
+    failures.push('제목에 키워드 미포함')
+    score -= 15
+  }
+  if (kwInTitle >= 3) {
+    failures.push(`제목 키워드 과밀 (${kwInTitle}개)`)
+    score -= 20
+  }
+
+  if (searchKeywordsWithVolume && searchKeywordsWithVolume.length > 0) {
+    const allZero = searchKeywordsWithVolume.every(kw => kw.volume === 0 || kw.volume === null)
+    if (allZero) {
+      failures.push('모든 키워드 검색량 0 또는 미확인')
+      score -= 10
+    }
+  }
+
+  if (topicConcern && topicConcern.length > 0) {
+    const concernInKeywords = searchKeywords.some(kw =>
+      kw.includes(topicConcern) || topicConcern.includes(kw)
+    )
+    if (!concernInKeywords) {
+      failures.push(`concern 키워드("${topicConcern}") 미포함`)
+      score -= 10
+    }
+  }
+
+  return { passed: failures.length === 0, field: 'keywordHealth', failures, score: Math.max(0, score) }
+}
+
+// ── 운영 리스크 게이트 ──
+export function gateOperationalRisk(options: {
+  wasRegenerated?: boolean
+  regenImproved?: boolean
+  firstSentenceSimilarityMax?: number
+  familyRepeatCount?: number
+  canonicalOverrideApplied?: boolean
+  hasDesignSheetAnalysis?: boolean
+}): GateResult {
+  const failures: string[] = []
+  let score = 100
+
+  if (options.wasRegenerated && !options.regenImproved) {
+    failures.push('재생성 시도했으나 개선 안됨')
+    score -= 15
+  }
+
+  const simMax = options.firstSentenceSimilarityMax ?? 0
+  if (simMax >= 0.6) {
+    failures.push(`첫 문장 유사도 ${Math.round(simMax * 100)}% (강한 반복)`)
+    score -= 20
+  } else if (simMax >= 0.4) {
+    failures.push(`첫 문장 유사도 ${Math.round(simMax * 100)}% (약한 반복)`)
+    score -= 10
+  }
+
+  if ((options.familyRepeatCount ?? 0) >= 3) {
+    failures.push(`동일 family ${options.familyRepeatCount}회 반복`)
+    score -= 10
+  }
+
+  if (options.canonicalOverrideApplied && !options.hasDesignSheetAnalysis) {
+    failures.push('canonical override 적용됐으나 분석 결과 없음')
+    score -= 15
+  }
+
+  return { passed: failures.length === 0, field: 'operationalRisk', failures, score: Math.max(0, score) }
+}
+
+// ── 실패 태그 자동 분류 ──
+export function classifyFailureTags(gates: GateResult[]): FailureTag[] {
+  const tags: FailureTag[] = []
+  const failureMap: Array<{ pattern: RegExp; tag: FailureTag }> = [
+    { pattern: /제목 너무 짧/, tag: 'title_too_short' },
+    { pattern: /제목 너무 김/, tag: 'title_too_long' },
+    { pattern: /제목에 내부 표기/, tag: 'title_internal_code' },
+    { pattern: /본문 너무 짧/, tag: 'body_too_short' },
+    { pattern: /본문 너무 김/, tag: 'body_too_long' },
+    { pattern: /문단 구분 없음/, tag: 'body_no_paragraph' },
+    { pattern: /첫 문장이 설계서 문체/, tag: 'body_formal_tone' },
+    { pattern: /느낌표 남발/, tag: 'body_exclamation' },
+    { pattern: /답변 너무 짧/, tag: 'answer_too_short' },
+    { pattern: /답변 너무 김/, tag: 'answer_too_long' },
+    { pattern: /역할 누수/, tag: 'answer_role_leakage' },
+    { pattern: /판단문.*없음/, tag: 'answer_no_judgment' },
+    { pattern: /약관\/설명서체|정리문체/, tag: 'answer_doc_style' },
+    { pattern: /agent 댓글 영업/, tag: 'thread_sales_ending' },
+    { pattern: /role 흐름 이상/, tag: 'thread_role_break' },
+    { pattern: /댓글.*너무 짧/, tag: 'thread_too_short' },
+    { pattern: /댓글.*너무 김/, tag: 'thread_too_long' },
+    { pattern: /자기소개.*경력|답변 서두.*자기소개/, tag: 'human_self_intro' },
+    { pattern: /CTA 과다/, tag: 'human_excessive_cta' },
+    { pattern: /유사도.*강한 반복|유사도.*반복/, tag: 'human_first_sentence_repeat' },
+    { pattern: /정리\/약관 문체 과다/, tag: 'human_formal_tone' },
+    { pattern: /역할 누수.*전문가님/, tag: 'human_role_leakage' },
+    { pattern: /Evidence 밖 단정/, tag: 'evidence_outside_facts' },
+    { pattern: /금지 패턴 잔존/, tag: 'evidence_forbidden_pattern' },
+    { pattern: /검색 키워드 없음|키워드 미포함/, tag: 'keyword_missing' },
+    { pattern: /제목 키워드 과밀/, tag: 'keyword_overweight' },
+    { pattern: /키워드 검색량 0/, tag: 'keyword_zero_volume' },
+    { pattern: /제목에 키워드 미포함/, tag: 'keyword_no_title' },
+    { pattern: /재생성.*개선 안됨/, tag: 'operational_regen_no_improvement' },
+    { pattern: /family.*반복/, tag: 'operational_family_repeat' },
+    { pattern: /첫 문장 유사도/, tag: 'operational_first_sentence_repeat' },
+    { pattern: /canonical override.*분석 결과 없음/, tag: 'operational_no_analysis' },
+  ]
+
+  for (const gate of gates) {
+    for (const failure of gate.failures) {
+      for (const { pattern, tag } of failureMap) {
+        if (pattern.test(failure) && !tags.includes(tag)) {
+          tags.push(tag)
+        }
+      }
+    }
+  }
+
+  return tags
+}
+
 // ── 전체 품질 점수 계산 ──
 export function calculateOverallScore(gates: GateResult[]): {
   totalScore: number
@@ -538,12 +686,14 @@ export function calculateOverallScore(gates: GateResult[]): {
   const criticalFailures: string[] = []
 
   const weights: Record<string, number> = {
-    title: 15,
-    questionBody: 12,
-    answer: 18,
-    thread: 10,
+    title: 12,
+    questionBody: 10,
+    answer: 16,
+    thread: 8,
     humanLikeness: 15,
-    evidenceConsistency: 20,
+    evidenceConsistency: 17,
+    keywordHealth: 12,
+    operationalRisk: 10,
   }
 
   let weightedSum = 0

@@ -6,7 +6,7 @@ import { searchGoogle, SearchResult } from '@/lib/google-search'
 import { getBestKeywordsFromNaverSearchAd } from '@/lib/naver-searchad'
 import { convertToCustomerTopicName, extractPersonaBucket, type TopicStructure } from '@/lib/topic-utils'
 import { sampleFamilies, buildTitlePrompt, scoreTitleCandidate as scoreTitleFamily, pickOpeningFamily, OPENING_FAMILIES, type TitleScoreInput } from '@/lib/title-family'
-import { gateTitle, gateQuestionBody, gateAnswer, gateThread, gateHumanLikeness, gateEvidenceConsistency, calculateOverallScore, type GateResult, type FirstSentences } from '@/lib/quality-gate'
+import { gateTitle, gateQuestionBody, gateAnswer, gateThread, gateHumanLikeness, gateEvidenceConsistency, gateKeywordHealth, gateOperationalRisk, calculateOverallScore, classifyFailureTags, type GateResult, type FirstSentences, type FailureTag } from '@/lib/quality-gate'
 
 /** 문서 14절: 프롬프트·운영 명세 버전 (변경 시 문서 버전 표 업데이트) */
 const QA_PROMPT_VERSION = '1.2'
@@ -584,6 +584,7 @@ const enforceAnswerLength = (content: string, maxLength: number = 120): string =
 }
 
 export async function POST(request: NextRequest) {
+  const startTime = Date.now()
   try {
     const supabase = await createClient()
     const {
@@ -2976,6 +2977,7 @@ export async function POST(request: NextRequest) {
 
     // 문서 8절: 품질 게이트 검수 기준 → 경고만 반환 (수동 검수·A/B 시 참고)
     const qualityWarnings: string[] = []
+    const regenHistoryEntries: Array<{ attempted: boolean; field: string; beforeScore: number; afterScore: number; improved: boolean }> = []
     const qTitle = (finalQuestionTitle || '').trim()
     const qContent = (finalQuestionContent || '').trim()
     const aContent = (answerContent || '').trim()
@@ -3001,61 +3003,7 @@ export async function POST(request: NextRequest) {
       console.log('[Q&A 생성] [8절 품질 게이트] 경고:', qualityWarnings)
     }
 
-    // 사용량 로그 (실패해도 응답은 진행) — 문서 13·14절: 버전·KPI 메타
-    const usageLogMeta = {
-      productName,
-      conversationMode,
-      generateStep: requestedStep,
-      promptVersion: QA_PROMPT_VERSION,
-      tokenBreakdown: tokenUsage,
-      costEstimate: totalCostWithSearch,
-      tokenCost: costEstimate.totalCost,
-      customSearchCount: customSearchCount,
-      customSearchCost: customSearchCost,
-      qualityWarnings: qualityWarnings.length > 0 ? qualityWarnings : undefined,
-      questionTitle: (finalQuestionTitle || '').trim().substring(0, 200) || undefined,
-      questionContentSnippet: (finalQuestionContent || '').trim().replace(/\s+/g, ' ').substring(0, 300) || undefined,
-      searchKeywords: searchKeywords && searchKeywords.length > 0 ? searchKeywords : undefined,
-      searchKeywordsWithVolume: searchKeywordsWithVolume.length > 0 ? searchKeywordsWithVolume : undefined,
-      // 구조화 topic 저장 (품질 분석/반복 방지용)
-      topicCore: cleanProductCore || undefined,
-      topicConcern: topicConcern || undefined,
-      topicConcernSearch: topicConcernSearch || undefined,
-      personaBucket: isDesignSheetMode ? (designSheetAnalysis?.personaBucket || undefined) : undefined,
-      displayProductName: displayProductName || undefined,
-      isDesignSheetMode,
-      // 반복도 분석용 family 로그
-      openingFamilyId: selectedOpeningFamilyId,
-      titlePatternId: selectedTitlePatternId,
-      questionConceptId: selectedQuestionConceptId,
-    }
-    
-    console.log('[Q&A 생성] usage_logs 저장할 데이터:', {
-      customSearchCount,
-      customSearchCost: customSearchCount * 0.0005,
-      meta: JSON.stringify(usageLogMeta).substring(0, 300)
-    })
-    
-    Promise.resolve(
-      supabase
-        .from('usage_logs')
-        .insert({
-          user_id: user.id,
-          type: 'qa',
-          prompt_tokens: totalUsage.promptTokens,
-          completion_tokens: totalUsage.candidatesTokens,
-          total_tokens: totalUsage.totalTokens,
-          meta: usageLogMeta
-        })
-    )
-      .then((result: any) => {
-        if (result?.error) {
-          console.error('[Q&A 생성] usage_logs insert 실패:', result.error)
-        } else {
-          console.log('[Q&A 생성] usage_logs insert 성공:', { customSearchCount, customSearchCost: customSearchCount * 0.0005 })
-        }
-      })
-      .catch((err) => console.error('[Q&A 생성] usage_logs insert 예외:', err))
+    // usage_logs 저장은 품질 게이트 이후로 이동 (qualityGate/failureTags 포함 위해)
 
     // ============================================
     // 최종 출력 전: 필드별 정제 강도 분리 적용
@@ -3128,6 +3076,9 @@ export async function POST(request: NextRequest) {
         // 답변이 70점 미만이면 재생성 시도 (1회만)
         if (answerGate.score < 70 && finalQuestionTitle && finalQuestionContent) {
           console.log(`[품질 게이트] 답변 ${answerGate.score}점 < 70점 → 재생성 시도`)
+          const regenEntry: { attempted: boolean; field: string; beforeScore: number; afterScore: number; improved: boolean } = {
+            attempted: true, field: 'answer', beforeScore: answerGate.score, afterScore: answerGate.score, improved: false,
+          }
           try {
             const retryPrompt = generateAnswerPrompt(
               {
@@ -3150,8 +3101,10 @@ export async function POST(request: NextRequest) {
               conflictAxis: designSheetAnalysis?.conflictAxis || undefined,
               forbiddenPatterns: forbiddenPats,
             })
+            regenEntry.afterScore = retryGate.score
             if (retryGate.score > answerGate.score) {
               answerContent = retryAnswer
+              regenEntry.improved = true
               console.log(`[품질 게이트] 답변 재생성 성공: ${answerGate.score}점 → ${retryGate.score}점`)
             } else {
               console.log(`[품질 게이트] 답변 재생성이 개선되지 않음: ${retryGate.score}점, 원본 유지`)
@@ -3159,6 +3112,7 @@ export async function POST(request: NextRequest) {
           } catch (retryErr) {
             console.warn('[품질 게이트] 답변 재생성 실패, 원본 유지:', retryErr)
           }
+          regenHistoryEntries.push(regenEntry)
         }
       } else {
         console.log(`[품질 게이트] 답변 통과 (${answerGate.score}점)`)
@@ -3209,8 +3163,46 @@ export async function POST(request: NextRequest) {
       console.log(`[품질 게이트] Evidence 일관성 통과 (${evidenceGate.score}점)`)
     }
 
+    // ── 키워드 건강 게이트 ──
+    const keywordHealthGate = gateKeywordHealth(
+      searchKeywords,
+      finalQuestionTitle || '',
+      finalQuestionContent || '',
+      searchKeywordsWithVolume.length > 0 ? searchKeywordsWithVolume : undefined,
+      topicConcern || undefined
+    )
+    gateResults.push(keywordHealthGate)
+    if (!keywordHealthGate.passed) {
+      console.warn(`[품질 게이트] 키워드 건강 경고 (${keywordHealthGate.score}점): ${keywordHealthGate.failures.join(', ')}`)
+      qualityWarnings.push(`키워드 건강 경고: ${keywordHealthGate.failures.join('; ')}`)
+    } else {
+      console.log(`[품질 게이트] 키워드 건강 통과 (${keywordHealthGate.score}점)`)
+    }
+
+    // ── 운영 리스크 게이트 ──
+    const canonicalOverrideApplied = isDesignSheetMode && !!designSheetAnalysis
+    const operationalRiskGate = gateOperationalRisk({
+      wasRegenerated: regenHistoryEntries.length > 0,
+      regenImproved: regenHistoryEntries.some(r => r.improved),
+      firstSentenceSimilarityMax: undefined,
+      familyRepeatCount: 0,
+      canonicalOverrideApplied,
+      hasDesignSheetAnalysis: !!designSheetAnalysis,
+    })
+    gateResults.push(operationalRiskGate)
+    if (!operationalRiskGate.passed) {
+      console.warn(`[품질 게이트] 운영 리스크 경고 (${operationalRiskGate.score}점): ${operationalRiskGate.failures.join(', ')}`)
+      qualityWarnings.push(`운영 리스크 경고: ${operationalRiskGate.failures.join('; ')}`)
+    } else {
+      console.log(`[품질 게이트] 운영 리스크 통과 (${operationalRiskGate.score}점)`)
+    }
+
     const overallQuality = calculateOverallScore(gateResults)
+    const failureTags = classifyFailureTags(gateResults)
     console.log(`[품질 게이트] 종합 점수: ${overallQuality.totalScore}점, 필드별: ${JSON.stringify(overallQuality.breakdown)}`)
+    if (failureTags.length > 0) {
+      console.log(`[품질 게이트] failureTags: ${failureTags.join(', ')}`)
+    }
     if (overallQuality.criticalFailures.length > 0) {
       console.warn(`[품질 게이트] Critical 실패: ${overallQuality.criticalFailures.join(' | ')}`)
     }
@@ -3228,6 +3220,73 @@ export async function POST(request: NextRequest) {
       recentFirstSentencesStore.shift()
     }
     console.log(`[Q&A 생성] 첫 문장 저장 완료 (저장소 크기: ${recentFirstSentencesStore.length})`)
+
+    // 사용량 로그 (실패해도 응답은 진행) — 문서 13·14절: 버전·KPI 메타
+    const usageLogMeta = {
+      productName,
+      conversationMode,
+      generateStep: requestedStep,
+      promptVersion: QA_PROMPT_VERSION,
+      tokenBreakdown: tokenUsage,
+      costEstimate: totalCostWithSearch,
+      tokenCost: costEstimate.totalCost,
+      customSearchCount: customSearchCount,
+      customSearchCost: customSearchCost,
+      qualityWarnings: qualityWarnings.length > 0 ? qualityWarnings : undefined,
+      questionTitle: (finalQuestionTitle || '').trim().substring(0, 200) || undefined,
+      questionContentSnippet: (finalQuestionContent || '').trim().replace(/\s+/g, ' ').substring(0, 300) || undefined,
+      searchKeywords: searchKeywords && searchKeywords.length > 0 ? searchKeywords : undefined,
+      searchKeywordsWithVolume: searchKeywordsWithVolume.length > 0 ? searchKeywordsWithVolume : undefined,
+      topicCore: cleanProductCore || undefined,
+      topicConcern: topicConcern || undefined,
+      topicConcernSearch: topicConcernSearch || undefined,
+      personaBucket: isDesignSheetMode ? (designSheetAnalysis?.personaBucket || undefined) : undefined,
+      displayProductName: displayProductName || undefined,
+      isDesignSheetMode,
+      openingFamilyId: selectedOpeningFamilyId,
+      titlePatternId: selectedTitlePatternId,
+      questionConceptId: selectedQuestionConceptId,
+      qualityGate: {
+        totalScore: overallQuality.totalScore,
+        breakdown: overallQuality.breakdown,
+        allPassed: overallQuality.allPassed,
+        criticalFailures: overallQuality.criticalFailures.length > 0 ? overallQuality.criticalFailures : undefined,
+      },
+      failureTags: failureTags.length > 0 ? failureTags : undefined,
+      regenHistory: regenHistoryEntries.length > 0 ? regenHistoryEntries : undefined,
+      latencyMs: Date.now() - startTime,
+      selectedFamilies: {
+        openingFamilyId: selectedOpeningFamilyId,
+        titlePatternId: selectedTitlePatternId,
+        questionConceptId: selectedQuestionConceptId,
+        concernVariant: selectedConcernVariant || undefined,
+      },
+      canonicalOverrideApplied: isDesignSheetMode && !!designSheetAnalysis,
+      evidenceMapSummary: designSheetAnalysis?.evidenceMap ? {
+        questionFactsCount: designSheetAnalysis.evidenceMap.questionFacts?.length || 0,
+        answerFactsCount: designSheetAnalysis.evidenceMap.answerFacts?.length || 0,
+        forbiddenPatternsCount: designSheetAnalysis.evidenceMap.forbiddenPatterns?.length || 0,
+      } : undefined,
+    }
+
+    Promise.resolve(
+      supabase
+        .from('usage_logs')
+        .insert({
+          user_id: user.id,
+          type: 'qa',
+          prompt_tokens: totalUsage.promptTokens,
+          completion_tokens: totalUsage.candidatesTokens,
+          total_tokens: totalUsage.totalTokens,
+          meta: usageLogMeta
+        })
+    )
+      .then((result: any) => {
+        if (result?.error) {
+          console.error('[Q&A 생성] usage_logs insert 실패:', result.error)
+        }
+      })
+      .catch((err) => console.error('[Q&A 생성] usage_logs insert 예외:', err))
 
     // answer는 항상 설계사 첫 답변 반환 (대화형 스레드와 별개)
     const finalAnswerContent = answerContent

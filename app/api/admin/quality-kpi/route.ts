@@ -100,6 +100,14 @@ export async function GET(request: NextRequest) {
     // 경고 유형별 건수 (동일 문구가 여러 건에서 나오면 합산)
     const warningTypeCounts: Record<string, number> = {}
 
+    const sectionSums: Record<string, number> = {}
+    const sectionCounts: Record<string, number> = {}
+    const failureTagCounts: Record<string, number> = {}
+    let regenCount = 0
+    let totalLatencyMs = 0
+    let latencyCount = 0
+    let designSheetCount = 0
+
     ;(usageRows || []).forEach((r) => {
       if (r.type === 'qa') totalQa++
       else if (r.type === 'blog') totalBlog++
@@ -123,6 +131,27 @@ export async function GET(request: NextRequest) {
           warningTypeCounts[w] = (warningTypeCounts[w] || 0) + 1
         })
       }
+      if (meta?.qualityGate?.breakdown) {
+        for (const [key, val] of Object.entries(meta.qualityGate.breakdown)) {
+          sectionSums[key] = (sectionSums[key] || 0) + (val as number)
+          sectionCounts[key] = (sectionCounts[key] || 0) + 1
+        }
+      }
+      if (Array.isArray(meta?.failureTags)) {
+        for (const tag of meta.failureTags) {
+          failureTagCounts[tag] = (failureTagCounts[tag] || 0) + 1
+        }
+      }
+      if (Array.isArray(meta?.regenHistory) && meta.regenHistory.length > 0) {
+        regenCount++
+      }
+      if (typeof meta?.latencyMs === 'number') {
+        totalLatencyMs += meta.latencyMs
+        latencyCount++
+      }
+      if (meta?.isDesignSheetMode) {
+        designSheetCount++
+      }
     })
 
     const totalWithWarnings = totalQa + totalBlog
@@ -131,6 +160,23 @@ export async function GET(request: NextRequest) {
       : 0
     const avgCostPerQa = totalQa > 0 ? Math.round((totalCostUsd * usdToKrw) / totalQa) : 0
     const avgCostPerBlog = totalBlog > 0 ? Math.round((totalCostUsd * usdToKrw) / totalBlog) : 0
+
+    const sectionAverages: Record<string, number> = {}
+    for (const key of Object.keys(sectionSums)) {
+      sectionAverages[key] = sectionCounts[key] > 0
+        ? Math.round(sectionSums[key] / sectionCounts[key] * 10) / 10
+        : 0
+    }
+
+    const totalTagged = Object.values(failureTagCounts).reduce((a, b) => a + b, 0)
+    const failureTopList = Object.entries(failureTagCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 15)
+      .map(([tag, count]) => ({
+        tag,
+        count,
+        pct: totalTagged > 0 ? Math.round(count / totalTagged * 1000) / 10 : 0,
+      }))
 
     const kpiSummary = {
       days,
@@ -145,6 +191,11 @@ export async function GET(request: NextRequest) {
       avgCostPerQa,
       avgCostPerBlog,
       warningTypeCounts,
+      sectionAverages,
+      failureTopList,
+      regenRate: totalQa > 0 ? Math.round(regenCount / totalQa * 1000) / 10 : 0,
+      avgLatencyMs: latencyCount > 0 ? Math.round(totalLatencyMs / latencyCount) : 0,
+      designSheetModeRate: totalQa > 0 ? Math.round(designSheetCount / totalQa * 1000) / 10 : 0,
     }
 
     // 연관 키워드 사용 현황 (키워드·검색량 잘 잡히는지 확인용)
@@ -174,11 +225,32 @@ export async function GET(request: NextRequest) {
         }
       })
 
+    const recentWarnings = (usageRows || [])
+      .filter((r) => {
+        const meta = r.meta as any
+        return r.type === 'qa' && Array.isArray(meta?.failureTags) && meta.failureTags.length > 0
+      })
+      .slice(0, 50)
+      .map((r) => {
+        const p = profileMap.get(r.user_id)
+        const meta = r.meta as any
+        return {
+          id: r.id,
+          created_at: r.created_at,
+          username: p?.username ?? '-',
+          full_name: p?.full_name ?? '-',
+          failureTags: meta.failureTags,
+          totalScore: meta.qualityGate?.totalScore ?? null,
+          questionTitle: meta.questionTitle ?? null,
+        }
+      })
+
     return NextResponse.json({
       success: true,
       qualityLogs,
       kpiSummary,
       keywordLogs,
+      recentWarnings,
     })
   } catch (err: unknown) {
     console.error('[admin/quality-kpi] 오류:', err)

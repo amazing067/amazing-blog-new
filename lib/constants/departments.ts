@@ -37,6 +37,11 @@ export const DEPARTMENTS: Department[] = [
     teams: []
   },
   {
+    id: '083',
+    name: '083 본부',
+    teams: []
+  },
+  {
     id: '139',
     name: '139 본부',
     teams: []
