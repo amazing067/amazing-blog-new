@@ -1,6 +1,36 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { GoogleGenerativeAI } from '@google/generative-ai'
 import { searchGoogle, SearchResult } from '@/lib/google-search'
+import { convertToCustomerTopicName, extractPersonaBucket } from '@/lib/topic-utils'
+import { correctAndLog } from '@/lib/product-name-correction'
+import { buildConflictAxis, buildCoverageEvidence, translateToNatural } from '@/lib/insurance-terminology'
+
+// 설계서 분석 결과의 productName 기본 정규화
+// generate-qa의 convertToCustomerTopicName보다 가벼운 1차 정리
+const normalizeExtractedProductName = (raw: string): string => {
+  if (!raw || raw === '보험 상품') return raw
+  let name = raw
+  // 중복 단어 제거 (예: "하나퍼스트 무배당 하나퍼스트" → "하나퍼스트 무배당")
+  const words = name.split(/\s+/)
+  const seen = new Set<string>()
+  const deduped: string[] = []
+  for (const w of words) {
+    if (!seen.has(w)) { seen.add(w); deduped.push(w) }
+  }
+  name = deduped.join(' ')
+  // "무배당" 제거
+  name = name.replace(/무배당\s*/g, '')
+  // 내부 코드 제거: (4165), (2601), 5N5 등
+  name = name.replace(/\(\d{3,5}\)/g, '')
+  name = name.replace(/\b\d+N\d+\b/g, '')
+  // "2종", "1종" 등 제거
+  name = name.replace(/\d+종(?:\s|$)/g, ' ')
+  // 로마 숫자 제거: II, III, IV, Ⅱ, Ⅲ
+  name = name.replace(/\s+(I{2,3}|IV|V|VI{0,3}|Ⅰ|Ⅱ|Ⅲ|Ⅳ|Ⅴ)(?=[\s,.\)]|[가-힣]|$)/g, '')
+  // 다중 공백 정리
+  name = name.replace(/\s+/g, ' ').trim()
+  return name
+}
 
 // 검색 결과를 프롬프트용 불릿 문자열로 변환 (출처 표기 없이 내용만)
 const formatSearchResultsForPrompt = (results: SearchResult[]): string => {
@@ -231,27 +261,33 @@ export async function POST(request: NextRequest) {
     }
 
     const extractedProductName = basicData.productName || '보험 상품'
+    const searchFriendlyName = normalizeExtractedProductName(extractedProductName)
     console.log('[설계서 분석] 추출된 상품명:', extractedProductName)
+    console.log('[설계서 분석] 검색용 정규화 상품명:', searchFriendlyName)
 
-    // 2단계: 추출된 상품명으로 최신 정보 검색
+    // 2단계: 정규화된 상품명으로 최신 정보 검색
     let searchResultsText = ''
-    let customSearchCount = 0 // 커스텀 서치 횟수 추적
+    let customSearchCount = 0
     
     console.log('[설계서 분석] 2단계 조건 확인:', {
       extractedProductName,
+      searchFriendlyName,
       isNotEmpty: !!extractedProductName,
       isNotDefault: extractedProductName !== '보험 상품',
       willSearch: extractedProductName && extractedProductName !== '보험 상품'
     })
     
+    // 검색 결과를 교정 레이어에서도 사용하기 위해 바깥 스코프에 선언
+    let collectedSearchResults: SearchResult[] = []
+
     if (extractedProductName && extractedProductName !== '보험 상품') {
-      console.log('[설계서 분석] 2단계: 최신 정보 검색 시작 - 상품명:', extractedProductName)
+      console.log('[설계서 분석] 2단계: 최신 정보 검색 시작 - 상품명:', searchFriendlyName)
       try {
         const searchQueries = Array.from(new Set([
-          `${extractedProductName} 후기`,
-          `${extractedProductName} 특약`,
-          `${extractedProductName} 장점`,
-          `${extractedProductName} 가입`
+          `${searchFriendlyName} 후기`,
+          `${searchFriendlyName} 특약`,
+          `${searchFriendlyName} 장점`,
+          `${searchFriendlyName} 가입`
         ]))
         
         const collected: SearchResult[] = []
@@ -276,6 +312,7 @@ export async function POST(request: NextRequest) {
           }
         }
         
+        collectedSearchResults = collected
         console.log('[설계서 분석] 🔍 검색 완료 - 수집된 결과:', collected.length, '건')
         if (collected.length > 0) {
           console.log('[설계서 분석] 검색 결과 샘플:', collected.slice(0, 2).map(r => ({
@@ -535,21 +572,199 @@ ${searchResultsText ? `4단계: 검색 결과 활용
     console.log('설계서 분석 완료:', analysisData)
     console.log('[설계서 분석] 커스텀 서치 횟수:', customSearchCount)
 
+    const rawProductName = analysisData.productName || '보험 상품'
+
+    // ── Ground Truth Validation: 잠그기 전 교차 검증 ──
+    let validatedProductName = rawProductName
+    let validationReason = '3단계 Gemini 분석 결과 그대로 사용'
+    let validationConfidence: 'high' | 'medium' | 'low' = 'medium'
+
+    if (collectedSearchResults.length > 0) {
+      console.log('[설계서 분석] Ground Truth Validation 시작')
+      const stage1Name = extractedProductName || ''
+      const stage3Name = rawProductName
+
+      const searchTitleTokens = new Map<string, number>()
+      for (const sr of collectedSearchResults) {
+        const combinedText = `${sr.title || ''} ${sr.snippet || ''}`
+        const tokens = combinedText.replace(/[^가-힣a-zA-Z0-9\s]/g, ' ').split(/\s+/).filter(t => t.length >= 2)
+        for (const token of tokens) {
+          searchTitleTokens.set(token, (searchTitleTokens.get(token) || 0) + 1)
+        }
+      }
+
+      const stage1Core = normalizeExtractedProductName(stage1Name).replace(/\s+/g, '').toLowerCase()
+      const stage3Core = normalizeExtractedProductName(stage3Name).replace(/\s+/g, '').toLowerCase()
+
+      if (stage1Core !== stage3Core && stage1Core.length > 3 && stage3Core.length > 3) {
+        const stage1Tokens = stage1Core.split('').filter((_, i) => i % 2 === 0 ? true : false)
+        const stage3Tokens = stage3Core.split('').filter((_, i) => i % 2 === 0 ? true : false)
+
+        let stage1Freq = 0
+        let stage3Freq = 0
+        for (const [token, count] of searchTitleTokens.entries()) {
+          const tokenNorm = token.toLowerCase()
+          if (stage1Name.toLowerCase().includes(tokenNorm) && tokenNorm.length >= 3) stage1Freq += count
+          if (stage3Name.toLowerCase().includes(tokenNorm) && tokenNorm.length >= 3) stage3Freq += count
+        }
+
+        console.log(`[설계서 분석] Validation 후보 비교: 1단계="${stage1Name}" (freq=${stage1Freq}) vs 3단계="${stage3Name}" (freq=${stage3Freq})`)
+
+        if (stage1Freq > stage3Freq * 1.5 && stage1Freq >= 3) {
+          validatedProductName = stage1Name
+          validationReason = `1단계 OCR 이름이 검색 결과에서 더 빈번 (${stage1Freq} vs ${stage3Freq})`
+          validationConfidence = 'medium'
+          console.log(`[설계서 분석] ⚠️ Ground Truth 교정: "${stage3Name}" → "${stage1Name}" (1단계 우선)`)
+        } else {
+          validationReason = `3단계 결과 유지 (검색빈도 stage1=${stage1Freq}, stage3=${stage3Freq})`
+          validationConfidence = stage3Freq >= 3 ? 'high' : 'medium'
+        }
+      } else {
+        validationReason = '1단계/3단계 이름이 동일하므로 검증 불필요'
+        validationConfidence = 'high'
+      }
+
+      console.log(`[설계서 분석] Ground Truth Validation 확정: "${validatedProductName}" (${validationConfidence}, ${validationReason})`)
+    }
+
+    const normalizedBeforeCorrection = normalizeExtractedProductName(validatedProductName)
+
+    // ── 상품명 정답 교정 레이어 (검색 결과 + alias 사전 + fuzzy matching) ──
+    const { correctedRaw, correctedNormalized, correction } = correctAndLog(
+      validatedProductName,
+      normalizedBeforeCorrection,
+      collectedSearchResults.length > 0 ? collectedSearchResults : undefined
+    )
+    const finalRawProductName = correctedRaw
+    const normalizedProductName = correctedNormalized
+
+    const topicData = convertToCustomerTopicName(normalizedProductName)
+    const personaBucket = extractPersonaBucket(analysisData.targetPersona || '')
+    console.log('[설계서 분석] 정규화된 상품명:', { raw: rawProductName, normalized: normalizedProductName, correctionApplied: correction.method !== 'none' })
+    console.log('[설계서 분석] 구조화된 주제:', { ...topicData, personaBucket })
+
+    // coverages dedupe + normalize (로마숫자 제거, 중복 제거, 너무 긴 특약명 축약)
+    let cleanCoverages: string[] = (analysisData.coverages || []).map((c: string) =>
+      c.replace(/\s+(I{2,3}|IV|VI{0,3})(?=[\s,.]|[가-힣]|$)/g, '')
+       .replace(/\s+(Ⅰ|Ⅱ|Ⅲ|Ⅳ|Ⅴ)(?=[\s,.]|[가-힣]|$)/g, '')
+       .replace(/\s+/g, ' ').trim()
+    )
+    const coverageSeen = new Set<string>()
+    cleanCoverages = cleanCoverages.filter((c: string) => {
+      const norm = c.replace(/\s+/g, '').toLowerCase()
+      if (coverageSeen.has(norm)) return false
+      coverageSeen.add(norm)
+      return true
+    })
+
+    let cleanSpecialClauses: string[] = (analysisData.specialClauses || []).map((c: string) =>
+      c.replace(/\s+(I{2,3}|IV|VI{0,3})(?=[\s,.]|[가-힣]|$)/g, '')
+       .replace(/\s+(Ⅰ|Ⅱ|Ⅲ|Ⅳ|Ⅴ)(?=[\s,.]|[가-힣]|$)/g, '')
+       .replace(/\s+/g, ' ').trim()
+    )
+    const clauseSeen = new Set<string>()
+    cleanSpecialClauses = cleanSpecialClauses.filter((c: string) => {
+      const norm = c.replace(/\s+/g, '').toLowerCase()
+      if (clauseSeen.has(norm)) return false
+      clauseSeen.add(norm)
+      return true
+    })
+
+    // ── Evidence Map 구축: 질문/답변/금지 용도별 사실 분리 ──
+    const coverageEvidence = buildCoverageEvidence(cleanCoverages)
+    const premium = analysisData.premium || ''
+    const worryPoint = analysisData.worryPoint || '보험료와 보장 범위가 적절한지 궁금합니다'
+    const sellingPoint = analysisData.sellingPoint || '보장 범위가 넓고 합리적인 보험료입니다'
+
+    const questionFacts: string[] = []
+    const answerFacts: string[] = []
+    const forbiddenPatterns: string[] = []
+
+    // 질문에서 쓸 수 있는 사실: 보험료, 보장 요약, 걱정 포인트
+    if (premium) questionFacts.push(`월 보험료 ${premium}`)
+    if (worryPoint) questionFacts.push(worryPoint)
+    if (coverageEvidence.length > 0) questionFacts.push(`주요 보장: ${coverageEvidence.slice(0, 3).join(', ')}`)
+    if (topicData.topicConcern) {
+      const naturalConcern = translateToNatural(topicData.topicConcern)
+      questionFacts.push(`핵심 고민: ${naturalConcern}`)
+    }
+
+    // 답변에서 써야 하는 근거: 보장 구조, 장점, 보험료, 특약, 환급 조건 등
+    if (premium) answerFacts.push(`월 보험료 ${premium}`)
+    if (sellingPoint) answerFacts.push(sellingPoint)
+    coverageEvidence.forEach(ev => answerFacts.push(ev))
+    if (cleanSpecialClauses.length > 0) {
+      answerFacts.push(`특약: ${cleanSpecialClauses.slice(0, 5).map(c => translateToNatural(c)).join(', ')}`)
+    }
+    if (topicData.topicConcern) {
+      const naturalConcern = translateToNatural(topicData.topicConcern)
+      answerFacts.push(`concern 구조: ${naturalConcern}`)
+    }
+
+    // 금지 패턴: 내부 코드, 설계사 표현, 삭제 대상 용어
+    forbiddenPatterns.push('무배당')
+    forbiddenPatterns.push('(주)')
+    // 로마 숫자 접미사
+    forbiddenPatterns.push('Ⅰ', 'Ⅱ', 'Ⅲ', 'II', 'III')
+    // 상품 내부 코드 패턴
+    if (rawProductName !== normalizedProductName) {
+      const codeMatches = rawProductName.match(/\(\d{3,5}\)/g)
+      if (codeMatches) forbiddenPatterns.push(...codeMatches)
+    }
+    forbiddenPatterns.push('종 해약환급금미지급형')
+    forbiddenPatterns.push('설계사 전문 상담')
+    forbiddenPatterns.push('약관을 참고하세요')
+    forbiddenPatterns.push('자세한 내용은 약관')
+
+    // ── Conflict Axis 구축: concern 키워드 → 갈등 축 변환 ──
+    const conflictAxis = buildConflictAxis(
+      topicData.topicConcern || '',
+      topicData.topicConcernSearch || ''
+    )
+
     return NextResponse.json({
       success: true,
       data: {
-        productName: analysisData.productName || '보험 상품',
+        productName: normalizedProductName,
+        rawProductName: finalRawProductName,
+        topicCore: topicData.cleanProductCore,
+        topicConcern: topicData.topicConcern,
+        topicConcernSearch: topicData.topicConcernSearch,
+        displayProductName: topicData.displayProductName,
+        companyShort: topicData.companyShort,
+        personaBucket,
         targetPersona: analysisData.targetPersona || '30대 직장인',
-        worryPoint: analysisData.worryPoint || '보험료와 보장 범위가 적절한지 궁금합니다',
-        sellingPoint: analysisData.sellingPoint || '보장 범위가 넓고 합리적인 보험료입니다',
-        premium: analysisData.premium || '',
-        coverages: analysisData.coverages || [],
-        specialClauses: analysisData.specialClauses || []
+        worryPoint,
+        sellingPoint,
+        premium,
+        coverages: cleanCoverages,
+        specialClauses: cleanSpecialClauses,
+        nameCorrection: correction.method !== 'none' ? {
+          original: correction.original,
+          corrected: correction.corrected,
+          method: correction.method,
+          confidence: correction.confidence,
+        } : null,
+        analysisSource: 'design_sheet',
+        validatedProductName: validatedProductName,
+        validationReason,
+        validationConfidence,
+        searchSummary: searchResultsText || '',
+        searchKeywordHints: searchFriendlyName
+          ? [`${searchFriendlyName} 후기`, `${searchFriendlyName} 특약`, `${searchFriendlyName} 장점`]
+          : [],
+        // ── 신규: Evidence Map (사실 잠금) ──
+        evidenceMap: {
+          questionFacts,
+          answerFacts,
+          forbiddenPatterns,
+        },
+        // ── 신규: Conflict Axis (갈등 축) ──
+        conflictAxis,
       },
-      // 설계서 분석 비용 정보 (클라이언트에서 표시 가능)
       usage: {
         customSearchCount: customSearchCount,
-        customSearchCost: customSearchCount * 0.0005 // USD
+        customSearchCost: customSearchCount * 0.0005
       }
     })
   } catch (error: any) {

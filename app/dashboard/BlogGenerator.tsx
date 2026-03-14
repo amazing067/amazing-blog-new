@@ -3926,6 +3926,27 @@ function QAGenerator({
       premium?: string
       coverages?: string[]
       specialClauses?: string[]
+      rawProductName?: string
+      topicCore?: string
+      topicConcern?: string
+      topicConcernSearch?: string
+      displayProductName?: string
+      companyShort?: string
+      personaBucket?: string
+      searchSummary?: string
+      searchKeywordHints?: string[]
+      evidenceMap?: {
+        questionFacts: string[]
+        answerFacts: string[]
+        forbiddenPatterns: string[]
+      }
+      conflictAxis?: {
+        keyword: string
+        keywordNatural: string
+        proCondition: string
+        conCondition: string
+        summary: string
+      } | null
     } | null
   }>({
     productName: '',
@@ -3940,6 +3961,8 @@ function QAGenerator({
     designSheetAnalysis: null
   })
   
+  const [isDesignSheetConfirmed, setIsDesignSheetConfirmed] = useState(false)
+  const [nameCorrection, setNameCorrection] = useState<{ original: string; corrected: string; method: string; confidence: string } | null>(null)
   const [isGenerating, setIsGenerating] = useState(false)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [isDraggingOverDesignSheet, setIsDraggingOverDesignSheet] = useState(false)
@@ -4641,34 +4664,54 @@ function QAGenerator({
         : undefined
       let matchedTargetPersona = apiTargetPersona || qaFormData.targetPersona
       if (apiTargetPersona) {
-        // 정확히 일치하는 옵션이 있는지 확인
         const exactMatch = targetPersonaOptions.find(opt => opt === apiTargetPersona)
         if (exactMatch) {
           matchedTargetPersona = exactMatch
         } else {
-          // 부분 일치로 찾기
           const apiValue = apiTargetPersona.toLowerCase()
+          // 성별 판별: "여"가 포함되면 여성 우선 (경영지원/관리자 등에 "남" 오탐 방지)
+          const isFemale = apiValue.includes('여성') || apiValue.includes('여자') ||
+            (apiValue.includes('여') && !apiValue.includes('남성') && !apiValue.includes('남자')) ||
+            apiValue.includes('주부')
+          const isMale = !isFemale && (apiValue.includes('남성') || apiValue.includes('남자') || apiValue.includes('남'))
+
           const partialMatch = targetPersonaOptions.find(opt => {
             const optValue = opt.toLowerCase()
-            // 나이대와 성별/직업이 일치하는지 확인
             const hasAge = optValue.includes(apiValue.split('대')[0] + '대') || apiValue.includes(optValue.split('대')[0] + '대')
-            const hasGender = (optValue.includes('남성') && (apiValue.includes('남') || !apiValue.includes('여'))) || 
-                             (optValue.includes('여성') && apiValue.includes('여')) ||
-                             (optValue.includes('주부') && apiValue.includes('주부'))
-            const hasJob = optValue.includes('직장인') && (apiValue.includes('직장') || !apiValue.includes('자영') && !apiValue.includes('법인')) ||
+            // 성별 일치: 분석 결과 성별과 옵션 성별이 같아야 함
+            const optIsFemale = optValue.includes('여성') || optValue.includes('주부')
+            const optIsMale = optValue.includes('남성')
+            const genderMatch = (isFemale && optIsFemale) || (isMale && optIsMale) || (!isFemale && !isMale)
+            const hasJob = optValue.includes('직장인') && (apiValue.includes('직장') || (!apiValue.includes('자영') && !apiValue.includes('법인'))) ||
                           optValue.includes('자영업자') && apiValue.includes('자영') ||
                           optValue.includes('법인대표') && apiValue.includes('법인') ||
                           optValue.includes('신혼부부') && apiValue.includes('신혼') ||
                           optValue.includes('자녀 있는 가족') && (apiValue.includes('자녀') || apiValue.includes('가족'))
-            return hasAge && (hasGender || hasJob)
+            return hasAge && genderMatch && hasJob
           })
-          matchedTargetPersona = partialMatch || apiTargetPersona
+          // 직업 매칭 실패 시 나이+성별만으로 재시도
+          if (!partialMatch) {
+            const genderOnly = targetPersonaOptions.find(opt => {
+              const optValue = opt.toLowerCase()
+              const hasAge = optValue.includes(apiValue.split('대')[0] + '대')
+              const optIsFemale = optValue.includes('여성') || optValue.includes('주부')
+              const optIsMale = optValue.includes('남성')
+              return hasAge && ((isFemale && optIsFemale) || (isMale && optIsMale))
+            })
+            matchedTargetPersona = genderOnly || apiTargetPersona
+          } else {
+            matchedTargetPersona = partialMatch
+          }
         }
       }
 
       // 분석 결과로 폼 자동 채우기
       const apiProductName: string | undefined =
         typeof data.data?.productName === 'string' ? (data.data.productName as string) : undefined
+      const apiTopicCore: string | undefined =
+        typeof data.data?.topicCore === 'string' ? (data.data.topicCore as string) : undefined
+      const apiCompanyShort: string | undefined =
+        typeof data.data?.companyShort === 'string' ? (data.data.companyShort as string) : undefined
       const apiWorryPoint: string | undefined =
         typeof data.data?.worryPoint === 'string' ? (data.data.worryPoint as string) : undefined
       const apiSellingPoint: string | undefined =
@@ -4680,9 +4723,14 @@ function QAGenerator({
       const apiSpecialClauses: string[] =
         Array.isArray(data.data?.specialClauses) ? (data.data.specialClauses as string[]) : []
 
+      // 주제 입력칸: topicCore 기반 고객 검색형 주제명 자동 채움 (회사명 포함)
+      const topicDisplayName = apiTopicCore
+        ? (apiCompanyShort ? `${apiCompanyShort} ${apiTopicCore}` : apiTopicCore)
+        : apiProductName
+
       setQAFormData(prev => ({
         ...prev,
-        productName: apiProductName || prev.productName,
+        productName: topicDisplayName || prev.productName,
         targetPersona: matchedTargetPersona,
         worryPoint: apiWorryPoint || prev.worryPoint,
         sellingPoint: apiSellingPoint || prev.sellingPoint,
@@ -4690,7 +4738,28 @@ function QAGenerator({
         designSheetAnalysis: {
           premium: apiPremium,
           coverages: apiCoverages,
-          specialClauses: apiSpecialClauses
+          specialClauses: apiSpecialClauses,
+          rawProductName: String(data.data?.rawProductName || apiProductName || ''),
+          topicCore: String(apiTopicCore || ''),
+          topicConcern: String(data.data?.topicConcern || ''),
+          topicConcernSearch: String(data.data?.topicConcernSearch || ''),
+          displayProductName: String(data.data?.displayProductName || ''),
+          companyShort: String(apiCompanyShort || ''),
+          personaBucket: String(data.data?.personaBucket || ''),
+          searchSummary: String(data.data?.searchSummary || ''),
+          searchKeywordHints: Array.isArray(data.data?.searchKeywordHints) ? data.data.searchKeywordHints as string[] : [],
+          evidenceMap: data.data?.evidenceMap && typeof data.data.evidenceMap === 'object' ? {
+            questionFacts: Array.isArray((data.data.evidenceMap as Record<string, unknown>).questionFacts) ? (data.data.evidenceMap as Record<string, unknown>).questionFacts as string[] : [],
+            answerFacts: Array.isArray((data.data.evidenceMap as Record<string, unknown>).answerFacts) ? (data.data.evidenceMap as Record<string, unknown>).answerFacts as string[] : [],
+            forbiddenPatterns: Array.isArray((data.data.evidenceMap as Record<string, unknown>).forbiddenPatterns) ? (data.data.evidenceMap as Record<string, unknown>).forbiddenPatterns as string[] : [],
+          } : undefined,
+          conflictAxis: data.data?.conflictAxis && typeof data.data.conflictAxis === 'object' ? data.data.conflictAxis as {
+            keyword: string
+            keywordNatural: string
+            proCondition: string
+            conCondition: string
+            summary: string
+          } : null,
         }
       }))
       
@@ -4698,6 +4767,14 @@ function QAGenerator({
         원본: apiTargetPersona, 
         매칭결과: matchedTargetPersona 
       })
+
+      // 설계서 분석 기준 자동 확정 상태 설정
+      setIsDesignSheetConfirmed(true)
+      if (data.data?.nameCorrection) {
+        setNameCorrection(data.data.nameCorrection as { original: string; corrected: string; method: string; confidence: string })
+      } else {
+        setNameCorrection(null)
+      }
 
       if (!silent) {
         alert('설계서 분석이 완료되었습니다! 폼이 자동으로 채워졌습니다. 필요시 수정 후 "Q&A 생성하기" 버튼을 눌러주세요.')
@@ -5572,7 +5649,7 @@ function QAGenerator({
             <div>
               <div className="flex items-center justify-between mb-2">
                 <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200">
-                  상품명 *
+                  주제 *
                 </label>
               </div>
               {/* PDF 선택 기능 - 내일 개별 PDF 준비되면 활성화 예정 */}
@@ -5632,8 +5709,23 @@ function QAGenerator({
                 placeholder="예: KB손해보험 금쪽같은자녀보험 Plus"
               />
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                💡 검색 정확도를 위해 상품명, 상품명칭, 버전을 모두 포함해주세요 (예: KB손해보험 금쪽같은자녀보험 Plus)
+                💡 보험 상품명을 입력하면 자동으로 검색용 키워드로 변환됩니다
+                <br />
+                (예: KB손해보험 금쪽같은자녀보험 Plus → 금쪽같은자녀보험)
               </p>
+              {isDesignSheetConfirmed && (
+                <div className="mt-1.5 flex items-center gap-1.5">
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300">
+                    <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
+                    설계서 분석 기준 자동 확정
+                  </span>
+                  {nameCorrection && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300" title={`"${nameCorrection.original}" → "${nameCorrection.corrected}" (${nameCorrection.method})`}>
+                      상품명 교정됨
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
 
             <div>
@@ -6232,13 +6324,18 @@ function QAGenerator({
         <div className="flex gap-3">
             <button
               onClick={handleGenerateQA}
-              disabled={isGenerating || !qaFormData.productName || !qaFormData.worryPoint || !qaFormData.sellingPoint}
+              disabled={isGenerating || isAnalyzing || !qaFormData.productName || !qaFormData.worryPoint || !qaFormData.sellingPoint}
               className="flex-1 py-2 bg-gradient-to-r from-purple-600 to-purple-700 text-white font-semibold rounded-lg hover:from-purple-700 hover:to-purple-800 disabled:from-gray-300 disabled:to-gray-400 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2 text-sm"
             >
               {isGenerating ? (
                 <>
                   <Clock className="w-4 h-4 animate-spin" />
                   생성 중... ({progress}%)
+                </>
+              ) : isAnalyzing ? (
+                <>
+                  <Clock className="w-4 h-4 animate-spin" />
+                  설계서 분석 중...
                 </>
               ) : (
                 <>

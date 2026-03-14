@@ -1,12 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { GoogleGenerativeAI } from '@google/generative-ai'
-import { generateQuestionPrompt, generateAnswerPrompt, generateConversationThreadPrompt, generateReviewMessagePrompt, generateReviewResponsePrompt, ConversationMessage } from '@/lib/prompts/qa-prompt'
+import { generateQuestionPrompt, generateAnswerPrompt, generateConversationThreadPrompt, generateCommentPairPrompt, generateReviewMessagePrompt, generateReviewResponsePrompt, generateUnifiedQAPrompt, generateThreadBatchPrompt, ConversationMessage } from '@/lib/prompts/qa-prompt'
 import { createClient } from '@/lib/supabase/server'
 import { searchGoogle, SearchResult } from '@/lib/google-search'
 import { getBestKeywordsFromNaverSearchAd } from '@/lib/naver-searchad'
+import { convertToCustomerTopicName, extractPersonaBucket, type TopicStructure } from '@/lib/topic-utils'
+import { sampleFamilies, buildTitlePrompt, scoreTitleCandidate as scoreTitleFamily, pickOpeningFamily, OPENING_FAMILIES, type TitleScoreInput } from '@/lib/title-family'
+import { gateTitle, gateQuestionBody, gateAnswer, gateThread, gateHumanLikeness, gateEvidenceConsistency, calculateOverallScore, type GateResult, type FirstSentences } from '@/lib/quality-gate'
 
 /** 문서 14절: 프롬프트·운영 명세 버전 (변경 시 문서 버전 표 업데이트) */
 const QA_PROMPT_VERSION = '1.2'
+
+const recentFirstSentencesStore: FirstSentences[] = []
+const MAX_RECENT_FIRST_SENTENCES = 5
 
 type TokenUsage = {
   model: string
@@ -112,6 +118,10 @@ const normalizeProductNameForSearch = (raw?: string | null): string => {
     .replace(/주식회사/g, '')
     .replace(/라이나생명보험/g, '라이나생명')
     .replace(/라이나생명보험주식회사/g, '라이나생명')
+  // 내부 표기 제거
+  name = name.replace(/무배당/g, '')
+  name = name.replace(/\d+N\d+/gi, '')
+  name = name.replace(/\d+종/g, '')
   // 괄호와 내부 코드/버전 제거
   name = name.replace(/\([^)]*\)/g, '')
   // 연속 공백 정리
@@ -123,6 +133,58 @@ const normalizeProductNameForSearch = (raw?: string | null): string => {
   }
   return name
 }
+
+// ============================================
+// 3단 상품명 체계: raw → display → topic
+// 로직은 lib/topic-utils.ts 공유 모듈로 이관됨
+// convertToCustomerTopicName, extractPersonaBucket 모두 import 사용
+// ============================================
+
+// ============================================
+// 필드별 정제 함수 3종 (정제 강도: 강 → 중 → 약)
+// ============================================
+
+// 제목·핵심키워드용: 가장 강한 정제 (괄호·버전·로마숫자·(주)·무배당 모두 제거)
+const cleanForTitle = (text: string): string => {
+  if (!text) return ''
+  let c = text
+  c = c.replace(/\([^)]*\)/g, '')
+  c = c.replace(/무배당/g, '')
+  c = c.replace(/\(주\)/g, '')
+  c = c.replace(/\s+(I{1,3}|IV|V|VI{0,3})(\s|$)/g, '$2')
+  c = c.replace(/\s+(Ⅰ|Ⅱ|Ⅲ|Ⅳ|Ⅴ)(\s|$)/g, '$2')
+  c = c.replace(/(I{1,3}|IV|V|VI{0,3})(\s|$)/g, '$2')
+  c = c.replace(/\d+\.\d+/g, '')
+  c = c.replace(/\s+/g, ' ').trim()
+  return c
+}
+
+// 본문 설명용: 약한 정제 (버전 코드·(주)·무배당만 제거, 핵심 구조어는 보존)
+// 해약환급금미지급형, 3-2-5, 특정4대질병제외 같은 보장 의미어는 유지
+const cleanForBody = (text: string): string => {
+  if (!text) return ''
+  let c = text
+  c = c.replace(/\(주\)/g, '')
+  c = c.replace(/무배당/g, '')
+  // 버전 코드 괄호만 제거: (3.105), (2024.01) 같은 숫자만 들어간 괄호
+  c = c.replace(/\(\s*\d[\d.]*\s*\)/g, '')
+  // 나머지 괄호: 핵심 보장 구조어가 들어있으면 괄호만 벗기고, 아닌 경우만 제거
+  c = c.replace(/\(([^)]*)\)/g, (_match, inner: string) => {
+    if (/^\s*[\d.]+\s*$/.test(inner)) return ''
+    if (/해약환급금|미지급|무해약|특정\d|질병제외|간편심사|3-2-5|고액치료비|표적항암/.test(inner)) return ` ${inner.trim()}`
+    return ''
+  })
+  // 로마숫자 제거 (괄호 확장 후, 문자열 어디서든: 보험료납입면제대상 II → 보험료납입면제대상)
+  c = c.replace(/\s+(I{2,3}|IV|VI{0,3})(?=[\s,.]|[가-힣]|$)/g, '')
+  c = c.replace(/\s+(Ⅰ|Ⅱ|Ⅲ|Ⅳ|Ⅴ)(?=[\s,.]|[가-힣]|$)/g, '')
+  c = c.replace(/\s+/g, ' ').trim()
+  return c
+}
+
+// 키워드용: 강한 정제 (cleanForTitle과 동일하지만 별도 함수로 분리해 의도 명시)
+const cleanForKeyword = cleanForTitle
+
+// 제목 채점은 lib/title-family.ts의 scoreTitleCandidate로 이관됨
 
 // 한국어 문장 끝 패턴 찾기 (자연스러운 문장 완성 지점)
 const findKoreanSentenceEnd = (text: string, maxPos: number, searchRange: number = 30): number | null => {
@@ -187,6 +249,103 @@ const findKoreanSentenceEnd = (text: string, maxPos: number, searchRange: number
   }
   
   return null
+}
+
+// 답변/댓글 역할 누수 제거: 전문가 자기소개, 상담 유도, 영업성 CTA 패턴 제거
+const ROLE_LEAKAGE_PATTERNS = [
+  /\d{1,2}년\s*(이상\s*)?경력[^.?!\n]*/g,
+  /전문가\s*님[-~]?/g,
+  /나[-~]\s*전문가님/g,
+  /설계사입니다[.!]?/g,
+  /상담\s*(요청|문의)[^.?!\n]*/g,
+  /연락\s*주세요[.!]?/g,
+  /문의\s*주세요[.!]?/g,
+  /전화\s*주세요[.!]?/g,
+  /쪽지\s*주세요[.!]?/g,
+  /언제든\s*문의[^.?!\n]*/g,
+  /상담\s*환영[^.?!\n]*/g,
+  /상담\s*도와드릴[^.?!\n]*/g,
+]
+
+function stripAnswerRoleLeakage(text: string): string {
+  let result = text
+  for (const pat of ROLE_LEAKAGE_PATTERNS) {
+    const before = result
+    result = result.replace(pat, '')
+    if (before !== result) {
+      console.log(`[역할 누수 제거] 패턴 제거됨: ${pat.source}`)
+    }
+  }
+  return result.replace(/\n{3,}/g, '\n\n').replace(/^\s*\n/, '').trim()
+}
+
+// 마지막 agent 댓글 영업성 제거: "비교 설계", "설계 받아보세요" 등을 판단 정리형으로 대체
+const SALES_ENDING_PATTERNS = [
+  /비교\s*설계[^.?!\n]*(받아|한번|해보)[^.?!\n]*/gi,
+  /설계\s*(다시|한번|받아)[^.?!\n]*/gi,
+  /상담\s*(받아|한번)[^.?!\n]*/gi,
+  /설계사\s*(만나|찾아)[^.?!\n]*/gi,
+]
+
+function normalizeFinalAgentEnding(text: string): string {
+  let result = text
+  for (const pat of SALES_ENDING_PATTERNS) {
+    result = result.replace(pat, '')
+  }
+  return result.replace(/\n{3,}/g, '\n\n').trim()
+}
+
+// 질문 본문 문단 자동 분리: 260자+ & 빈 줄 2개 미만이면 3블록으로 분리
+function autoSplitQuestionParagraphs(text: string): string {
+  if (!text || text.length < 260) return text
+  const existingBreaks = (text.match(/\n\s*\n/g) || []).length
+  if (existingBreaks >= 2) return text
+
+  const sentences = text.split(/(?<=[?？!！\n])\s*/).filter(s => s.trim().length > 0)
+  if (sentences.length < 3) return text
+
+  const totalLen = sentences.reduce((sum, s) => sum + s.length, 0)
+  const block1Target = totalLen * 0.35
+  const block2Target = totalLen * 0.75
+
+  let block1: string[] = []
+  let block2: string[] = []
+  let block3: string[] = []
+  let accumulated = 0
+
+  for (const sentence of sentences) {
+    accumulated += sentence.length
+    if (accumulated <= block1Target) {
+      block1.push(sentence)
+    } else if (accumulated <= block2Target) {
+      block2.push(sentence)
+    } else {
+      block3.push(sentence)
+    }
+  }
+
+  if (block1.length === 0) block1 = [sentences[0]]
+  if (block2.length === 0 && sentences.length > 1) block2 = [sentences[Math.floor(sentences.length / 2)]]
+  if (block3.length === 0 && sentences.length > 2) block3 = [sentences[sentences.length - 1]]
+
+  const result = [block1.join(' '), block2.join(' '), block3.join(' ')]
+    .filter(b => b.trim().length > 0)
+    .join('\n\n')
+
+  console.log(`[Q&A 생성] 문단 자동 분리 적용: ${sentences.length}문장 → ${result.split('\n\n').length}문단`)
+  return result
+}
+
+function normalizeExclamationMarks(text: string): string {
+  const exclamationCount = (text.match(/!/g) || []).length
+  if (exclamationCount <= 2) return text
+
+  let replaced = 0
+  return text.replace(/!/g, (match) => {
+    replaced++
+    if (replaced <= 2) return match
+    return replaced === exclamationCount ? '요' : ''
+  })
 }
 
 // 답변 길이 제한 함수 (정확히 maxLength로 맞추기 - 의미 보존, 문장 중간 끊김 방지)
@@ -446,7 +605,7 @@ export async function POST(request: NextRequest) {
       )
     }
     
-    const { 
+    let { 
       productName, 
       targetPersona, 
       worryPoint, 
@@ -471,6 +630,15 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // 파이프라인 순서 guard: 설계서 이미지가 있는데 분석 결과가 없으면 분석 미완료 상태
+    if (designSheetImage && !designSheetAnalysis) {
+      console.warn('[Q&A 생성] ⛔ 설계서 분석 미완료 상태에서 생성 요청 거부')
+      return NextResponse.json(
+        { error: '설계서 분석이 아직 완료되지 않았습니다. 분석 완료 후 다시 시도해주세요.' },
+        { status: 422 }
+      )
+    }
+
     // 타겟고객 검증 (빈 값, 최소 길이)
     const trimmedTargetPersona = targetPersona.trim()
     if (trimmedTargetPersona.length === 0) {
@@ -486,7 +654,76 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    console.log('Q&A 생성 시작:', { productName, targetPersona, worryPoint, sellingPoint })
+    // 설계서 분석 데이터에서 로마숫자·내부 코드 정제 (AI 입력 전처리)
+    if (designSheetAnalysis?.coverages) {
+      designSheetAnalysis.coverages = designSheetAnalysis.coverages.map((c: string) =>
+        c.replace(/\s+(I{2,3}|IV|VI{0,3})(?=[\s,.]|[가-힣]|$)/g, '')
+         .replace(/\s+(Ⅰ|Ⅱ|Ⅲ|Ⅳ|Ⅴ)(?=[\s,.]|[가-힣]|$)/g, '')
+         .replace(/\s+/g, ' ').trim()
+      )
+      // coverages 중복 제거 (같은 보장명 반복 방지)
+      const seen = new Set<string>()
+      designSheetAnalysis.coverages = designSheetAnalysis.coverages.filter((c: string) => {
+        const norm = c.replace(/\s+/g, '').toLowerCase()
+        if (seen.has(norm)) return false
+        seen.add(norm)
+        return true
+      })
+    }
+
+    // ============================================
+    // Canonical Payload: 설계서 모드에서는 분석 결과가 절대 진실
+    // 폼에서 온 값이 아니라, analysisResult가 persona/worry/selling 전체를 지배
+    // ============================================
+    const isDesignSheetMode = !!(designSheetImage && designSheetAnalysis)
+    const canonical = {
+      productName: isDesignSheetMode
+        ? (designSheetAnalysis.rawProductName || productName)
+        : productName,
+      targetPersona: isDesignSheetMode
+        ? (designSheetAnalysis.personaBucket || targetPersona)
+        : targetPersona,
+      worryPoint: isDesignSheetMode && designSheetAnalysis.worryPoint
+        ? designSheetAnalysis.worryPoint
+        : worryPoint,
+      sellingPoint: isDesignSheetMode && designSheetAnalysis.sellingPoint
+        ? designSheetAnalysis.sellingPoint
+        : sellingPoint,
+    }
+
+    // 설계서 모드: 분석값과 폼값 불일치 시 경고 + 분석값 우선
+    if (isDesignSheetMode) {
+      if (designSheetAnalysis.personaBucket && designSheetAnalysis.personaBucket !== extractPersonaBucket(targetPersona)) {
+        console.warn(`[Q&A 생성] ⚠️ 페르소나 불일치 감지! 폼: "${targetPersona}" → 분석 결과: "${designSheetAnalysis.personaBucket}" → 분석 결과 우선 사용`)
+      }
+      if (designSheetAnalysis.worryPoint && designSheetAnalysis.worryPoint !== worryPoint) {
+        console.warn(`[Q&A 생성] ⚠️ worryPoint canonical override: 폼값 → 분석값 "${designSheetAnalysis.worryPoint.substring(0, 50)}..."`)
+      }
+      if (designSheetAnalysis.sellingPoint && designSheetAnalysis.sellingPoint !== sellingPoint) {
+        console.warn(`[Q&A 생성] ⚠️ sellingPoint canonical override: 폼값 → 분석값 "${designSheetAnalysis.sellingPoint.substring(0, 50)}..."`)
+      }
+    }
+
+    // 설계서 모드: canonical 값으로 변수 직접 덮어쓰기
+    // 이후 모든 로직에서 폼값 대신 분석 결과가 사용됨
+    if (isDesignSheetMode) {
+      const personaChanged = canonical.targetPersona !== targetPersona
+      if (personaChanged) {
+        console.warn(`[Q&A 생성] ⚠️ 페르소나 canonical override: "${targetPersona}" → "${canonical.targetPersona}"`)
+      }
+      targetPersona = canonical.targetPersona
+      productName = canonical.productName
+      worryPoint = canonical.worryPoint
+      sellingPoint = canonical.sellingPoint
+    }
+
+    console.log('[Q&A 생성] Canonical payload 확정:', {
+      mode: isDesignSheetMode ? 'designSheet' : 'manual',
+      productName,
+      targetPersona,
+      worryPoint: worryPoint?.substring(0, 50) + '...',
+      sellingPoint: sellingPoint?.substring(0, 50) + '...',
+    })
     
     // 환경 변수 확인 (디버깅용)
     const apiKey = process.env.GEMINI_API_KEY
@@ -514,110 +751,164 @@ export async function POST(request: NextRequest) {
     let customSearchCount = 0 // 커스텀 서치 횟수 추적
     
     // ============================================
-    // Q&A 전용 최신 검색 요약 (뉴스/블로그/커뮤니티 포함, 출처 표기 없음)
+    // 1단계: 상품명 정규화 — raw → 고객 검색형 topicName 변환
+    // 핵심: 설계서 분석에서 이미 구조화된 topic이 있으면 재정규화하지 않고 그대로 사용
+    // ============================================
+    const preStructured = designSheetAnalysis?.topicCore && designSheetAnalysis.topicCore.length > 2
+    let customerTopicName: string
+    let displayProductName: string
+    let companyShort: string
+    let cleanProductCore: string
+    let topicConcern: string
+    let topicConcernSearch: string
+
+    if (preStructured) {
+      // 설계서 분석에서 이미 구조화 완료 → 그대로 사용 (재정규화 금지)
+      cleanProductCore = designSheetAnalysis.topicCore
+      topicConcern = designSheetAnalysis.topicConcern || ''
+      topicConcernSearch = designSheetAnalysis.topicConcernSearch || ''
+      companyShort = designSheetAnalysis.companyShort || ''
+      displayProductName = designSheetAnalysis.displayProductName || productName
+      customerTopicName = companyShort && companyShort.length <= 6
+        ? `${companyShort} ${cleanProductCore}`.trim()
+        : cleanProductCore
+      console.log('[Q&A 생성] ✅ 분석 구조화 topic 그대로 사용 (재정규화 건너뜀):', { topicCore: cleanProductCore, topicConcern, topicConcernSearch, display: displayProductName, topic: customerTopicName })
+    } else {
+      // 설계서 분석 없음 → 기존 로직으로 productName에서 추출
+      const converted = convertToCustomerTopicName(productName)
+      customerTopicName = converted.topicName
+      displayProductName = converted.displayProductName
+      companyShort = converted.companyShort
+      cleanProductCore = converted.cleanProductCore
+      topicConcern = converted.topicConcern
+      topicConcernSearch = converted.topicConcernSearch
+      console.log('[Q&A 생성] 🔄 productName에서 구조화:', { raw: productName, topicCore: cleanProductCore, topicConcern, topicConcernSearch, display: displayProductName, topic: customerTopicName })
+    }
+
+    // ============================================
+    // Q&A 전용 최신 검색 요약
+    // 설계서 모드: analyze-design-sheet에서 받은 searchSummary를 재사용 (검색 스킵)
+    // 수동 모드: 기존 로직으로 Google CSE 검색
     // ============================================
     let searchResultsText = ''
-    // 키워드 추출용으로 검색 결과를 따로 보관
     let collectedForKeywords: SearchResult[] = []
-    try {
-      // 검색 쿼리: 짧은 키워드형만 사용 (긴 문장형 worryPoint/sellingPoint 절삭 — 검색 효율·품질 저하 방지)
-      const shortProductName = normalizeProductNameForSearch(productName)
-      const shortPersonaRaw = (targetPersona || '').replace(/\s+/g, ' ').trim()
-      // 검색 쿼리에서도 정확 나이(36세) 대신 연령대(30대)로 버킷화하여 너무 정밀한 문자열을 피함
-      const shortPersona = shortPersonaRaw.replace(/(\d{1,2})세/g, (_: string, n: string) => {
-        const decade = Math.floor(parseInt(n, 10) / 10) * 10
-        return `${decade}대`
-      }).replace(/\s+/g, ' ').trim()
-      const searchQueries = Array.from(new Set([
-        `${shortProductName} 보험료`,
-        `${shortProductName} 보험료 비교`,
-        `${shortProductName} 장단점`,
-        `${shortProductName} 특약`,
-        `${shortProductName} 보장 내용`,
-        `${shortProductName} 후기`,
-        shortPersona ? `${shortProductName} ${shortPersona} 보험료` : '',
-        shortPersona ? `${shortProductName} ${shortPersona} 추천` : '',
-        shortPersona ? `${shortProductName} ${shortPersona} 가입 고민` : ''
-      ].filter(Boolean)))
-      
-      const collected: SearchResult[] = []
-      const seen = new Set<string>()
-      
-      console.log('[Q&A 생성] 검색 시작 - 검색 쿼리 개수:', searchQueries.length)
-      
-      for (const q of searchQueries) {
-        try {
-          const res = await searchGoogle(q, 3)
-          customSearchCount++ // 커스텀 서치 횟수 추적 (호출당 1회)
-          console.log('[Q&A 생성] 검색 완료:', q, '- 커스텀 서치 횟수:', customSearchCount)
-          
-          if (res.success && res.results.length > 0) {
-            for (const r of res.results) {
-              if (r.link && !seen.has(r.link)) {
-                seen.add(r.link)
-                collected.push(r)
+
+    const hasUpstreamSearch = isDesignSheetMode && designSheetAnalysis?.searchSummary && designSheetAnalysis.searchSummary.length > 50
+
+    if (hasUpstreamSearch) {
+      // 설계서 모드: 상류 분석에서 이미 검색된 결과를 그대로 사용 (Google CSE 스킵)
+      searchResultsText = designSheetAnalysis.searchSummary
+      console.log(`[Q&A 생성] ✅ 설계서 모드 - 상류 검색 요약 재사용 (${searchResultsText.length}자, Google CSE 스킵)`)
+    } else {
+      // 수동 모드 또는 상류 검색 결과 없음: 기존 Google CSE 검색
+      try {
+        const shortProductName = normalizeProductNameForSearch(productName)
+        const prePersonaBucket = designSheetAnalysis?.personaBucket
+        let shortPersona = ''
+        if (prePersonaBucket && prePersonaBucket.length > 2) {
+          shortPersona = prePersonaBucket
+        } else {
+          const shortPersonaRaw = (targetPersona || '').replace(/\s+/g, ' ').trim()
+          const shortPersonaBucketized = shortPersonaRaw.replace(/(\d{1,2})세/g, (_: string, n: string) => {
+            const decade = Math.floor(parseInt(n, 10) / 10) * 10
+            return `${decade}대`
+          }).replace(/\s+/g, ' ').trim()
+          const ageGenderMatch = shortPersonaBucketized.match(/(\d+대)\s*(남성|여성|남자|여자|남|여)/)
+          shortPersona = ageGenderMatch ? `${ageGenderMatch[1]} ${ageGenderMatch[2]}` : shortPersonaBucketized
+        }
+        const topicShort = cleanProductCore || shortProductName
+        const searchQueries = Array.from(new Set([
+          `${topicShort} 보험료`,
+          `${topicShort} 보험료 비교`,
+          `${topicShort} 장단점`,
+          `${topicShort} 보장 내용`,
+          shortPersona ? `${topicShort} ${shortPersona} 보험료` : '',
+          shortPersona ? `${topicShort} ${shortPersona} 추천` : '',
+          shortProductName !== topicShort ? `${shortProductName} 보험료` : '',
+          shortProductName !== topicShort ? `${shortProductName} 후기` : '',
+        ].filter(Boolean)))
+        
+        const collected: SearchResult[] = []
+        const seen = new Set<string>()
+        
+        console.log('[Q&A 생성] 수동 모드 검색 시작 - 검색 쿼리 개수:', searchQueries.length)
+        
+        for (const q of searchQueries) {
+          try {
+            const res = await searchGoogle(q, 3)
+            customSearchCount++
+            console.log('[Q&A 생성] 검색 완료:', q, '- 커스텀 서치 횟수:', customSearchCount)
+            
+            if (res.success && res.results.length > 0) {
+              for (const r of res.results) {
+                if (r.link && !seen.has(r.link)) {
+                  seen.add(r.link)
+                  collected.push(r)
+                }
               }
             }
+            await new Promise(resolve => setTimeout(resolve, 120))
+          } catch (err) {
+            console.warn('[Q&A 생성] ⚠️ 검색 오류:', q, err)
           }
-          // 호출 간 짧은 대기 (쿼터 보호)
-          await new Promise(resolve => setTimeout(resolve, 120))
-        } catch (err) {
-          console.warn('[Q&A 생성] ⚠️ 검색 오류:', q, err)
-          // 에러가 나도 검색 시도는 했으므로 카운트는 이미 증가됨
         }
+        
+        searchResultsText = formatSearchResultsForPrompt(collected)
+        collectedForKeywords = collected
+        console.log('[Q&A 생성] 🔍 수동 모드 검색 완료 - 수집된 결과:', collected.length, '건, 커스텀 서치 총 횟수:', customSearchCount)
+      } catch (searchError) {
+        console.error('[Q&A 생성] ⚠️ 검색 요약 생성 중 오류:', searchError)
+        searchResultsText = ''
       }
-      
-      searchResultsText = formatSearchResultsForPrompt(collected)
-      collectedForKeywords = collected
-      console.log('[Q&A 생성] 🔍 검색 완료 - 수집된 결과:', collected.length, '건, 커스텀 서치 총 횟수:', customSearchCount)
-    } catch (searchError) {
-      console.error('[Q&A 생성] ⚠️ 검색 요약 생성 중 오류:', searchError)
-      searchResultsText = ''
-      console.log('[Q&A 생성] 검색 오류 발생했지만 커스텀 서치 횟수:', customSearchCount)
     }
     
     console.log('[Q&A 생성] 최종 커스텀 서치 횟수:', customSearchCount)
 
     // 검색 결과 기반 키워드 (상품명 연관 베스트 키워드) 추출
-    // 1차: 기존 Google Custom Search 기반 후보 생성
+    // 설계서 모드: analyze에서 받은 searchKeywordHints 우선 사용
+    // 수동 모드: Google CSE 결과에서 추출
     let searchKeywords: string[] = []
-    let searchKeywordsWithVolume: Array<{ keyword: string; volume: number | null }> = [] // 사람들이 많이 찾는 키워드·검색량 저장용
+    let searchKeywordsWithVolume: Array<{ keyword: string; volume: number | null }> = []
     const keywordCandidates: string[] = []
-    try {
-      if (collectedForKeywords.length > 0) {
-        const baseProduct = (productName || '').split(/\s+/)[0] || productName || ''
 
-        for (const item of collectedForKeywords) {
-          const source = `${item.title || ''} ${item.snippet || ''}`.replace(/\s+/g, ' ').trim()
-          if (!source) continue
+    if (hasUpstreamSearch && designSheetAnalysis?.searchKeywordHints?.length > 0) {
+      keywordCandidates.push(...designSheetAnalysis.searchKeywordHints)
+      console.log('[Q&A 생성] ✅ 설계서 모드 - 상류 키워드 힌트 재사용:', keywordCandidates)
+    } else {
+      try {
+        if (collectedForKeywords.length > 0) {
+          const baseProduct = (productName || '').split(/\s+/)[0] || productName || ''
 
-          // 예: 운전자보험, 암보험 등 '...보험' 형태 키워드 추출
-          const regex = /([가-힣0-9A-Za-z]+보험)/g
-          let match: RegExpExecArray | null
-          while ((match = regex.exec(source)) !== null) {
-            const kw = match[1].trim()
-            if (!kw) continue
-            if (baseProduct && !kw.includes(baseProduct) && !kw.includes('보험')) continue
-            keywordCandidates.push(kw)
+          for (const item of collectedForKeywords) {
+            const source = `${item.title || ''} ${item.snippet || ''}`.replace(/\s+/g, ' ').trim()
+            if (!source) continue
+
+            const regex = /([가-힣0-9A-Za-z]+보험)/g
+            let match: RegExpExecArray | null
+            while ((match = regex.exec(source)) !== null) {
+              const kw = match[1].trim()
+              if (!kw) continue
+              if (baseProduct && !kw.includes(baseProduct) && !kw.includes('보험')) continue
+              keywordCandidates.push(kw)
+            }
+          }
+
+          const fallbackBase = productName || collectedForKeywords[0]?.title || ''
+          if (keywordCandidates.length < 5 && fallbackBase) {
+            const base = fallbackBase.replace(/\s+/g, ' ').trim()
+            const fallbackCandidates = [
+              `${base} 추천`,
+              `${base} 비교`,
+              `${base} 보장 내용`,
+              `${base} 가입조건`,
+              `${base} 보험료`
+            ]
+            keywordCandidates.push(...fallbackCandidates)
           }
         }
-
-        // 후보가 너무 적으면 상품명을 기반으로 패턴 키워드 추가
-        const fallbackBase = productName || collectedForKeywords[0]?.title || ''
-        if (keywordCandidates.length < 5 && fallbackBase) {
-          const base = fallbackBase.replace(/\s+/g, ' ').trim()
-          const fallbackCandidates = [
-            `${base} 추천`,
-            `${base} 비교`,
-            `${base} 보장 내용`,
-            `${base} 가입조건`,
-            `${base} 보험료`
-          ]
-          keywordCandidates.push(...fallbackCandidates)
-        }
+      } catch (keywordError) {
+        console.warn('[Q&A 생성] 검색 키워드 추출 중 오류:', keywordError)
       }
-    } catch (keywordError) {
-      console.warn('[Q&A 생성] 검색 키워드 추출 중 오류:', keywordError)
     }
 
     // 2차: 네이버 검색광고 API(키워드 도구)로 연관키워드·월간검색수 조회 후 상위 5개 사용 (환경 변수 설정 시)
@@ -633,13 +924,14 @@ export async function POST(request: NextRequest) {
       const nameLower = productNameTrim.toLowerCase()
 
       // 상품군 판별: SearchAd 힌트/후보는 이 상품군에만 맞춤. 다른 상품군 키워드는 탈락.
-      type ProductGroup = 'cancer' | 'silsan' | 'simple' | 'jongsin' | 'driver' | 'other'
+      type ProductGroup = 'cancer' | 'silsan' | 'simple' | 'jongsin' | 'driver' | 'health' | 'other'
       let productGroup: ProductGroup = 'other'
       if (/암|유사암|암보험/.test(nameLower) || productNameTrim.includes('암')) productGroup = 'cancer'
       else if (/실손|실비|의료비/.test(nameLower) || productNameTrim.includes('실손')) productGroup = 'silsan'
       else if (/간편|유병/.test(nameLower)) productGroup = 'simple'
       else if (/종신|만기|연금/.test(nameLower) || productNameTrim.includes('종신')) productGroup = 'jongsin'
       else if (/자동차|운전자|차량/.test(nameLower) || productNameTrim.includes('자동차')) productGroup = 'driver'
+      else if (/건강보험|상해보험|질병보험|3대질환|종합보험|어린이보험|자녀보험|건강/.test(nameLower)) productGroup = 'health'
 
       // 롱테일/노출용 키워드는 상품명이 길 때(18자 초과) 상품군별 짧은 이름 사용. 예: "36세 여성 간편건강보험"
       const SHORT_KEYWORD_NAME_BY_GROUP: Record<ProductGroup, string> = {
@@ -648,9 +940,16 @@ export async function POST(request: NextRequest) {
         simple: '간편건강보험',
         jongsin: '종신보험',
         driver: '운전자보험',
+        health: '건강보험',
         other: productNameTrim.length <= 12 ? productNameTrim : '보험'
       }
-      const shortKeywordName = productNameTrim.length > 18 ? (SHORT_KEYWORD_NAME_BY_GROUP[productGroup] || productNameTrim) : productNameTrim
+      // 키워드용 상품명: cleanProductCore(회사명 제거, 코드 제거) 우선, 너무 길면 상품군 키워드
+      const groupKeyword = SHORT_KEYWORD_NAME_BY_GROUP[productGroup] || productNameTrim
+      const shortKeywordName = cleanProductCore.length > 0 && cleanProductCore.length <= 14 && cleanProductCore !== productNameTrim
+        ? cleanProductCore
+        : productNameTrim.length > 14
+          ? groupKeyword
+          : productNameTrim
 
       const extraHints: string[] = []
       if (/종신|만기|연금/.test(nameLower) || productNameTrim.includes('종신')) {
@@ -679,19 +978,20 @@ export async function POST(request: NextRequest) {
       }
       if (/치아|치아보험/.test(nameLower)) extraHints.push('치아보험')
       if (/간편|유병/.test(nameLower)) extraHints.push('간편건강보험', '유병자보험')
+      if (/건강보험|건강/.test(nameLower) && !/간편|유병/.test(nameLower)) {
+        extraHints.push('건강보험', '건강보험 보험료', '건강보험 비교')
+      }
       if (/해약환급금/.test(nameLower)) extraHints.push('해약환급금미지급형', '해약환급금 없는 보험')
       // 카테고리 미매칭이어도 상품명만으로는 1~2개만 나오므로, 기본 hint 하나 추가
       if (extraHints.length === 0) extraHints.push('보험')
-      // 롱테일 핵심키워드 수급: 타깃(50대 남자 등) + 상품명 힌트. "직장인" 제외. 정확 나이(36세)는 검색용으로 연령대(30대)로 버킷화
-      const shortPersona = (targetPersona || '').replace(/\s+/g, ' ').trim()
-      let shortPersonaForKeyword = shortPersona.replace(/\s*직장인\s*/g, ' ').replace(/\s+/g, ' ').trim()
-      shortPersonaForKeyword = shortPersonaForKeyword.replace(/(\d{1,2})세/g, (_: string, n: string) => {
-        const decade = Math.floor(parseInt(n, 10) / 10) * 10
-        return `${decade}대`
-      }).replace(/\s+/g, ' ').trim()
+      // 롱테일 핵심키워드 수급: 타깃(50대 남자 등) + 상품명 힌트. 직업·직급은 제거, 연령대+성별만 유지
+      const shortPersonaRawForAd = (targetPersona || '').replace(/\s+/g, ' ').trim()
+        .replace(/(\d{1,2})세/g, (_: string, n: string) => `${Math.floor(parseInt(n, 10) / 10) * 10}대`)
+        .replace(/\s+/g, ' ').trim()
+      const adAgeGender = shortPersonaRawForAd.match(/(\d+대)\s*(남성|여성|남자|여자|남|여)/)
+      const shortPersonaForKeyword = adAgeGender ? `${adAgeGender[1]} ${adAgeGender[2]}` : shortPersonaRawForAd
       if (shortPersonaForKeyword) {
-        const nameForHint = productNameTrim.length > 18 ? shortKeywordName : productNameTrim
-        extraHints.push(`${shortPersonaForKeyword} ${nameForHint}`, `${nameForHint} ${shortPersonaForKeyword} 보험료`)
+        extraHints.push(`${shortPersonaForKeyword} ${shortKeywordName}`, `${shortKeywordName} ${shortPersonaForKeyword} 보험료`)
       }
       const hintKeywords = [productNameTrim, ...extraHints.filter((h, i, a) => a.indexOf(h) === i)]
       console.log('[Q&A 생성] SearchAd hintKeywords(상품군별만, 롱테일힌트 포함):', hintKeywords, 'productGroup:', productGroup)
@@ -710,6 +1010,7 @@ export async function POST(request: NextRequest) {
       if (/자동차|운전자|차량/.test(nameLower) || productNameTrim.includes('자동차')) relevanceTerms.push('자동차')
       if (/치아|치아보험/.test(nameLower)) relevanceTerms.push('치아')
       if (/간편|유병/.test(nameLower)) relevanceTerms.push('간편', '유병자')
+      if (/건강보험|건강/.test(nameLower) && !/간편|유병/.test(nameLower)) relevanceTerms.push('건강보험', '건강')
       if (/해약환급금/.test(nameLower)) relevanceTerms.push('해약환급금')
       const isRelevant = (kw: string) => relevanceTerms.some((t) => kw.includes(t))
 
@@ -720,10 +1021,13 @@ export async function POST(request: NextRequest) {
         simple: [/실손보험|실비보험/, /암보험/, /종신보험/, /자동차보험/, /운전자보험/, /치아보험/],
         jongsin: [/실손보험|실비보험/, /암보험/, /자동차보험/, /운전자보험/, /치아보험/],
         driver: [/실손보험|실비보험/, /암보험/, /종신보험/, /치아보험/],
+        health: [/실손보험|실비보험/, /자동차보험/, /운전자보험/, /치아보험/, /종신보험/, /연금보험/],
         other: []
       }
 
-      const GENERIC_BAD_KEYWORDS = ['보험', '건강보험', '건강보험료', '국민건강보험', '내보험조회', '보험조회']
+      const GENERIC_BAD_KEYWORDS = productGroup === 'health'
+        ? ['보험', '국민건강보험', '내보험조회', '보험조회', '건강보험료', '건강보험료조회', '건강보험료계산', '건강보험료납부', '건강보험요율']
+        : ['보험', '건강보험', '건강보험료', '국민건강보험', '내보험조회', '보험조회']
       const INTENT_WORDS = ['보험료', '보장', '보장 내용', '가입', '가입조건', '비교', '추천']
       const PERSONA_PATTERN = /(10대|20대|30대|40대|50대|60대|70대|직장인|주부|자영업자|유병자|노년|시니어)/
       const COMPETITOR_KEYWORDS = ['삼성화재', '현대해상', 'DB손해보험', 'DB생명', 'KB손해보험', '메리츠', '흥국화재', 'AIG', 'AIG손해보험']
@@ -850,38 +1154,90 @@ export async function POST(request: NextRequest) {
         simple: ['간편건강보험', '유병자보험', '간편건강보험 보험료', '유병자 가입'],
         jongsin: ['종신보험', '종신보험 보험료', '사망보험금', '종신보험 비교'],
         driver: ['자동차보험', '운전자보험', '자동차보험 보험료', '운전자보험 비교'],
+        health: ['건강보험 보험료', '건강보험 보장내용', '건강보험 가입'],
         other: ['보험', '보험료', '보험 비교']
       }
 
+      // ============================================
+      // 반반 구조: 우리 주제 키워드 3개 + 관련 대형 키워드 2개
+      // ============================================
+      const RELATED_BIG_KEYWORDS_BY_GROUP: Record<ProductGroup, string[]> = {
+        cancer: ['암보험', '암진단비', '비갱신암보험', '암보험 비교'],
+        silsan: ['실손보험', '실비보험', '의료비보험', '실손보험 비교'],
+        simple: ['유병자보험', '간편심사보험', '간편보험', '유병자 가입'],
+        jongsin: ['종신보험', '사망보험금', '종신보험 비교'],
+        driver: ['운전자보험', '자동차보험', '운전자보험 비교'],
+        health: ['건강보험 보험료'],
+        other: []
+      }
+
+      // 그룹별 ours:big 비율 — 큰 키워드가 넓은 그룹은 ours 비중 높임
+      const KEYWORD_RATIO: Record<ProductGroup, { ours: number; big: number }> = {
+        cancer: { ours: 3, big: 2 },
+        silsan: { ours: 4, big: 1 },
+        simple: { ours: 4, big: 1 },
+        jongsin: { ours: 3, big: 2 },
+        driver: { ours: 3, big: 2 },
+        health: { ours: 4, big: 1 },
+        other: { ours: 3, big: 2 },
+      }
+      const { ours: oursLimit, big: bigLimit } = KEYWORD_RATIO[productGroup]
+
       const selected: typeof sortedCore = []
       const used = new Set<string>()
-      for (const x of sortedCore) {
-        if (selected.length >= 5) break
-        if (used.has(x.keyword)) continue
-        selected.push(x)
-        used.add(x.keyword)
+
+      // 설계서 모드: concern 키워드를 최우선으로 삽입
+      if (isDesignSheetMode && topicConcern) {
+        const concernKws = [topicConcern]
+        if (topicConcernSearch && topicConcernSearch !== topicConcern) {
+          concernKws.push(topicConcernSearch)
+        }
+        for (const ckw of concernKws) {
+          if (selected.length >= oursLimit) break
+          const norm = ckw.replace(/\s+/g, '').trim()
+          if (used.has(norm)) continue
+          selected.push({ keyword: ckw, volume: 0, score: 999, buckets: ['concern_priority'] })
+          used.add(norm)
+        }
+        console.log('[Q&A 생성] 설계서 concern 키워드 우선 삽입:', concernKws.filter(k => used.has(k.replace(/\s+/g, '').trim())))
       }
-      let rankedWithVolume = selected.slice(0, 5)
+
+      for (const x of sortedCore) {
+        if (selected.length >= oursLimit) break
+        const norm = x.keyword.replace(/\s+/g, '').trim()
+        if (used.has(norm)) continue
+        selected.push(x)
+        used.add(norm)
+      }
+      let rankedWithVolume = selected.slice(0, oursLimit)
 
       if (productGroup === 'simple' && coreCandidates.length < 2) {
-        rankedWithVolume = SIMPLE_RULE_BASED_KEYWORDS.map((kw) => ({ keyword: kw, volume: 0, score: 0, buckets: ['core'] as string[] }))
+        rankedWithVolume = SIMPLE_RULE_BASED_KEYWORDS.slice(0, 3).map((kw) => ({ keyword: kw, volume: 0, score: 0, buckets: ['core'] as string[] }))
         console.log('[Q&A 생성] simple 그룹 SearchAd 유효 후보 부족 → 규칙 기반 핵심키워드:', rankedWithVolume.map((x) => x.keyword))
       }
 
-      // 핵심키워드 5개 미만이면 상품군별 템플릿으로 채움. 타깃 있으면 롱테일(50대 남자 암보험 등)을 앞에 넣어 경쟁 회피·노출 우선 (직장인 제외)
-      if (rankedWithVolume.length < 5) {
+      // 우리 주제 키워드가 3개 미만이면 3계층 템플릿으로 채움
+      // 1계층: 상품 키워드 (하나더퍼스트 건강보험)
+      // 2계층: 페르소나+상품군 (50대 여성 건강보험)
+      // 3계층: 구조 키워드 (해약환급금미지급형)
+      if (rankedWithVolume.length < oursLimit) {
         const existingSet = new Set(rankedWithVolume.map((x) => x.keyword.trim()))
         const baseTemplate = TEMPLATE_BY_GROUP[productGroup]
-        const longTailFirst = shortPersonaForKeyword
-          ? [
-              `${shortPersonaForKeyword} ${shortKeywordName}`,
-              `${shortKeywordName} ${shortPersonaForKeyword} 보험료`,
-              `${shortKeywordName} ${shortPersonaForKeyword} 가입`,
-              ...baseTemplate
-            ]
-          : baseTemplate
-        for (const kw of longTailFirst) {
-          if (rankedWithVolume.length >= 5) break
+
+        // 상품 구조 키워드 추출 (display에 포함된 보장 구조어)
+        const structuralKeywords: string[] = []
+        if (/해약환급금미지급형|해약환급금/.test(displayProductName)) structuralKeywords.push('해약환급금미지급형')
+        if (/간편심사/.test(displayProductName)) structuralKeywords.push('간편심사 보험')
+        if (/무해약/.test(displayProductName)) structuralKeywords.push('무해약환급금')
+
+        const tieredTemplate = [
+          shortKeywordName,
+          ...(shortPersonaForKeyword ? [`${shortPersonaForKeyword} ${groupKeyword}`] : []),
+          ...structuralKeywords,
+          ...baseTemplate
+        ]
+        for (const kw of tieredTemplate) {
+          if (rankedWithVolume.length >= oursLimit) break
           const k = kw.trim()
           if (!k || existingSet.has(k)) continue
           existingSet.add(k)
@@ -889,17 +1245,63 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // 정식 상품명(18자 초과)이 키워드에 들어가 있으면 검색형 요약어(shortKeywordName)로 치환 (정식명은 본문 엔티티용, 노출 키워드는 짧게)
-      if (productNameTrim.length > 18 && shortKeywordName !== productNameTrim) {
-        rankedWithVolume = rankedWithVolume.map((x) => {
-          const k = x.keyword
-          if (k.includes(productNameTrim)) {
-            const normalized = k.replace(new RegExp(productNameTrim.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), shortKeywordName).trim()
-            return { ...x, keyword: normalized }
-          }
-          return x
-        })
+      // 관련 대형 키워드 추가 (health=1개, 나머지=2개)
+      const bigKeywordCandidates = RELATED_BIG_KEYWORDS_BY_GROUP[productGroup] || []
+      const existingKwSet = new Set(rankedWithVolume.map((x) => x.keyword.replace(/\s+/g, '').trim()))
+      let bigAdded = 0
+      for (const bk of bigKeywordCandidates) {
+        if (bigAdded >= bigLimit) break
+        const bkNorm = bk.replace(/\s+/g, '').trim()
+        if (existingKwSet.has(bkNorm)) continue
+        existingKwSet.add(bkNorm)
+        rankedWithVolume = [...rankedWithVolume, { keyword: bk, volume: 0, score: 0, buckets: ['big_related'] }]
+        bigAdded++
       }
+      console.log('[Q&A 생성] 반반 구조 키워드:', {
+        ours: rankedWithVolume.filter(x => !x.buckets.includes('big_related')).map(x => x.keyword),
+        big: rankedWithVolume.filter(x => x.buckets.includes('big_related')).map(x => x.keyword)
+      })
+
+      // 키워드 후압축: 전체 상품명이 포함된 키워드는 cleanProductCore로 치환
+      if (productNameTrim !== shortKeywordName) {
+        rankedWithVolume = rankedWithVolume.map((x) => {
+          let k = x.keyword
+          if (k.includes(productNameTrim)) {
+            k = k.replace(new RegExp(productNameTrim.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), shortKeywordName).trim()
+          }
+          // 회사명이 포함된 긴 키워드(>18자)에서 회사명 제거
+          if (k.length > 18 && companyShort && k.includes(companyShort)) {
+            k = k.replace(companyShort, '').replace(/\s+/g, ' ').trim()
+          }
+          return k !== x.keyword ? { ...x, keyword: k } : x
+        }).filter(x => x.keyword.length >= 2)
+      }
+
+      // 키워드 길이 제한: 최대 20자, 문장형 금지
+      rankedWithVolume = rankedWithVolume.map((x) => {
+        let kw = x.keyword.trim()
+        // 조사 포함된 문장형 키워드 거부 (예: "~을 고민", "~가 좋을까요")
+        if (/[을를이가은는에도으로와과의]$/.test(kw) && kw.length > 12) {
+          kw = kw.replace(/[을를이가은는에도으로와과의]$/, '').trim()
+        }
+        // 20자 초과 시 마지막 공백 기준 절단
+        if (kw.length > 20) {
+          const lastSpace = kw.lastIndexOf(' ', 20)
+          kw = lastSpace > 6 ? kw.substring(0, lastSpace).trim() : kw.substring(0, 20).trim()
+        }
+        return { ...x, keyword: kw }
+      }).filter(x => x.keyword.length >= 2)
+
+      // 내부 표기(괄호·버전·II) 제거를 키워드에도 적용 (강한 정제)
+      rankedWithVolume = rankedWithVolume.map((x) => ({
+        ...x,
+        keyword: cleanForKeyword(x.keyword)
+      })).filter(x => x.keyword.length >= 2)
+
+      // 우리 키워드가 앞(1-3번), 대형 키워드가 뒤(4-5번)에 오도록 순서 고정
+      const oursFirst = rankedWithVolume.filter(x => !x.buckets.includes('big_related'))
+      const bigLast = rankedWithVolume.filter(x => x.buckets.includes('big_related'))
+      rankedWithVolume = [...oursFirst, ...bigLast]
 
       // 디버깅용: 어떤 기준으로 상위 키워드가 선택됐는지 로그
       console.log(
@@ -916,11 +1318,11 @@ export async function POST(request: NextRequest) {
       )
       const ranked = rankedWithVolume.map((x) => x.keyword)
       if (ranked.length > 0) {
-        // Naver가 1~2개만 주는 경우(상품명이 구체적일 때) Google 후보로 5개까지 채움
+        // 5개 미만이면 Google 후보로 보강
         if (ranked.length < 5 && keywordCandidates.length > 0) {
           const naverSet = new Set(ranked.map((k: string) => k.trim()))
           const fromGoogle = Array.from(new Set(keywordCandidates))
-            .filter((k: string) => k && !naverSet.has(k.trim()))
+            .filter((k: string) => k && !naverSet.has(k.trim()) && k.length <= 20)
             .slice(0, 5 - ranked.length)
           searchKeywords = [...ranked, ...fromGoogle].slice(0, 5)
           searchKeywordsWithVolume = [
@@ -929,13 +1331,13 @@ export async function POST(request: NextRequest) {
           ].slice(0, 5)
           console.log('[Q&A 생성] 핵심 키워드 5개 (부족분 Google 보강):', searchKeywords)
         } else {
-          searchKeywords = ranked
-          searchKeywordsWithVolume = rankedWithVolume.map((x) => ({ keyword: x.keyword, volume: x.volume }))
-          console.log('[Q&A 생성] 핵심 키워드 5개:', searchKeywords)
+          searchKeywords = ranked.slice(0, 5)
+          searchKeywordsWithVolume = rankedWithVolume.slice(0, 5).map((x) => ({ keyword: x.keyword, volume: x.volume }))
+          console.log('[Q&A 생성] 핵심 키워드 5개 (반반 구조):', searchKeywords)
         }
       } else {
         if (keywordCandidates.length > 0) {
-          searchKeywords = Array.from(new Set(keywordCandidates)).slice(0, 5)
+          searchKeywords = Array.from(new Set(keywordCandidates)).filter(k => k.length <= 20).slice(0, 5)
           searchKeywordsWithVolume = searchKeywords.map((k) => ({ keyword: k, volume: null as number | null }))
           console.log('[Q&A 생성] [실패 대응 9절] SearchAd 없음 → Google 후보 폴백:', searchKeywords)
         }
@@ -1150,6 +1552,11 @@ export async function POST(request: NextRequest) {
     let finalQuestionTitle = questionTitle
     let finalQuestionContent = questionContent
     let answerContent = '' // 답변 변수 미리 선언
+    let selectedOpeningFamilyId: string | undefined
+    let selectedOpeningFamilyName: string | undefined
+    let selectedTitlePatternId: string | undefined
+    let selectedQuestionConceptId: string | undefined
+    let selectedConcernVariant: string | undefined
 
     // 문서 9절: persona 추출 결과 로깅 (기본값 사용 시 디버깅용)
     const personaAgeMatch = targetPersona?.match(/(\d+)대|(\d+)세/)
@@ -1161,6 +1568,218 @@ export async function POST(request: NextRequest) {
       console.log('[Q&A 생성] [실패 대응 9절] targetPersona에서 성별 미명시 → 프롬프트 내 기본값 사용:', targetPersona)
     }
 
+    // ============================================
+    // 설계서 모드 통합 생성 경로 (Pro 2회: 제목+질문+답변 1회 + 댓글 스레드 1회)
+    // hasUpstreamSearch가 있으면 검색 스킵 + 통합 프롬프트 사용
+    // 실패 시 기존 개별 호출 경로(fallback)로 자동 전환
+    // ============================================
+    let usedUnifiedPath = false
+    let unifiedConversationThread: ConversationMessage[] = []
+
+    // 통합 생성 경로는 비활성화: 품질 우선 원칙에 의해 기존 개별 호출(Step1→1.5→2→3) 유지
+    // 검색 스킵 최적화(hasUpstreamSearch)는 그대로 적용됨
+    // 통합 경로를 사용하려면 아래 조건의 false를 제거하면 됨
+    if (false && hasUpstreamSearch && isDesignSheetMode && requestedStep === 'all') {
+      console.log('[Q&A 생성] ⚡ 설계서 모드 통합 생성 경로 시작 (Pro 2회)')
+      const unifiedStartTime = Date.now()
+
+      try {
+        // ── 1) 통합 QA 생성 (제목 후보 + 질문 본문 + 답변) ──
+        const sampledFamilies = sampleFamilies(6)
+        const unifiedResult = generateUnifiedQAPrompt({
+          productName,
+          topicName: customerTopicName,
+          displayProductName,
+          targetPersona,
+          worryPoint,
+          sellingPoint,
+          answerTone: answerTone || 'friendly',
+          designSheetImage,
+          designSheetAnalysis,
+          searchResultsText,
+          searchKeywords: searchKeywords?.length ? searchKeywords : undefined,
+          cleanProductCore: cleanProductCore || '',
+          companyShort: designSheetAnalysis?.companyShort || '',
+          personaBucket: designSheetAnalysis?.personaBucket || '',
+          topicConcern: topicConcern || '',
+          topicConcernSearch: topicConcernSearch || '',
+          titleFamilies: sampledFamilies.map(f => ({ id: f.id, name: f.name, guide: f.guide, example: f.example })),
+        })
+
+        selectedOpeningFamilyId = unifiedResult.openingFamilyId
+        selectedOpeningFamilyName = unifiedResult.openingFamilyName
+        selectedQuestionConceptId = unifiedResult.questionConceptId
+        selectedConcernVariant = unifiedResult.concernVariant
+        if (selectedConcernVariant) {
+          console.log(`[Q&A 생성] [통합] concernVariant: "${selectedConcernVariant}"`)
+        }
+
+        console.log(`[Q&A 생성] [통합] Pro 호출 1/2 시작 (제목${sampledFamilies.length}개 + 질문 + 답변)`)
+        const qaResult = await generateContentWithFallback(unifiedResult.prompt, designSheetImage, false)
+        await new Promise(resolve => setTimeout(resolve, 500))
+
+        if (!qaResult?.text) throw new Error('통합 QA 생성 결과가 비어있음')
+
+        let qaText = qaResult.text.replace(/<ctrl\d+>/gi, '').replace(/[\x00-\x1F\x7F]/g, '')
+        const qaJsonMatch = qaText.match(/```json\s*([\s\S]*?)```/) || qaText.match(/\{[\s\S]*"titleCandidates"[\s\S]*"questionBody"[\s\S]*"answerBody"[\s\S]*\}/)
+
+        if (!qaJsonMatch) throw new Error('통합 QA JSON 파싱 실패: JSON 블록을 찾을 수 없음')
+
+        const qaJsonStr = (qaJsonMatch as RegExpMatchArray)[1] || (qaJsonMatch as RegExpMatchArray)[0]
+        const qaParsed = JSON.parse(qaJsonStr.trim())
+
+        if (!qaParsed.titleCandidates?.length || !qaParsed.questionBody || !qaParsed.answerBody) {
+          throw new Error('통합 QA JSON 필수 필드 누락')
+        }
+
+        // 제목 채점 + 선택
+        const scoredTitles = qaParsed.titleCandidates.map((t: string, i: number) => {
+          const familyId = i < sampledFamilies.length ? sampledFamilies[i].id : 'unknown'
+          const { score, reasons } = scoreTitleFamily({
+            title: t,
+            familyId,
+            searchKeywords: searchKeywords || [],
+            topicName: customerTopicName || '',
+            rawProductName: productName,
+            cleanProductCore: cleanProductCore || undefined,
+          })
+          return { title: t, familyId, score, reasons }
+        })
+        scoredTitles.sort((a: any, b: any) => b.score - a.score)
+        console.log('[Q&A 생성] [통합] 제목 후보 채점:')
+        scoredTitles.forEach((s: any) => console.log(`  [${s.familyId}] ${s.title} → ${s.score}점 (${s.reasons.join(', ')})`))
+
+        if (scoredTitles[0]?.score >= 0) {
+          finalQuestionTitle = scoredTitles[0].title.trim().replace(/^["']|["']$/g, '').replace(/\s+/g, ' ')
+        } else {
+          finalQuestionTitle = qaParsed.titleCandidates[0].trim()
+        }
+
+        let bodyText = qaParsed.questionBody.trim()
+        bodyText = bodyText.replace(/^(선배님들|옆집\s*언니들|언니들|형님들|오빠들|여러분)[!?\s]*\n*/i, '')
+        finalQuestionContent = bodyText
+
+        answerContent = qaParsed.answerBody.trim()
+
+        console.log(`[Q&A 생성] [통합] Pro 1/2 완료: 제목="${finalQuestionTitle.substring(0, 40)}...", 본문=${finalQuestionContent.length}자, 답변=${answerContent.length}자`)
+
+        // ── 2) 댓글 스레드 배치 생성 (대화형 모드인 경우) ──
+        if (conversationMode && conversationLength) {
+          const validLengths = [4, 6, 8, 10]
+          const totalSteps = validLengths.includes(conversationLength) ? conversationLength : 6
+          const threadSteps = totalSteps - 2
+
+          if (threadSteps > 0) {
+            console.log(`[Q&A 생성] [통합] Pro 호출 2/2 시작 (댓글 스레드 ${threadSteps}개)`)
+
+            const threadPrompt = generateThreadBatchPrompt({
+              productName,
+              topicName: customerTopicName,
+              displayProductName,
+              targetPersona,
+              worryPoint,
+              sellingPoint,
+              designSheetAnalysis,
+              questionTitle: finalQuestionTitle,
+              questionBody: finalQuestionContent,
+              answerBody: answerContent,
+              threadSteps,
+            })
+
+            const threadResult = await generateContentWithFallback(threadPrompt, null, false)
+            await new Promise(resolve => setTimeout(resolve, 500))
+
+            if (!threadResult?.text) throw new Error('댓글 스레드 생성 결과가 비어있음')
+
+            let threadText = threadResult.text.replace(/<ctrl\d+>/gi, '').replace(/[\x00-\x1F\x7F]/g, '')
+            const threadJsonMatch = threadText.match(/```json\s*([\s\S]*?)```/) || threadText.match(/\{[\s\S]*"thread"[\s\S]*\}/)
+
+            if (!threadJsonMatch) throw new Error('댓글 스레드 JSON 파싱 실패')
+
+            const threadJsonStr = (threadJsonMatch as RegExpMatchArray)[1] || (threadJsonMatch as RegExpMatchArray)[0]
+            const threadParsed = JSON.parse(threadJsonStr.trim())
+
+            if (!threadParsed.thread?.length) throw new Error('댓글 스레드 배열이 비어있음')
+
+            // ConversationMessage 형태로 변환
+            const batchThread: ConversationMessage[] = threadParsed.thread.map((t: any) => ({
+              role: t.role === 'agent' ? 'agent' as const : 'customer' as const,
+              content: (t.content || '').trim().replace(/<ctrl\d+>/gi, '').replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]/g, ''),
+              step: t.step || 0,
+            }))
+
+            // 후기성 문구 삽입 (설계서 모드에서도 review는 별도 생성)
+            const finalReviewCount = reviewCount !== undefined ? reviewCount : 0
+            const minConversationLengthForReview = 6
+            const allowReviewInsert = finalReviewCount > 0 && (conversationLength || 0) >= minConversationLengthForReview
+
+            if (allowReviewInsert) {
+              console.log(`[Q&A 생성] [통합] 후기성 문구 ${finalReviewCount}개 생성 중...`)
+              const reviewMessages: ConversationMessage[] = []
+              for (let i = 0; i < finalReviewCount; i++) {
+                const reviewPrompt = generateReviewMessagePrompt(
+                  {
+                    productName,
+                    topicName: customerTopicName,
+                    displayProductName,
+                    targetPersona,
+                    worryPoint,
+                    sellingPoint,
+                    answerTone: answerTone || 'friendly',
+                    designSheetImage,
+                    designSheetAnalysis,
+                    searchResultsText: searchResultsText || undefined,
+                  },
+                  { productName: customerTopicName || productName }
+                )
+                const reviewResult = await generateContentWithFallback(reviewPrompt, designSheetImage, true)
+                await new Promise(resolve => setTimeout(resolve, 500))
+                let reviewContent = reviewResult.text
+                  .replace(/<ctrl\d+>/gi, '')
+                  .replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]/g, '')
+                  .replace(/```[\s\S]*?```/g, '').trim()
+                  .replace(/\[생성된 후기성 문구\]/g, '').trim()
+                reviewMessages.push({ role: 'customer', content: reviewContent, step: 1999 + i })
+              }
+              let insertIdx = batchThread.length
+              for (let bi = batchThread.length - 1; bi >= 0; bi--) {
+                if (batchThread[bi].role === 'agent') { insertIdx = bi + 1; break }
+              }
+              if (insertIdx <= batchThread.length) {
+                batchThread.splice(insertIdx, 0, ...reviewMessages)
+              } else {
+                batchThread.push(...reviewMessages)
+              }
+            }
+
+            // unifiedConversationThread에 임시 저장 (아래에서 conversationThread에 할당)
+            unifiedConversationThread = batchThread
+            console.log(`[Q&A 생성] [통합] Pro 2/2 완료: 댓글 ${batchThread.length}개 (후기 포함)`)
+          }
+        }
+
+        usedUnifiedPath = true
+        const unifiedElapsed = ((Date.now() - unifiedStartTime) / 1000).toFixed(1)
+        console.log(`[Q&A 생성] ⚡ 설계서 모드 통합 생성 완료: ${unifiedElapsed}초`)
+
+      } catch (unifiedError: any) {
+        console.warn(`[Q&A 생성] ⚠️ 통합 생성 경로 실패, 기존 개별 호출로 fallback:`, unifiedError?.message || unifiedError)
+        usedUnifiedPath = false
+        finalQuestionTitle = ''
+        finalQuestionContent = ''
+        answerContent = ''
+      }
+    }
+
+    // conversationThread: 통합 경로에서 이미 생성된 경우 여기서 이어받음
+    let conversationThread: ConversationMessage[] = usedUnifiedPath ? unifiedConversationThread : []
+
+    // ============================================
+    // 기존 개별 호출 경로 (수동 모드 또는 통합 경로 실패 시 fallback)
+    // ============================================
+
+    if (!usedUnifiedPath) {
+
     // Step 1: 질문 생성
     if (requestedStep === 'question' || requestedStep === 'all') {
       // generateStep이 'all'이면 항상 질문 생성, 'question'이면 기존 질문이 없을 때만 생성
@@ -1169,8 +1788,10 @@ export async function POST(request: NextRequest) {
       if (shouldGenerateQuestion) {
         console.log('Step 1: 질문 생성 중...')
         try {
-          const questionPrompt = generateQuestionPrompt({
+          const questionPromptResult = generateQuestionPrompt({
             productName,
+            topicName: customerTopicName,
+            displayProductName,
             targetPersona,
             worryPoint,
             sellingPoint,
@@ -1178,8 +1799,20 @@ export async function POST(request: NextRequest) {
             designSheetImage,
             designSheetAnalysis,
             searchResultsText,
-            searchKeywords: searchKeywords?.length ? searchKeywords : undefined
+            searchKeywords: searchKeywords?.length ? searchKeywords : undefined,
+            evidenceMap: designSheetAnalysis?.evidenceMap || undefined,
+            conflictAxis: designSheetAnalysis?.conflictAxis || undefined,
           })
+          const questionPrompt = questionPromptResult.prompt
+          selectedOpeningFamilyId = questionPromptResult.openingFamilyId
+          selectedOpeningFamilyName = questionPromptResult.openingFamilyName
+          selectedTitlePatternId = questionPromptResult.titlePatternId
+          selectedQuestionConceptId = questionPromptResult.questionConceptId
+          selectedConcernVariant = questionPromptResult.concernVariant
+          if (selectedConcernVariant) {
+            console.log(`[Q&A 생성] [Step 1] concernVariant: "${selectedConcernVariant}"`)
+          }
+          console.log(`[Q&A 생성] [Step 1] 선택된 스타일: opening=${selectedOpeningFamilyId}(${selectedOpeningFamilyName}), title=${selectedTitlePatternId}, concept=${selectedQuestionConceptId}`)
 
           // 프롬프트 길이 로깅 (할당량 초과 진단용)
           const questionPromptLength = questionPrompt.length
@@ -1212,12 +1845,37 @@ export async function POST(request: NextRequest) {
 
       // 제어 문자 제거 (<ctrl63>, <ctrl*> 등)
       questionText = questionText.replace(/<ctrl\d+>/gi, '')
-      questionText = questionText.replace(/[\x00-\x1F\x7F]/g, '') // 기타 제어 문자 제거
+      questionText = questionText.replace(/[\x00-\x1F\x7F]/g, '')
 
-      // 제목과 본문 분리 (정확한 파싱)
       console.log('[Q&A 생성] [Step 1] 원본 질문 텍스트 (처음 500자):', questionText.substring(0, 500))
       console.log('[Q&A 생성] [Step 1] 원본 질문 텍스트 전체 길이:', questionText.length)
-      
+
+      // === JSON 구조화 출력 파싱 (최우선) ===
+      let jsonParsed = false
+      let rawQuestionContent = ''
+      try {
+        const jsonMatch = questionText.match(/```json\s*([\s\S]*?)```/) || questionText.match(/\{[\s\S]*"title"[\s\S]*"body"[\s\S]*\}/)
+        if (jsonMatch) {
+          const jsonStr = jsonMatch[1] || jsonMatch[0]
+          const parsed = JSON.parse(jsonStr.trim())
+          if (parsed.title && parsed.body) {
+            finalQuestionTitle = parsed.title.trim()
+              .replace(/^["']|["']$/g, '')
+              .replace(/\s+/g, ' ')
+            // vocative-only 첫 문장 제거 (선배님들!, 안녕하세요! 등)
+            let bodyText = parsed.body.trim()
+            bodyText = bodyText.replace(/^(선배님들|옆집\s*언니들|언니들|형님들|오빠들|여러분)[!?\s]*\n*/i, '')
+            rawQuestionContent = bodyText
+            jsonParsed = true
+            console.log('[Q&A 생성] [Step 1] ✅ JSON 구조화 파싱 성공:', { title: finalQuestionTitle.substring(0, 60), bodyLen: rawQuestionContent.length })
+          }
+        }
+      } catch (jsonErr) {
+        console.log('[Q&A 생성] [Step 1] JSON 파싱 실패, 기존 텍스트 파싱으로 fallback')
+      }
+
+      // === 기존 텍스트 파싱 (JSON 실패 시 fallback) ===
+      if (!jsonParsed) {
       // "제목:"과 "본문:" 형식으로 명확히 구분되어 있는지 확인
       const titleSectionMatch = questionText.match(/제목[:\s]*\n?([\s\S]*?)(?:\n\s*본문[:\s]*\n?|$)/i)
       const contentSectionMatch = questionText.match(/본문[:\s]*\n?([\s\S]*?)$/i)
@@ -1263,6 +1921,13 @@ export async function POST(request: NextRequest) {
         return -1
       }
       
+      // 제목 후처리: "?" 뒤에 줄바꿈 없이 한글이 바로 이어지면 "?"에서 자르기
+      const cutTitleAtQuestionMark = (title: string): string => {
+        const qMatch = title.match(/^(.*?[?!])([가-힣a-zA-Z])/)
+        if (qMatch && qMatch[1].length >= 10) return qMatch[1].trim()
+        return title
+      }
+
       // 제목 추출 (1줄, 최대 50자, 본문 시작 패턴 감지)
       if (bracketTitleMatch && bracketTitleMatch[1]) {
         // "[제목] ..." 형식: ] 없이 깔끔하게 추출, 본문 시작 전까지만
@@ -1406,6 +2071,8 @@ export async function POST(request: NextRequest) {
           .replace(/^\s*\[제목\]\s*/i, '')   // [제목] 메타표현 제거
           .replace(/^\s*제목\s*[:\s]*/i, '') // "제목:" 접두사 제거
           .trim()
+        // "?" 뒤에 줄바꿈 없이 한글이 바로 이어지면 "?"에서 자르기
+        titleCleaned = cutTitleAtQuestionMark(titleCleaned)
         if (titleCleaned.length > 40) {
           // 단순 절단 대신, 40자 이내에서 마지막 공백 기준으로 자연스럽게 자르기
           const cut = titleCleaned.lastIndexOf(' ', 40)
@@ -1419,7 +2086,6 @@ export async function POST(request: NextRequest) {
       }
       
       // 본문 추출
-      let rawQuestionContent = ''
       if (contentSectionMatch && contentSectionMatch[1]) {
         // "본문:" 형식이 있으면 해당 부분만 추출
         rawQuestionContent = contentSectionMatch[1]
@@ -1469,6 +2135,7 @@ export async function POST(request: NextRequest) {
             .trim()
         }
       }
+      } // end if (!jsonParsed) — 기존 텍스트 파싱 fallback 블록 끝
       
       console.log('[Q&A 생성] [Step 1] 파싱된 제목:', finalQuestionTitle?.substring(0, 100))
       console.log('[Q&A 생성] [Step 1] 파싱된 제목 길이:', finalQuestionTitle?.length)
@@ -1484,14 +2151,17 @@ export async function POST(request: NextRequest) {
         
         let cleaned = text
           .replace(/```[\s\S]*?```/g, '')
-          .replace(/^제목[:\s]*/i, '') // "제목:" 접두사 제거
-          .replace(/^본문[:\s]*/i, '') // "본문:" 접두사 제거 (혹시 모를 경우)
+          .replace(/^제목[:\s]*/i, '')
+          .replace(/^본문[:\s]*/i, '')
           .replace(/[ \t]+/g, ' ')
           .split('\n')
           .map(line => line.trim())
           .join('\n')
           .replace(/\n{3,}/g, '\n\n')
           .trim()
+        
+        // vocative-only 첫 줄 제거 (호칭만 단독 문장인 경우)
+        cleaned = cleaned.replace(/^(선배님들|옆집\s*언니들|언니들|형님들|오빠들|여러분|안녕하세요)[!?\s]*\n+/i, '')
         
         // 제목과 중복되는 첫 부분 제거
         const titleTrimmed = finalQuestionTitle.trim()
@@ -1646,85 +2316,141 @@ export async function POST(request: NextRequest) {
           console.log('[Q&A 생성] [Step 1] 포맷팅 후 제목 길이:', finalQuestionTitle?.length || 0)
           console.log('[Q&A 생성] [Step 1] 포맷팅 후 본문 길이:', finalQuestionContent?.length || 0)
 
-          // 제목 최종 보정: 인삿말/일반 문장 대신 핵심키워드 중심 규칙형 제목으로 교체
+          // ── 느낌표 과다 제어: 3개 이상이면 초과분 제거 ──
+          finalQuestionContent = normalizeExclamationMarks(finalQuestionContent)
+
+          // ── 문단 자동 분리: 260자+ & 빈 줄 부족 시 강제 분리 ──
+          finalQuestionContent = autoSplitQuestionParagraphs(finalQuestionContent)
+
+          // ============================================
+          // Step 1.5: 제목 전용 Gemini 2.5 Pro AI 완성기
+          // 3개 후보 생성 → 코드 점수화 → 1개 선택
+          // ============================================
           try {
-            const hasCoreInTitle =
-              Array.isArray(searchKeywords) &&
-              searchKeywords.some((kw) => kw && finalQuestionTitle?.includes(kw))
+            console.log('[Q&A 생성] [Step 1.5] Title Family 시스템 시작...')
 
-            const looksLikeGreeting =
-              !!finalQuestionTitle &&
-              /안녕하세요|언니들|가입했습니다|글 남겨요|글 남겨|회사 업무/i.test(finalQuestionTitle)
-
-            // 규칙형 제목 생성: 핵심키워드 + 고민형 꼬리
-            // shortKeywordName는 SearchAd 블록 내부 지역변수이므로 여기서는 사용하지 않고,
-            // searchKeywords와 productName만으로 안전하게 결정한다.
-            const primaryKeyword =
-              (Array.isArray(searchKeywords) && searchKeywords[0]) ||
-              normalizeProductNameForSearch(productName) ||
-              productName ||
-              '보험'
-            
-            // 제목용 페르소나(30대 여성 자영업자 등) 재계산: targetPersona 기반, 연령은 10단위 버킷
-            let personaForTitle = ''
-            if (targetPersona) {
-              const norm = targetPersona.replace(/\s+/g, ' ').trim()
-              const mDecade = norm.match(/(\d{1,2})대/)
-              const mYear = norm.match(/(\d{1,2})세/)
-              let ageBucket = ''
-              if (mDecade) {
-                ageBucket = `${mDecade[1]}대`
-              } else if (mYear) {
-                const decade = Math.floor(parseInt(mYear[1], 10) / 10) * 10
-                ageBucket = `${decade}대`
+            // 최근 제목 fingerprint: 최근 20개 제목을 가져와 유사도 비교용으로 사용
+            let recentTitles: string[] = []
+            try {
+              const { data: recentQA } = await supabase
+                .from('qa_sets')
+                .select('title')
+                .eq('user_id', user.id)
+                .order('created_at', { ascending: false })
+                .limit(20)
+              if (recentQA && recentQA.length > 0) {
+                recentTitles = recentQA.map((r: any) => r.title).filter(Boolean)
+                console.log(`[Q&A 생성] [Step 1.5] 최근 제목 ${recentTitles.length}개 로드 (중복 방지용)`)
               }
-              const jobMatch = norm.match(/(자영업자|직장인|주부|프리랜서)/)
-              const job = jobMatch ? jobMatch[1] : ''
-              personaForTitle = [ageBucket, job].filter(Boolean).join(' ').trim()
+            } catch (dbErr) {
+              console.warn('[Q&A 생성] [Step 1.5] 최근 제목 로드 실패 (무시):', dbErr)
             }
 
-            const personaPrefix =
-              personaForTitle && !primaryKeyword.includes(personaForTitle)
-                ? `${personaForTitle} `
-                : ''
-            const baseKeywordFull = `${personaPrefix}${primaryKeyword}`.trim()
+            // 제목용 페르소나 버킷 계산
+            const personaBucket = extractPersonaBucket(targetPersona || '')
 
-            // 길이에 따라 여러 템플릿 후보 생성: 항상 "완성된 한 문장" 형태 유지
-            const titleCandidates: string[] = []
-            if (baseKeywordFull) {
-              titleCandidates.push(`${baseKeywordFull}, 이 설계 괜찮을까요?`)
-            }
-            if (primaryKeyword && primaryKeyword !== baseKeywordFull) {
-              titleCandidates.push(`${primaryKeyword}, 이 설계 괜찮을까요?`)
-              titleCandidates.push(`${primaryKeyword} 설계, 괜찮을까요?`)
+            const worrySummary = (worryPoint || '').substring(0, 80)
+            const sellingSummary = (sellingPoint || '').substring(0, 80)
+            const premiumInfo = designSheetAnalysis?.premium || ''
+
+            // Title Family 6개 샘플링 (가중치 기반, 최근 사용 family 감점)
+            const sampledFamilies = sampleFamilies(6)
+            console.log('[Q&A 생성] [Step 1.5] 샘플된 family:', sampledFamilies.map(f => f.id))
+
+            const titlePrompt = buildTitlePrompt({
+              families: sampledFamilies,
+              cleanProductCore,
+              topicConcern,
+              topicConcernSearch,
+              personaBucket,
+              searchKeywords: searchKeywords || [],
+              worrySummary,
+              sellingSummary,
+              premiumInfo,
+            })
+
+            let aiTitleSelected = false
+            try {
+              const titleResult = await generateContentWithFallback(titlePrompt, null, false)
+              await new Promise(resolve => setTimeout(resolve, 1000))
+
+              if (titleResult && titleResult.text) {
+                let titleJson = titleResult.text.trim()
+                titleJson = titleJson.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim()
+
+                try {
+                  const parsed = JSON.parse(titleJson)
+                  const aiTitles: string[] = parsed.titles || []
+
+                  if (aiTitles.length > 0) {
+                    const cleanedTitles = aiTitles.map(t => cleanForTitle(t).replace(/\./g, '').trim())
+                    const scoredTitles = cleanedTitles.map((t, idx) => {
+                      const familyId = idx < sampledFamilies.length ? sampledFamilies[idx].id : 'unknown'
+                      const { score, reasons } = scoreTitleFamily({
+                        title: t,
+                        familyId,
+                        searchKeywords: searchKeywords || [],
+                        topicName: customerTopicName,
+                        rawProductName: productName,
+                        cleanProductCore,
+                        recentTitles,
+                      })
+                      return { title: t, familyId, score, reasons }
+                    })
+
+                    scoredTitles.sort((a, b) => b.score - a.score)
+
+                    console.log('[Q&A 생성] [Step 1.5] AI 제목 후보 (family 채점):')
+                    scoredTitles.forEach(s => console.log(`  [${s.familyId}] ${s.title} → ${s.score}점 (${s.reasons.join(', ')})`))
+
+                    const bestTitle = scoredTitles[0]
+                    if (bestTitle && bestTitle.title.length >= 10 && bestTitle.title.length <= 50) {
+                      finalQuestionTitle = bestTitle.title
+                      aiTitleSelected = true
+                      console.log('[Q&A 생성] [Step 1.5] 최종 선택:', finalQuestionTitle, `(${bestTitle.familyId}, ${bestTitle.score}점)`)
+                    }
+                  }
+                } catch (parseErr) {
+                  console.warn('[Q&A 생성] [Step 1.5] AI 제목 JSON 파싱 실패:', parseErr, '원본:', titleResult.text.substring(0, 200))
+                }
+              }
+            } catch (titleGenErr) {
+              console.warn('[Q&A 생성] [Step 1.5] AI 제목 생성 실패, 규칙형 폴백 사용:', titleGenErr)
             }
 
-            // 40자 이내인 첫 번째 후보 선택, 없으면 가장 짧은 후보 선택
-            let ruleTitle = titleCandidates.find(t => t.length <= 40)
-            if (!ruleTitle && titleCandidates.length > 0) {
-              ruleTitle = titleCandidates.reduce((min, cur) => (cur.length < min.length ? cur : min), titleCandidates[0])
-            }
-            if (!ruleTitle) {
-              ruleTitle = finalQuestionTitle
-            } else if (ruleTitle.length > 40) {
-              // 여전히 길면 마지막 공백 기준으로 자연스럽게 자르기
-              const cut = ruleTitle.lastIndexOf(' ', 40)
-              if (cut >= 20) {
-                ruleTitle = ruleTitle.substring(0, cut).trim()
-              } else {
-                ruleTitle = ruleTitle.substring(0, 40).trim()
+            // AI 생성 실패 시 규칙형 폴백 (다양한 family 기반)
+            if (!aiTitleSelected) {
+              console.log('[Q&A 생성] [Step 1.5] AI 실패 → 규칙형 폴백')
+              const pk = (Array.isArray(searchKeywords) && searchKeywords[0]) || customerTopicName || '보험'
+              const pp = personaBucket && !pk.includes(personaBucket) ? `${personaBucket} ` : ''
+
+              const ruleCandidates = [
+                `${pp}${pk}, 이 설계 괜찮을까요?`,
+                `${pk} 가입하신 분들 어떠세요?`,
+                `${pk} 설계서 받았는데 봐주실 수 있나요?`,
+                `${pk} 보험료가 이 정도면 적당한가요?`,
+                `${pp}${pk}, 해지하면 손해가 클까요?`,
+              ]
+
+              const ruleTitle = ruleCandidates.find(t => t.length <= 40 && t.length >= 15) || ruleCandidates[0]
+
+              const hasCoreInTitle = (searchKeywords || []).some(kw => kw && finalQuestionTitle?.includes(kw))
+              const looksLikeGreeting = /안녕하세요|언니들|가입했습니다|글 남겨요|회사 업무/.test(finalQuestionTitle || '')
+
+              if (!hasCoreInTitle || looksLikeGreeting) {
+                finalQuestionTitle = cleanForTitle(ruleTitle).replace(/\./g, '').trim()
+                if (finalQuestionTitle.length > 40) {
+                  const cut = finalQuestionTitle.lastIndexOf(' ', 40)
+                  finalQuestionTitle = cut >= 20 ? finalQuestionTitle.substring(0, cut).trim() : finalQuestionTitle.substring(0, 40).trim()
+                }
+                console.log('[Q&A 생성] [Step 1.5] 규칙형 제목 적용:', finalQuestionTitle)
               }
             }
 
-            // 제목이 너무 일반적이거나, 핵심키워드가 전혀 없으면 규칙형으로 교체
-            if (!hasCoreInTitle || looksLikeGreeting) {
-              if (ruleTitle && typeof ruleTitle === 'string') {
-                finalQuestionTitle = ruleTitle.trim()
-                console.log('[Q&A 생성] [Step 1] 규칙형 제목 적용:', finalQuestionTitle)
-              }
-            }
+            finalQuestionTitle = cleanForTitle(finalQuestionTitle || '').replace(/\./g, '').trim()
+
           } catch (e) {
-            console.warn('[Q&A 생성] [Step 1] 규칙형 제목 보정 중 오류:', e)
+            console.warn('[Q&A 생성] [Step 1.5] Title Family 시스템 전체 오류:', e)
           }
 
           // 질문 생성 후 값이 제대로 설정되었는지 확인 (더 유연한 검증)
@@ -1830,15 +2556,19 @@ export async function POST(request: NextRequest) {
       const answerPrompt = generateAnswerPrompt(
         {
           productName,
+          topicName: customerTopicName,
+          displayProductName,
           targetPersona,
           worryPoint,
           sellingPoint,
           answerTone: answerTone || 'friendly',
-          answerLength: answerLength || 'default', // 답변 길이: 'default' (단계별)
+          answerLength: answerLength || 'default',
           designSheetImage,
           designSheetAnalysis,
           searchResultsText,
-          searchKeywords: searchKeywords?.length ? searchKeywords : undefined
+          searchKeywords: searchKeywords?.length ? searchKeywords : undefined,
+          evidenceMap: designSheetAnalysis?.evidenceMap || undefined,
+          conflictAxis: designSheetAnalysis?.conflictAxis || undefined,
         },
         finalQuestionTitle,
         finalQuestionContent
@@ -1863,6 +2593,9 @@ export async function POST(request: NextRequest) {
       // 마크다운이나 코드 블록 제거
       answerContent = answerContent.replace(/```[\s\S]*?```/g, '').trim()
       answerContent = answerContent.replace(/\[생성된 답변\]/g, '').trim()
+
+      // 역할 누수 제거 (전문가님, 경력, 상담 유도 등)
+      answerContent = stripAnswerRoleLeakage(answerContent)
 
       // 답변 포맷팅 개선 (띄어쓰기 및 문단 구분)
       // 1. 연속된 공백을 하나로 정리
@@ -1952,7 +2685,54 @@ export async function POST(request: NextRequest) {
         answerContent = enforceAnswerLength(answerContent, ANSWER_SOFT_CAP)
         console.log(`[Q&A 생성] [Step 2] 답변 길이 soft cap 적용: ${ANSWER_SOFT_CAP}자 이내 (원본 초과분 절단)`)
       }
-      console.log(`[Q&A 생성] [Step 2] 답변 길이: ${answerContent.length}자 (목표: 300-500자)`)
+
+      // 8. 300자 미만이면 자동 1회 재생성 (프롬프트만으로는 길이 하한 보장 불가)
+      const ANSWER_MIN_THRESHOLD = 300
+      if (answerContent.length < ANSWER_MIN_THRESHOLD) {
+        console.log(`[Q&A 생성] [Step 2] ⚠️ 답변 ${answerContent.length}자 < ${ANSWER_MIN_THRESHOLD}자 → 자동 재생성 시도`)
+        try {
+          const retryPrompt = generateAnswerPrompt(
+            {
+              productName,
+              topicName: customerTopicName,
+              displayProductName,
+              targetPersona,
+              worryPoint,
+              sellingPoint,
+              answerTone: answerTone || 'friendly',
+              answerLength: answerLength || 'default',
+              designSheetImage,
+              designSheetAnalysis,
+              searchResultsText,
+              searchKeywords: searchKeywords?.length ? searchKeywords : undefined,
+              evidenceMap: designSheetAnalysis?.evidenceMap || undefined,
+              conflictAxis: designSheetAnalysis?.conflictAxis || undefined,
+            },
+            finalQuestionTitle,
+            finalQuestionContent + `\n\n⚠️ 이전 답변이 ${answerContent.length}자로 너무 짧았습니다. 반드시 350자 이상, 공감→판단→체크포인트→행동유도 4블록을 빠짐없이 작성하세요.`
+          )
+          const retryResult = await generateContentWithFallback(retryPrompt, designSheetImage, false)
+          await new Promise(resolve => setTimeout(resolve, 1000))
+          let retryAnswer = retryResult.text
+            .replace(/<ctrl\d+>/gi, '')
+            .replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]/g, '')
+            .replace(/```[\s\S]*?```/g, '').trim()
+            .replace(/\[생성된 답변\]/g, '').trim()
+          if (retryAnswer.length > ANSWER_SOFT_CAP) {
+            retryAnswer = enforceAnswerLength(retryAnswer, ANSWER_SOFT_CAP)
+          }
+          if (retryAnswer.length > answerContent.length) {
+            console.log(`[Q&A 생성] [Step 2] ✅ 재생성 성공: ${answerContent.length}자 → ${retryAnswer.length}자`)
+            answerContent = retryAnswer
+          } else {
+            console.log(`[Q&A 생성] [Step 2] 재생성 결과가 더 짧음, 원본 유지: ${answerContent.length}자`)
+          }
+        } catch (retryError) {
+          console.error('[Q&A 생성] [Step 2] 재생성 실패, 원본 유지:', retryError)
+        }
+      }
+
+      console.log(`[Q&A 생성] [Step 2] 최종 답변 길이: ${answerContent.length}자 (목표: 300-500자)`)
 
       console.log('Step 2 완료:', { answerContentLength: answerContent.length })
     } else {
@@ -1961,7 +2741,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Step 3: 대화형 모드일 경우 추가 댓글 생성
-    let conversationThread: ConversationMessage[] = []
+    conversationThread = []
     
     if ((requestedStep === 'conversation' || requestedStep === 'all') && conversationMode && conversationLength) {
       if (!finalQuestionTitle || !finalQuestionContent || !answerContent) {
@@ -1993,27 +2773,29 @@ export async function POST(request: NextRequest) {
       
       // 대화형 스레드는 나머지 댓글들만 포함 (질문과 첫 답변은 위에 따로 표시)
       
-      // 나머지 댓글들 생성 (3번째부터 시작)
-      // 다중 화자 시스템: 페르소나 선택은 프롬프트 내부에서 코드 레벨로 자동 처리됨
-      for (let step = 3; step <= totalSteps; step++) {
-        const isCustomerTurn = step % 2 === 1 // 홀수: 고객, 짝수: 설계사
+      // ── 2쌍 구조: 고객+설계사를 1쌍씩 생성 (4회 개별 → 2회 쌍 호출) ──
+      // 품질 우선: 첫 쌍의 결과를 보고 둘째 쌍이 이어가므로 축적감이 자연스러움
+      const threadStepsNeeded = totalSteps - 2 // 질문+첫답변 제외한 댓글 수
+      const totalPairs = Math.ceil(threadStepsNeeded / 2) // 보통 2쌍 (댓글 4개)
+      
+      for (let pairIdx = 0; pairIdx < totalPairs; pairIdx++) {
+        const isLastPair = pairIdx === totalPairs - 1
+        console.log(`[Q&A 생성] [Step 3] 쌍 ${pairIdx + 1}/${totalPairs} 생성 중... (${isLastPair ? '마지막 쌍' : '중간 쌍'})`)
         
-        // 토큰 절감: 최근 대화만 포함 (최대 4개 메시지 = 최근 2턴)
-        // 전체 히스토리를 포함하면 토큰이 기하급수적으로 증가하므로 최근 대화만 사용
-        // RPM 150 제한 대응: 프롬프트 길이 최소화
-        const recentHistory = conversationHistory.slice(-4) // 최근 4개 메시지만 사용 (6개 → 4개로 감소)
-        
-        const conversationPrompt = generateConversationThreadPrompt(
+        const pairPrompt = generateCommentPairPrompt(
           {
             productName,
+            topicName: customerTopicName,
+            displayProductName,
             targetPersona,
             worryPoint,
             sellingPoint,
             answerTone: answerTone || 'friendly',
-            answerLength: answerLength || 'default', // 답변 길이 전달
+            answerLength: answerLength || 'default',
             designSheetImage,
             designSheetAnalysis,
-            searchResultsText: searchResultsText || undefined // 검색 결과 전달 (설계사 댓글에서만 활용)
+            searchResultsText: searchResultsText || undefined,
+            conflictAxis: designSheetAnalysis?.conflictAxis || undefined,
           },
           {
             initialQuestion: {
@@ -2021,85 +2803,83 @@ export async function POST(request: NextRequest) {
               content: finalQuestionContent
             },
             firstAnswer: answerContent,
-            conversationHistory: recentHistory, // 전체 히스토리 대신 최근 대화만 사용
-            totalSteps: totalSteps,
-            currentStep: step
-            // customerRole 제거: 페르소나 시스템이 프롬프트 내부에서 자동 선택됨
+            conversationHistory: conversationHistory.slice(-4),
+            pairIndex: pairIdx,
+            totalPairs,
+            isLastPair,
           }
         )
         
-        // 프롬프트 길이 로깅 (할당량 초과 진단용)
-        const promptLength = conversationPrompt.length
-        const estimatedTokens = Math.ceil(promptLength / 4)
-        console.log(`[Q&A 생성] [Step 3-${step}] 프롬프트 길이: ${promptLength} 문자 (약 ${estimatedTokens} 토큰), 히스토리: ${recentHistory.length}개 메시지`)
+        // Pro 모델 사용 (쌍 단위로 품질 보장)
+        const pairResult = await generateContentWithFallback(pairPrompt, designSheetImage, false)
+        await new Promise(resolve => setTimeout(resolve, 1500))
         
-        // 하이브리드: 고객 댓글은 Flash, 설계사 댓글은 Pro 사용
-        const threadResult = await generateContentWithFallback(conversationPrompt, designSheetImage, isCustomerTurn)
-        // RPM 150 제한 대응: 각 댓글 생성 사이에 1초 지연
-        await new Promise(resolve => setTimeout(resolve, 1000))
-        let threadContent = threadResult.text
+        let pairText = pairResult.text
+        pairText = pairText.replace(/<ctrl\d+>/gi, '').replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]/g, '')
         
-        // 제어 문자 제거
-        threadContent = threadContent.replace(/<ctrl\d+>/gi, '')
-        threadContent = threadContent.replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]/g, '')
-        threadContent = threadContent.replace(/```[\s\S]*?```/g, '').trim()
-        threadContent = threadContent.replace(/\[생성된 댓글\]/g, '').trim()
-        threadContent = threadContent.trim()
-
-        // 고객 댓글 최소 길이 보장 (너무 짧으면 보조 문장으로 보강)
-        const MIN_CUSTOMER_COMMENT_LENGTH = 80
-        if (isCustomerTurn && threadContent.length > 0 && threadContent.length < MIN_CUSTOMER_COMMENT_LENGTH) {
-          const suffix = ' 저도 비슷한 고민이에요. 조언 부탁드립니다.'
-          threadContent = (threadContent + suffix).trim()
-          console.log(`[Q&A 생성] [Step 3-${step}] 고객 댓글 최소 길이 보강: ${threadContent.length}자`)
-        }
+        // JSON 파싱
+        let customerContent = ''
+        let agentContent = ''
         
-        // 대화형 스레드 댓글 길이 확인 및 로깅 (프롬프트에서 길이 제어, API에서는 최소한의 보호만)
-        const stepNumber = Math.ceil(step / 2) // 몇 번째 댓글인지
-        let expectedMaxLength = 300 // 기본값
-        
-        // 단계별로 다른 길이
-        if (stepNumber <= 2) {
-          expectedMaxLength = 300 // 초반: 200-300자
-        } else if (stepNumber <= 4) {
-          expectedMaxLength = 250 // 중반: 150-250자
-        } else {
-          expectedMaxLength = 200 // 후반: 100-200자
-        }
-        
-        // 프롬프트에서 길이를 제어하도록 했으므로, API에서는 매우 관대하게만 처리 (20% 여유)
-        // 단, 극단적으로 긴 경우(예상 길이의 150% 초과)에만 제한 적용
-        const warningThreshold = expectedMaxLength * 1.5 // 150% 초과 시에만 경고 및 제한
-        
-        if (threadContent.length > warningThreshold) {
-          console.warn(`[Q&A 생성] [Step 3-${step}] 댓글이 예상 길이를 크게 초과합니다: ${threadContent.length}자 (예상: ${expectedMaxLength}자, 경고 임계값: ${warningThreshold}자)`)
-          console.warn(`[Q&A 생성] [Step 3-${step}] 프롬프트에서 길이 제어가 제대로 작동하지 않은 것 같습니다. 최소한의 보호를 위해 제한을 적용합니다.`)
-          
-          // 극단적으로 긴 경우에만 문장 끝을 찾아서 자르기
-          try {
-            threadContent = enforceAnswerLength(threadContent, expectedMaxLength)
-            console.log(`[Q&A 생성] [Step 3-${step}] 댓글 길이 제한 적용: ${threadContent.length}자 (원본: ${threadContent.length}자, 최대 ${expectedMaxLength}자)`)
-          } catch (lengthError: any) {
-            console.error(`[Q&A 생성] [Step 3-${step}] 댓글 길이 제한 오류:`, lengthError)
-            // 에러 발생 시 원본 내용 유지 (프롬프트가 제대로 작동했다고 가정)
-            console.warn(`[Q&A 생성] [Step 3-${step}] 길이 제한 실패, 원본 내용 유지: ${threadContent.length}자`)
+        try {
+          const jsonMatch = pairText.match(/\{[\s\S]*\}/)
+          if (jsonMatch) {
+            const parsed = JSON.parse(jsonMatch[0])
+            customerContent = (parsed.customer || '').trim()
+            agentContent = (parsed.agent || '').trim()
           }
-        } else {
-          // 정상 범위 내이면 그대로 사용 (프롬프트가 제대로 작동한 것으로 간주)
-          console.log(`[Q&A 생성] [Step 3-${step}] 댓글 길이: ${threadContent.length}자 (예상 범위: ${stepNumber <= 2 ? '200-300자' : stepNumber <= 4 ? '150-250자' : '100-200자'}, ${stepNumber <= 2 ? '초반' : stepNumber <= 4 ? '중반' : '후반'})`)
+        } catch (parseErr) {
+          console.warn(`[Q&A 생성] [Step 3] 쌍 ${pairIdx + 1} JSON 파싱 실패, 개별 생성으로 fallback`)
         }
         
-        // 히스토리에 추가
-        const newMessage: ConversationMessage = {
-          role: isCustomerTurn ? 'customer' : 'agent',
-          content: threadContent,
-          step: step
+        // JSON 파싱 실패 또는 빈 결과 시 개별 생성 fallback
+        if (!customerContent || !agentContent) {
+          console.log(`[Q&A 생성] [Step 3] 쌍 ${pairIdx + 1} fallback: 개별 생성`)
+          const baseStep = 3 + pairIdx * 2
+          
+          // 고객 댓글 개별 생성
+          const customerPrompt = generateConversationThreadPrompt(
+            { productName, topicName: customerTopicName, displayProductName, targetPersona, worryPoint, sellingPoint, answerTone: answerTone || 'friendly', answerLength: answerLength || 'default', designSheetImage, designSheetAnalysis, searchResultsText: searchResultsText || undefined },
+            { initialQuestion: { title: finalQuestionTitle, content: finalQuestionContent }, firstAnswer: answerContent, conversationHistory: conversationHistory.slice(-4), totalSteps, currentStep: baseStep }
+          )
+          const custResult = await generateContentWithFallback(customerPrompt, designSheetImage, true)
+          await new Promise(resolve => setTimeout(resolve, 1000))
+          customerContent = custResult.text.replace(/<ctrl\d+>/gi, '').replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]/g, '').replace(/```[\s\S]*?```/g, '').replace(/\[생성된 댓글\]/g, '').trim()
+          
+          // 설계사 답글 개별 생성
+          const tempHistory = [...conversationHistory, { role: 'customer' as const, content: customerContent, step: baseStep }]
+          const agentPrompt = generateConversationThreadPrompt(
+            { productName, topicName: customerTopicName, displayProductName, targetPersona, worryPoint, sellingPoint, answerTone: answerTone || 'friendly', answerLength: answerLength || 'default', designSheetImage, designSheetAnalysis, searchResultsText: searchResultsText || undefined },
+            { initialQuestion: { title: finalQuestionTitle, content: finalQuestionContent }, firstAnswer: answerContent, conversationHistory: tempHistory.slice(-4), totalSteps, currentStep: baseStep + 1 }
+          )
+          const agentResult = await generateContentWithFallback(agentPrompt, designSheetImage, false)
+          await new Promise(resolve => setTimeout(resolve, 1000))
+          agentContent = agentResult.text.replace(/<ctrl\d+>/gi, '').replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]/g, '').replace(/```[\s\S]*?```/g, '').replace(/\[답글 작성\]/g, '').trim()
         }
         
-        conversationHistory.push(newMessage)
-        conversationThread.push(newMessage)
+        // 고객 댓글 최소 길이 보장
+        if (customerContent.length > 0 && customerContent.length < 80) {
+          customerContent = (customerContent + ' 저도 비슷한 고민이에요 조언 부탁드립니다').trim()
+        }
         
-        console.log(`Step 3-${step} 완료:`, { role: newMessage.role, contentLength: threadContent.length })
+        // 길이 제한 (극단적 초과만)
+        const maxCustomer = pairIdx === 0 ? 375 : 300 // 150% of 250/200
+        const maxAgent = pairIdx === 0 ? 420 : 345 // 150% of 280/230
+        if (customerContent.length > maxCustomer) {
+          customerContent = enforceAnswerLength(customerContent, pairIdx === 0 ? 250 : 200)
+        }
+        if (agentContent.length > maxAgent) {
+          agentContent = enforceAnswerLength(agentContent, pairIdx === 0 ? 280 : 230)
+        }
+        
+        const baseStep = 3 + pairIdx * 2
+        const customerMsg: ConversationMessage = { role: 'customer', content: customerContent, step: baseStep }
+        const agentMsg: ConversationMessage = { role: 'agent', content: agentContent, step: baseStep + 1 }
+        
+        conversationHistory.push(customerMsg, agentMsg)
+        conversationThread.push(customerMsg, agentMsg)
+        
+        console.log(`[Q&A 생성] [Step 3] 쌍 ${pairIdx + 1} 완료: 고객 ${customerContent.length}자, 설계사 ${agentContent.length}자`)
       }
       
       // 후기성 문구 자동 삽입 (문서 11절: conversationLength 6 이상일 때만 허용)
@@ -2121,6 +2901,8 @@ export async function POST(request: NextRequest) {
           const reviewPrompt = generateReviewMessagePrompt(
             {
               productName,
+              topicName: customerTopicName,
+              displayProductName,
               targetPersona,
               worryPoint,
               sellingPoint,
@@ -2130,7 +2912,7 @@ export async function POST(request: NextRequest) {
               searchResultsText: searchResultsText || undefined
             },
             {
-              productName
+              productName: customerTopicName || productName
             }
           )
           
@@ -2173,6 +2955,8 @@ export async function POST(request: NextRequest) {
       }
       console.log('Step 3 완료:', { totalThreads: conversationThread.length })
     }
+
+    } // end of !usedUnifiedPath (기존 개별 호출 경로)
 
     // ============================================
     // ⚠️ 테스트용: 토큰 사용량 계산 및 반환
@@ -2222,17 +3006,28 @@ export async function POST(request: NextRequest) {
       productName,
       conversationMode,
       generateStep: requestedStep,
-      promptVersion: QA_PROMPT_VERSION, // 문서 14절
+      promptVersion: QA_PROMPT_VERSION,
       tokenBreakdown: tokenUsage,
       costEstimate: totalCostWithSearch,
       tokenCost: costEstimate.totalCost,
       customSearchCount: customSearchCount,
       customSearchCost: customSearchCost,
-      qualityWarnings: qualityWarnings.length > 0 ? qualityWarnings : undefined, // 문서 8절
-      questionTitle: (finalQuestionTitle || '').trim().substring(0, 200) || undefined, // Q&A 질문 제목 (관리 화면 표시용)
-      questionContentSnippet: (finalQuestionContent || '').trim().replace(/\s+/g, ' ').substring(0, 300) || undefined, // Q&A 질문 본문 요약 (관리 화면 표시용)
-      searchKeywords: searchKeywords && searchKeywords.length > 0 ? searchKeywords : undefined, // 연관 키워드 수집 현황 확인용
-      searchKeywordsWithVolume: searchKeywordsWithVolume.length > 0 ? searchKeywordsWithVolume : undefined, // 키워드별 월간 검색량(Naver) — 사람들이 많이 찾는 키워드 저장
+      qualityWarnings: qualityWarnings.length > 0 ? qualityWarnings : undefined,
+      questionTitle: (finalQuestionTitle || '').trim().substring(0, 200) || undefined,
+      questionContentSnippet: (finalQuestionContent || '').trim().replace(/\s+/g, ' ').substring(0, 300) || undefined,
+      searchKeywords: searchKeywords && searchKeywords.length > 0 ? searchKeywords : undefined,
+      searchKeywordsWithVolume: searchKeywordsWithVolume.length > 0 ? searchKeywordsWithVolume : undefined,
+      // 구조화 topic 저장 (품질 분석/반복 방지용)
+      topicCore: cleanProductCore || undefined,
+      topicConcern: topicConcern || undefined,
+      topicConcernSearch: topicConcernSearch || undefined,
+      personaBucket: isDesignSheetMode ? (designSheetAnalysis?.personaBucket || undefined) : undefined,
+      displayProductName: displayProductName || undefined,
+      isDesignSheetMode,
+      // 반복도 분석용 family 로그
+      openingFamilyId: selectedOpeningFamilyId,
+      titlePatternId: selectedTitlePatternId,
+      questionConceptId: selectedQuestionConceptId,
     }
     
     console.log('[Q&A 생성] usage_logs 저장할 데이터:', {
@@ -2262,6 +3057,178 @@ export async function POST(request: NextRequest) {
       })
       .catch((err) => console.error('[Q&A 생성] usage_logs insert 예외:', err))
 
+    // ============================================
+    // 최종 출력 전: 필드별 정제 강도 분리 적용
+    //   제목       → 강한 정제 (cleanForTitle)
+    //   질문 본문   → 약한 정제 (cleanForBody) — 보장 구조어 보존
+    //   답변       → 약한 정제 (cleanForBody) — 보장 구조어 보존
+    //   대화 댓글   → 약한 정제 (cleanForBody)
+    //   로그/내부   → 정제 없음 (rawProductName 그대로)
+    // ============================================
+    if (finalQuestionTitle) {
+      finalQuestionTitle = cleanForTitle(finalQuestionTitle)
+    }
+    if (finalQuestionContent) {
+      finalQuestionContent = cleanForBody(finalQuestionContent)
+    }
+    if (answerContent) {
+      answerContent = cleanForBody(answerContent)
+    }
+    if (conversationThread.length > 0) {
+      conversationThread = conversationThread.map((msg, idx) => {
+        let content = cleanForBody(msg.content)
+        if (msg.role === 'agent') {
+          content = stripAnswerRoleLeakage(content)
+        }
+        const isLastAgent = msg.role === 'agent' && idx === conversationThread.length - 1
+        if (isLastAgent) {
+          content = normalizeFinalAgentEnding(content)
+        }
+        return { ...msg, content }
+      })
+    }
+    console.log('[Q&A 생성] 필드별 정제 완료 (제목→강, 본문/답변/댓글→약+역할누수제거, 로그→없음)')
+
+    // ── 품질 게이트: 필드별 로컬 검증 ──
+    const forbiddenPats = designSheetAnalysis?.evidenceMap?.forbiddenPatterns || []
+    const gateResults: GateResult[] = []
+
+    if (finalQuestionTitle) {
+      const titleGate = gateTitle(finalQuestionTitle, undefined, { forbiddenPatterns: forbiddenPats })
+      gateResults.push(titleGate)
+      if (!titleGate.passed) {
+        console.warn(`[품질 게이트] 제목 실패 (${titleGate.score}점): ${titleGate.failures.join(', ')}`)
+        qualityWarnings.push(`제목 품질 경고: ${titleGate.failures.join('; ')}`)
+      } else {
+        console.log(`[품질 게이트] 제목 통과 (${titleGate.score}점)`)
+      }
+    }
+
+    if (finalQuestionContent) {
+      const bodyGate = gateQuestionBody(finalQuestionContent, { forbiddenPatterns: forbiddenPats })
+      gateResults.push(bodyGate)
+      if (!bodyGate.passed) {
+        console.warn(`[품질 게이트] 본문 실패 (${bodyGate.score}점): ${bodyGate.failures.join(', ')}`)
+        qualityWarnings.push(`본문 품질 경고: ${bodyGate.failures.join('; ')}`)
+      } else {
+        console.log(`[품질 게이트] 본문 통과 (${bodyGate.score}점)`)
+      }
+    }
+
+    if (answerContent) {
+      const answerGate = gateAnswer(answerContent, {
+        conflictAxis: designSheetAnalysis?.conflictAxis || undefined,
+        forbiddenPatterns: forbiddenPats,
+      })
+      gateResults.push(answerGate)
+      if (!answerGate.passed) {
+        console.warn(`[품질 게이트] 답변 실패 (${answerGate.score}점): ${answerGate.failures.join(', ')}`)
+        qualityWarnings.push(`답변 품질 경고: ${answerGate.failures.join('; ')}`)
+
+        // 답변이 70점 미만이면 재생성 시도 (1회만)
+        if (answerGate.score < 70 && finalQuestionTitle && finalQuestionContent) {
+          console.log(`[품질 게이트] 답변 ${answerGate.score}점 < 70점 → 재생성 시도`)
+          try {
+            const retryPrompt = generateAnswerPrompt(
+              {
+                productName, topicName: customerTopicName, displayProductName, targetPersona,
+                worryPoint, sellingPoint, answerTone: answerTone || 'friendly', answerLength: answerLength || 'default',
+                designSheetImage, designSheetAnalysis, searchResultsText,
+                searchKeywords: searchKeywords?.length ? searchKeywords : undefined,
+                evidenceMap: designSheetAnalysis?.evidenceMap || undefined,
+                conflictAxis: designSheetAnalysis?.conflictAxis || undefined,
+              },
+              finalQuestionTitle,
+              finalQuestionContent + `\n\n⚠️ 이전 답변이 품질 게이트를 통과하지 못했습니다 (${answerGate.score}점). 문제: ${answerGate.failures.join(', ')}. 반드시 판단 한 줄을 포함하고, 공감→판단→체크포인트→행동유도 4블록을 빠짐없이 작성하세요.`
+            )
+            const retryResult = await generateContentWithFallback(retryPrompt, designSheetImage, false)
+            await new Promise(resolve => setTimeout(resolve, 1000))
+            let retryAnswer = retryResult.text.replace(/<ctrl\d+>/gi, '').replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]/g, '').trim()
+            retryAnswer = cleanForBody(retryAnswer)
+
+            const retryGate = gateAnswer(retryAnswer, {
+              conflictAxis: designSheetAnalysis?.conflictAxis || undefined,
+              forbiddenPatterns: forbiddenPats,
+            })
+            if (retryGate.score > answerGate.score) {
+              answerContent = retryAnswer
+              console.log(`[품질 게이트] 답변 재생성 성공: ${answerGate.score}점 → ${retryGate.score}점`)
+            } else {
+              console.log(`[품질 게이트] 답변 재생성이 개선되지 않음: ${retryGate.score}점, 원본 유지`)
+            }
+          } catch (retryErr) {
+            console.warn('[품질 게이트] 답변 재생성 실패, 원본 유지:', retryErr)
+          }
+        }
+      } else {
+        console.log(`[품질 게이트] 답변 통과 (${answerGate.score}점)`)
+      }
+    }
+
+    if (conversationThread.length > 0) {
+      const threadGate = gateThread(conversationThread, { forbiddenPatterns: forbiddenPats })
+      gateResults.push(threadGate)
+      if (!threadGate.passed) {
+        console.warn(`[품질 게이트] 스레드 실패 (${threadGate.score}점): ${threadGate.failures.join(', ')}`)
+        qualityWarnings.push(`스레드 품질 경고: ${threadGate.failures.join('; ')}`)
+      } else {
+        console.log(`[품질 게이트] 스레드 통과 (${threadGate.score}점)`)
+      }
+    }
+
+    // ── 인간미 점수 (첫 문장 유사도 검사 포함) ──
+    const humanGate = gateHumanLikeness(
+      finalQuestionTitle || '',
+      finalQuestionContent || '',
+      answerContent || '',
+      conversationThread,
+      recentFirstSentencesStore.length > 0 ? recentFirstSentencesStore : undefined
+    )
+    gateResults.push(humanGate)
+    if (!humanGate.passed) {
+      console.warn(`[품질 게이트] 인간미 경고 (${humanGate.score}점): ${humanGate.failures.join(', ')}`)
+      qualityWarnings.push(`인간미 경고: ${humanGate.failures.join('; ')}`)
+    } else {
+      console.log(`[품질 게이트] 인간미 통과 (${humanGate.score}점)`)
+    }
+
+    // ── Evidence 일관성 ──
+    const evidenceGate = gateEvidenceConsistency(
+      answerContent || '',
+      conversationThread,
+      {
+        answerFacts: designSheetAnalysis?.evidenceMap?.answerFacts || [],
+        forbiddenPatterns: forbiddenPats,
+      }
+    )
+    gateResults.push(evidenceGate)
+    if (!evidenceGate.passed) {
+      console.warn(`[품질 게이트] Evidence 일관성 경고 (${evidenceGate.score}점): ${evidenceGate.failures.join(', ')}`)
+      qualityWarnings.push(`Evidence 일관성: ${evidenceGate.failures.join('; ')}`)
+    } else {
+      console.log(`[품질 게이트] Evidence 일관성 통과 (${evidenceGate.score}점)`)
+    }
+
+    const overallQuality = calculateOverallScore(gateResults)
+    console.log(`[품질 게이트] 종합 점수: ${overallQuality.totalScore}점, 필드별: ${JSON.stringify(overallQuality.breakdown)}`)
+    if (overallQuality.criticalFailures.length > 0) {
+      console.warn(`[품질 게이트] Critical 실패: ${overallQuality.criticalFailures.join(' | ')}`)
+    }
+
+    // 현재 결과의 첫 문장을 세션 저장소에 저장 (다음 생성 시 유사도 비교용)
+    const _getFirst = (t: string) => { const m = t.trim().match(/^.+?[.?!？！\n]/); return m ? m[0].trim() : t.trim().substring(0, 80) }
+    const currentFirstSentences: FirstSentences = {
+      questionFirst: _getFirst(finalQuestionContent || ''),
+      answerFirst: _getFirst(answerContent || ''),
+      customerCommentFirst: _getFirst(conversationThread.find(m => m.role === 'customer')?.content || ''),
+      agentCommentFirst: _getFirst(conversationThread.find(m => m.role === 'agent')?.content || ''),
+    }
+    recentFirstSentencesStore.push(currentFirstSentences)
+    if (recentFirstSentencesStore.length > MAX_RECENT_FIRST_SENTENCES) {
+      recentFirstSentencesStore.shift()
+    }
+    console.log(`[Q&A 생성] 첫 문장 저장 완료 (저장소 크기: ${recentFirstSentencesStore.length})`)
+
     // answer는 항상 설계사 첫 답변 반환 (대화형 스레드와 별개)
     const finalAnswerContent = answerContent
     
@@ -2277,6 +3244,12 @@ export async function POST(request: NextRequest) {
         generatedAt: new Date().toISOString()
       },
       conversation: conversationThread.length > 0 ? conversationThread : undefined,
+      qualityGate: {
+        totalScore: overallQuality.totalScore,
+        breakdown: overallQuality.breakdown,
+        allPassed: overallQuality.allPassed,
+        criticalFailures: overallQuality.criticalFailures.length > 0 ? overallQuality.criticalFailures : undefined,
+      },
       usage: {
         promptTokens: totalUsage.promptTokens,
         completionTokens: totalUsage.candidatesTokens,
@@ -2284,13 +3257,15 @@ export async function POST(request: NextRequest) {
         breakdown: tokenUsage,
         costEstimate: {
           ...costEstimate,
-          totalCost: totalCostWithSearch, // 서치 비용 포함
+          totalCost: totalCostWithSearch,
           customSearchCost: customSearchCost,
           customSearchCount: customSearchCount
         }
       },
       metadata: {
         productName,
+        topicName: customerTopicName,
+        displayProductName,
         targetPersona,
         worryPoint,
         sellingPoint,
@@ -2298,8 +3273,12 @@ export async function POST(request: NextRequest) {
         conversationMode: conversationMode || false,
         conversationLength: conversationLength || 0,
         searchKeywords: searchKeywords && searchKeywords.length > 0 ? searchKeywords : undefined,
-        promptVersion: QA_PROMPT_VERSION, // 문서 14절
-        qualityWarnings: qualityWarnings.length > 0 ? qualityWarnings : undefined, // 문서 8절
+        promptVersion: QA_PROMPT_VERSION,
+        qualityWarnings: qualityWarnings.length > 0 ? qualityWarnings : undefined,
+        openingFamilyId: selectedOpeningFamilyId,
+        titlePatternId: selectedTitlePatternId,
+        questionConceptId: selectedQuestionConceptId,
+        concernVariant: selectedConcernVariant || undefined,
       }
     })
   } catch (error: any) {
