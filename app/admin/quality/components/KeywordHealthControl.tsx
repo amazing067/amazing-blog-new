@@ -109,12 +109,12 @@ export default function KeywordHealthControl({ days }: { days: number }) {
           <SummaryCard
             label="시장 대표 키워드 존재율"
             value={`${stats.marketHeadPresenceRate}%`}
-            sub="display 5칸 기준"
+            sub="표시 키워드 5칸 기준"
           />
           <SummaryCard
-            label="검색량 있는 display 키워드 비율"
+            label="검색량 있는 표시 키워드 비율"
             value={stats.displayWithVolumeRate != null ? `${stats.displayWithVolumeRate}%` : '-'}
-            sub="볼륨 > 0 비율"
+            sub="검색량 0 초과 비율"
           />
           <SummaryCard
             label="검색량 0 키워드 비율"
@@ -123,7 +123,7 @@ export default function KeywordHealthControl({ days }: { days: number }) {
             highlight={stats.zeroVolumeRate > 20}
           />
           <SummaryCard
-            label="concern 키워드 반영률"
+            label="고민 키워드 반영률"
             value={stats.concernReflectionRate != null ? `${stats.concernReflectionRate}%` : '-'}
             sub="고민 키워드 반영 비율"
           />
@@ -150,7 +150,7 @@ export default function KeywordHealthControl({ days }: { days: number }) {
       {/* 키워드 분포 표 */}
       {data.keywordDistribution.length > 0 && (
         <div>
-          <h3 className="text-sm font-bold text-gray-700 dark:text-slate-200 mb-2">키워드 분포 (display 5칸 기준)</h3>
+          <h3 className="text-sm font-bold text-gray-700 dark:text-slate-200 mb-2">키워드 분포 (표시 키워드 5칸 기준)</h3>
           <div className="overflow-x-auto max-h-[320px] overflow-y-auto rounded-lg border border-gray-200 dark:border-slate-700">
             <table className="w-full text-sm">
               <thead className="sticky top-0 bg-gray-100 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700">

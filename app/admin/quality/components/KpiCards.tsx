@@ -101,20 +101,20 @@ export default function KpiCards({ kpiSummary }: { kpiSummary: KpiSummary }) {
           icon={<Search className="w-4 h-4" />}
           label="검색량 0 키워드 비율"
           value={kpiSummary.zeroVolumeKeywordRate != null ? `${kpiSummary.zeroVolumeKeywordRate}%` : '-'}
-          sub="display 5칸 기준"
+          sub="표시 키워드 5칸 기준"
           highlight={kpiSummary.zeroVolumeKeywordRate != null && kpiSummary.zeroVolumeKeywordRate > 20}
           badge={kpiSummary.zeroVolumeKeywordRate != null && kpiSummary.zeroVolumeKeywordRate > 20 ? '주의' : kpiSummary.zeroVolumeKeywordRate != null && kpiSummary.zeroVolumeKeywordRate > 40 ? '위험' : undefined}
         />
         <Card
           icon={<MessageCircle className="w-4 h-4" />}
-          label="스레드 누락 건수"
+          label="댓글 대화 누락 건수"
           value={fmt(kpiSummary.threadMissingCount ?? 0)}
           highlight={(kpiSummary.threadMissingCount ?? 0) > 0}
           badge={(kpiSummary.threadMissingCount ?? 0) > 0 ? '주의' : undefined}
         />
         <Card
           icon={<Activity className="w-4 h-4" />}
-          label="finalAgentEnding 누락"
+          label="최종 마무리 문장 누락"
           value={fmt(kpiSummary.finalAgentEndingMissingCount ?? 0)}
           highlight={(kpiSummary.finalAgentEndingMissingCount ?? 0) > 0}
           badge={(kpiSummary.finalAgentEndingMissingCount ?? 0) > 0 ? '주의' : undefined}

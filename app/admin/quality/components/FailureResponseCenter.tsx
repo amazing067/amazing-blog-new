@@ -14,6 +14,7 @@ type FailureAgg = {
 type RecommendedAction = { tag: string; action: string; priority: 'high' | 'medium' | 'low' }
 
 const PRIORITY_COLORS = { high: 'text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-500/20', medium: 'text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-500/20', low: 'text-gray-600 dark:text-slate-400 bg-gray-50 dark:bg-slate-700' }
+const PRIORITY_LABELS: Record<string, string> = { high: '높음', medium: '중간', low: '낮음' }
 const TREND_ICONS = { up: TrendingUp, down: TrendingDown, stable: Minus }
 
 const TAG_LABELS: Record<string, string> = {
@@ -21,12 +22,12 @@ const TAG_LABELS: Record<string, string> = {
   body_no_paragraph: '문단 없음', body_formal_tone: '격식체 본문', body_too_short: '본문 짧음', body_too_long: '본문 김', body_exclamation: '느낌표 남발',
   answer_role_leakage: '역할 누수', answer_no_judgment: '판단 없음', answer_doc_style: '설명체 답변', answer_too_short: '답변 짧음', answer_too_long: '답변 김',
   thread_sales_ending: '영업 종결', thread_role_break: '역할 흐름 깨짐', thread_too_short: '댓글 짧음', thread_too_long: '댓글 김',
-  human_self_intro: '자기소개', human_excessive_cta: 'CTA 과다', human_first_sentence_repeat: '첫 문장 반복', human_formal_tone: '격식체', human_role_leakage: '역할 누수',
-  evidence_outside_facts: 'Evidence 이탈', evidence_forbidden_pattern: '금지 패턴',
+  human_self_intro: '자기소개', human_excessive_cta: '행동 유도 과다', human_first_sentence_repeat: '첫 문장 반복', human_formal_tone: '격식체', human_role_leakage: '역할 누수',
+  evidence_outside_facts: '근거 이탈', evidence_forbidden_pattern: '금지 패턴',
   keyword_missing: '키워드 없음', keyword_overweight: '키워드 과밀', keyword_zero_volume: '검색량 0', keyword_no_title: '제목 키워드 없음',
-  operational_regen_no_improvement: '재생성 미개선', operational_family_repeat: '패밀리 반복', operational_first_sentence_repeat: '첫 문장 유사',   operational_no_analysis: '분석 없이 override',
-  operational_final_agent_ending_missing: 'finalAgentEnding 미저장',
-  thread_empty: '스레드 없음',
+  operational_regen_no_improvement: '재생성 미개선', operational_family_repeat: '패밀리 반복', operational_first_sentence_repeat: '첫 문장 유사', operational_no_analysis: '분석 없이 덮어쓰기',
+  operational_final_agent_ending_missing: '최종 마무리 문장 미저장',
+  thread_empty: '댓글 대화 없음',
   uncategorized_warning: '미분류 경고',
 }
 
@@ -106,7 +107,7 @@ export default function FailureResponseCenter({ days }: { days: number }) {
           <div className="space-y-2">
             {data.recommendedActions.slice(0, 5).map(a => (
               <div key={a.tag} className="flex items-center gap-3 text-sm">
-                <span className={`px-2 py-0.5 rounded text-xs font-medium ${PRIORITY_COLORS[a.priority]}`}>{a.priority}</span>
+                <span className={`px-2 py-0.5 rounded text-xs font-medium ${PRIORITY_COLORS[a.priority]}`}>{PRIORITY_LABELS[a.priority] ?? a.priority}</span>
                 <span className="font-medium text-gray-900 dark:text-slate-100">{TAG_LABELS[a.tag] || a.tag}:</span>
                 <span className="text-gray-600 dark:text-slate-300">{a.action}</span>
               </div>

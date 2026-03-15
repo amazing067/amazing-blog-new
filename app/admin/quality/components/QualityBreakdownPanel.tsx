@@ -6,7 +6,7 @@ const GATE_LABELS: Record<string, string> = {
   answer: '답변',
   thread: '댓글 스레드',
   humanLikeness: '인간미',
-  evidenceConsistency: 'Evidence 일관성',
+  evidenceConsistency: '근거 일관성',
   keywordHealth: '키워드 건강',
   operationalRisk: '운영 리스크',
 }
@@ -30,7 +30,7 @@ const GATE_LOW_MEANING: Record<string, string> = {
   humanLikeness: '낮으면 기계적이거나 역할 누수 가능성',
   evidenceConsistency: '낮으면 설계서 밖 사실을 만들어냈을 가능성',
   keywordHealth: '낮으면 검색량 0·미반영 키워드가 많다는 뜻',
-  operationalRisk: '낮으면 스레드/종결 누락, 재생성 실패 등',
+  operationalRisk: '낮으면 댓글 대화/마무리 문장 누락, 재생성 실패 등',
 }
 
 function statusFromScore(score: number): '정상' | '주의' | '위험' {
@@ -98,7 +98,7 @@ export default function QualityBreakdownPanel({ sectionAverages }: { sectionAver
     <div className="rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-6">
       <h2 className="text-lg font-bold text-gray-800 dark:text-slate-100 mb-2">품질 Breakdown (전체 사용자 8개 게이트 평균)</h2>
       <p className="text-sm text-gray-500 dark:text-slate-400 mb-4">
-        클릭을 부르는 자연스러운 질문 제목 · 실제 사람이 쓴 글처럼 문단 · 판단을 도와주는 답변 · 이어지는 댓글 대화 · 인간미 · Evidence 일관성 · 키워드 건강 · 운영 리스크를 봅니다.
+        클릭을 부르는 자연스러운 질문 제목 · 실제 사람이 쓴 글처럼 문단 · 판단을 도와주는 답변 · 이어지는 댓글 대화 · 인간미 · 근거 일관성 · 키워드 건강 · 운영 리스크를 봅니다.
       </p>
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
         {entries.map((e) => (

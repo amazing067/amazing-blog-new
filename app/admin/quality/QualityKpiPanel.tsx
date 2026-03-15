@@ -83,6 +83,9 @@ const FAILURE_CASES = [
   { type: 'persona 추출 실패', desc: 'targetPersona에서 나이/성별 파싱 실패 시 기본값만 사용', action: '로그로 추출 결과 확인, 특수 페르소나 케이스 문서화' },
 ]
 
+/** 내일 밤 테스트 시 true로 바꾸면 설계서 배치 테스트 섹션이 다시 보입니다 */
+const SHOW_BATCH_TEST_UI = false
+
 export default function QualityKpiPanel() {
   const [days, setDays] = useState(30)
   const [data, setData] = useState<{
@@ -193,7 +196,8 @@ export default function QualityKpiPanel() {
         </span>
       </div>
 
-      {/* 배치 테스트 실행 (관리자 세션 쿠키로 30회) */}
+      {/* 설계서 배치 테스트 (잠깐 숨김) — 다시 보이게: SHOW_BATCH_TEST_UI = true */}
+      {SHOW_BATCH_TEST_UI && (
       <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-700 p-6">
         <h2 className="text-lg font-bold text-gray-800 dark:text-slate-100 mb-2 flex items-center gap-2">
           <Play className="w-5 h-5 text-emerald-600" />
@@ -246,6 +250,7 @@ export default function QualityKpiPanel() {
           </div>
         )}
       </div>
+      )}
 
       {/* 기간 선택 */}
       <div className="flex flex-wrap items-center gap-4">
@@ -274,8 +279,8 @@ export default function QualityKpiPanel() {
               <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0" />
               <div className="text-sm text-amber-800 dark:text-amber-200">
                 <span className="font-bold">운영 경고:</span>
-                {data.kpiSummary.threadMissingCount ? ` 스레드 미저장 ${data.kpiSummary.threadMissingCount}건` : ''}
-                {data.kpiSummary.finalAgentEndingMissingCount ? ` / finalAgentEnding 미저장 ${data.kpiSummary.finalAgentEndingMissingCount}건` : ''}
+                {data.kpiSummary.threadMissingCount ? ` 댓글 대화 미저장 ${data.kpiSummary.threadMissingCount}건` : ''}
+                {data.kpiSummary.finalAgentEndingMissingCount ? ` / 최종 마무리 문장 미저장 ${data.kpiSummary.finalAgentEndingMissingCount}건` : ''}
               </div>
             </div>
           ) : null}
@@ -371,8 +376,8 @@ export default function QualityKpiPanel() {
                 </tr></thead><tbody>
                   {[
                     ['자연스러움', '카페 질문처럼 자연스러운가', '판단 기준 제시 + 공감', '대화 흐름이 이어지는가'],
-                    ['광고성', '판매 포인트 과다 여부', 'CTA/가입 유도 정도', '마지막 agent 영업성'],
-                    ['정합성', '설계서 사실 일치', 'evidenceMap 일관성', 'concern 반영 여부'],
+                    ['광고성', '판매 포인트 과다 여부', '행동 유도/가입 유도 정도', '마지막 설계사 영업성'],
+                    ['정합성', '설계서 사실 일치', '근거 일관성', '고민 반영 여부'],
                     ['반복성', '제목/첫 문장 반복', '답변 구조 반복', '댓글 패턴 반복'],
                     ['키워드', '제목 키워드 포함', '답변 내 키워드 자연삽입', '-'],
                     ['인간미', '첫 문장 생활형 여부', '역할 누수 없음', '설계사 말투 자연스러움'],

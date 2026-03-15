@@ -5,9 +5,16 @@ import { useEffect, useState } from 'react'
 type UserDist = { user_id: string; username: string; full_name?: string; failureCount: number; topFailureTags: string[] }
 
 const TAG_SHORT: Record<string, string> = {
-  answer_role_leakage: '역할누수', thread_sales_ending: '영업종결', human_self_intro: '자기소개',
-  body_no_paragraph: '문단없음', answer_no_judgment: '판단없음', keyword_missing: '키워드없음',
-  body_formal_tone: '격식체', human_excessive_cta: 'CTA과다', evidence_outside_facts: 'Evidence이탈',
+  title_too_short: '제목 짧음', title_too_long: '제목 김', title_blog_style: '블로그형 제목', title_internal_code: '내부 코드 노출',
+  body_no_paragraph: '문단 없음', body_formal_tone: '격식체 본문', body_too_short: '본문 짧음', body_too_long: '본문 김', body_exclamation: '느낌표 남발',
+  answer_role_leakage: '역할 누수', answer_no_judgment: '판단 없음', answer_doc_style: '설명체 답변', answer_too_short: '답변 짧음', answer_too_long: '답변 김',
+  thread_sales_ending: '영업 종결', thread_role_break: '역할 흐름 깨짐', thread_too_short: '댓글 짧음', thread_too_long: '댓글 김', thread_empty: '댓글 대화 없음',
+  human_self_intro: '자기소개', human_excessive_cta: '행동 유도 과다', human_first_sentence_repeat: '첫 문장 반복', human_formal_tone: '격식체', human_role_leakage: '역할 누수',
+  evidence_outside_facts: '근거 이탈', evidence_forbidden_pattern: '금지 패턴',
+  keyword_missing: '키워드 없음', keyword_overweight: '키워드 과밀', keyword_zero_volume: '검색량 0', keyword_no_title: '제목 키워드 없음',
+  operational_regen_no_improvement: '재생성 미개선', operational_family_repeat: '패밀리 반복', operational_first_sentence_repeat: '첫 문장 유사', operational_no_analysis: '분석 없이 덮어쓰기',
+  operational_final_agent_ending_missing: '최종 마무리 문장 미저장',
+  uncategorized_warning: '미분류 경고',
 }
 
 export default function UserRiskBoard({ days }: { days: number }) {
