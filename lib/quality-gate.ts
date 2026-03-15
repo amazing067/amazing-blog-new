@@ -47,6 +47,8 @@ export type FailureTag =
   | 'evidence_outside_facts' | 'evidence_forbidden_pattern'
   | 'keyword_missing' | 'keyword_overweight' | 'keyword_zero_volume' | 'keyword_no_title'
   | 'operational_regen_no_improvement' | 'operational_family_repeat' | 'operational_first_sentence_repeat' | 'operational_no_analysis'
+  | 'operational_final_agent_ending_missing' | 'thread_empty'
+  | 'uncategorized_warning'
 
 // ── 제목 게이트 ──
 export function gateTitle(
@@ -196,12 +198,58 @@ export function gateQuestionBody(
     score -= 10
   }
 
-  // 느낌표 과다 사용 감점
+  // 문단 중복: 같은/거의 같은 문단 반복
+  const paragraphs = body.split(/\n\s*\n/).map(p => p.trim()).filter(p => p.length > 20)
+  for (let i = 0; i < paragraphs.length; i++) {
+    for (let j = i + 1; j < paragraphs.length; j++) {
+      if (jaccardSimilarity(paragraphs[i], paragraphs[j]) >= 0.75) {
+        failures.push(`문단 중복 (${i + 1}번째와 ${j + 1}번째 유사도 높음)`)
+        score -= 10
+        break
+      }
+    }
+    if (failures.some(f => f.includes('문단 중복'))) break
+  }
+  // 같은 문장 2회 이상 반복
+  const sentences = body.split(/(?<=[.?!？！\n])\s+/).map(s => s.trim()).filter(s => s.length > 15)
+  const seen = new Map<string, number>()
+  for (const s of sentences) {
+    const key = s.replace(/\s+/g, ' ')
+    const count = (seen.get(key) || 0) + 1
+    seen.set(key, count)
+    if (count >= 2) {
+      failures.push('같은 문장 반복 2회 이상')
+      score -= 10
+      break
+    }
+  }
+
+  // 느낌표/ㅠㅠ 과다
   const exclamationCount = (body.match(/!/g) || []).length
+  const cryCount = (body.match(/ㅠ|ㅜ|ㅡ/g) || []).length
   if (exclamationCount > 5) {
     failures.push(`느낌표 남발 (${exclamationCount}개)`)
     score -= 10
   } else if (exclamationCount > 3) {
+    failures.push(`느낌표 남발 (${exclamationCount}개)`)
+    score -= 5
+  }
+  if (cryCount > 3) {
+    failures.push(`ㅠㅠ/ㅜㅜ 과다 (${cryCount}개)`)
+    score -= 5
+  }
+
+  // 접미 반복: 요요, 습니다요, 네요요
+  if (/요\s*요\b|습니다\s*요\b|네요\s*요\b/.test(body)) {
+    failures.push('접미 반복 (요요/습니다요/네요요)')
+    score -= 10
+  }
+
+  // 감탄 과밀 + 정보 밀도 부족: 느낌표+감탄사 비율이 높고 문장 수 대비 길이 부족
+  const sentenceCount = (body.match(/[.?!？！]\s+/g) || []).length + (body.match(/[.?!？！]$/) ? 1 : 0) || 1
+  const exclamationRatio = exclamationCount / Math.max(1, sentenceCount)
+  if (exclamationRatio > 0.5 && body.length < 400) {
+    failures.push('감탄 과밀·정보 밀도 부족')
     score -= 5
   }
 
@@ -339,7 +387,7 @@ export function gateThread(
   let score = 100
 
   if (messages.length === 0) {
-    return { passed: true, field: 'thread', failures: [], score: 100 }
+    return { passed: false, field: 'thread', failures: ['스레드 없음 (빈 배열)'], score: 0 }
   }
 
   // role 흐름: customer → agent 교대
@@ -538,12 +586,18 @@ export function gateEvidenceConsistency(
 }
 
 // ── 키워드 건강 게이트 ──
+export type DisplayKeywordSlot = { keyword: string; volume: number | null; role: 'market_head' | 'product_core' | 'concern_search' | 'persona_longtail' | 'intent_head' }
+
 export function gateKeywordHealth(
   searchKeywords: string[] | undefined,
   title: string,
   body: string,
   searchKeywordsWithVolume?: Array<{ keyword: string; volume: number | null }>,
-  topicConcern?: string
+  topicConcern?: string,
+  options?: {
+    displayKeywords?: DisplayKeywordSlot[]
+    marketHeadKeyword?: { keyword: string; volume: number | null; source?: string } | null
+  }
 ): GateResult {
   const failures: string[] = []
   let score = 100
@@ -582,6 +636,35 @@ export function gateKeywordHealth(
     }
   }
 
+  // displayKeywords 5칸 구조 + marketHeadKeyword 표시용 건전성 (options 있을 때만)
+  if (options?.displayKeywords) {
+    const displayKeywords = options.displayKeywords
+    const roles = ['market_head', 'product_core', 'concern_search', 'persona_longtail', 'intent_head']
+    const hasFiveSlots = roles.every(r => displayKeywords.some(d => d.role === r))
+    if (!hasFiveSlots || displayKeywords.length !== 5) {
+      failures.push('displayKeywords 5칸 구조 아님')
+      score -= 10
+    }
+    if (!displayKeywords.find(d => d.role === 'concern_search')?.keyword?.trim()) { score -= 5 }
+    if (!displayKeywords.find(d => d.role === 'product_core')?.keyword?.trim()) { score -= 5 }
+    if (!displayKeywords.find(d => d.role === 'intent_head')?.keyword?.trim()) { score -= 5 }
+  }
+  if (options && 'marketHeadKeyword' in options) {
+    const m = options.marketHeadKeyword
+    if (!m || !m.keyword?.trim()) {
+      failures.push('marketHeadKeyword 없음')
+      score -= 10
+    } else if (m.volume == null || m.volume === 0) {
+      if (m.source === 'unavailable') {
+        failures.push('marketHeadKeyword 검색량 미확인 (unavailable)')
+        score -= 8
+      } else {
+        failures.push('marketHeadKeyword 검색량 0 또는 fallback')
+        score -= 10
+      }
+    }
+  }
+
   return { passed: failures.length === 0, field: 'keywordHealth', failures, score: Math.max(0, score) }
 }
 
@@ -593,9 +676,15 @@ export function gateOperationalRisk(options: {
   familyRepeatCount?: number
   canonicalOverrideApplied?: boolean
   hasDesignSheetAnalysis?: boolean
+  finalAgentEndingMissing?: boolean
 }): GateResult {
   const failures: string[] = []
   let score = 100
+
+  if (options.finalAgentEndingMissing) {
+    failures.push('finalAgentEnding 미저장 (관제 불가)')
+    score -= 10
+  }
 
   if (options.wasRegenerated && !options.regenImproved) {
     failures.push('재생성 시도했으나 개선 안됨')
@@ -624,54 +713,67 @@ export function gateOperationalRisk(options: {
   return { passed: failures.length === 0, field: 'operationalRisk', failures, score: Math.max(0, score) }
 }
 
-// ── 실패 태그 자동 분류 ──
-export function classifyFailureTags(gates: GateResult[]): FailureTag[] {
-  const tags: FailureTag[] = []
-  const failureMap: Array<{ pattern: RegExp; tag: FailureTag }> = [
-    { pattern: /제목 너무 짧/, tag: 'title_too_short' },
-    { pattern: /제목 너무 김/, tag: 'title_too_long' },
-    { pattern: /제목에 내부 표기/, tag: 'title_internal_code' },
-    { pattern: /본문 너무 짧/, tag: 'body_too_short' },
-    { pattern: /본문 너무 김/, tag: 'body_too_long' },
-    { pattern: /문단 구분 없음/, tag: 'body_no_paragraph' },
-    { pattern: /첫 문장이 설계서 문체/, tag: 'body_formal_tone' },
-    { pattern: /느낌표 남발/, tag: 'body_exclamation' },
-    { pattern: /답변 너무 짧/, tag: 'answer_too_short' },
-    { pattern: /답변 너무 김/, tag: 'answer_too_long' },
-    { pattern: /역할 누수/, tag: 'answer_role_leakage' },
-    { pattern: /판단문.*없음/, tag: 'answer_no_judgment' },
-    { pattern: /약관\/설명서체|정리문체/, tag: 'answer_doc_style' },
-    { pattern: /agent 댓글 영업/, tag: 'thread_sales_ending' },
-    { pattern: /role 흐름 이상/, tag: 'thread_role_break' },
-    { pattern: /댓글.*너무 짧/, tag: 'thread_too_short' },
-    { pattern: /댓글.*너무 김/, tag: 'thread_too_long' },
-    { pattern: /자기소개.*경력|답변 서두.*자기소개/, tag: 'human_self_intro' },
-    { pattern: /CTA 과다/, tag: 'human_excessive_cta' },
-    { pattern: /유사도.*강한 반복|유사도.*반복/, tag: 'human_first_sentence_repeat' },
-    { pattern: /정리\/약관 문체 과다/, tag: 'human_formal_tone' },
-    { pattern: /역할 누수.*전문가님/, tag: 'human_role_leakage' },
-    { pattern: /Evidence 밖 단정/, tag: 'evidence_outside_facts' },
-    { pattern: /금지 패턴 잔존/, tag: 'evidence_forbidden_pattern' },
-    { pattern: /검색 키워드 없음|키워드 미포함/, tag: 'keyword_missing' },
-    { pattern: /제목 키워드 과밀/, tag: 'keyword_overweight' },
-    { pattern: /키워드 검색량 0/, tag: 'keyword_zero_volume' },
-    { pattern: /제목에 키워드 미포함/, tag: 'keyword_no_title' },
-    { pattern: /재생성.*개선 안됨/, tag: 'operational_regen_no_improvement' },
-    { pattern: /family.*반복/, tag: 'operational_family_repeat' },
-    { pattern: /첫 문장 유사도/, tag: 'operational_first_sentence_repeat' },
-    { pattern: /canonical override.*분석 결과 없음/, tag: 'operational_no_analysis' },
-  ]
+// ── 실패 태그 자동 분류 (경고 문자열 기준 정확 매핑) ──
+function warningToTag(failure: string): FailureTag | null {
+  if (failure.includes('문단 구분 없음')) return 'body_no_paragraph'
+  if (failure.includes('본문 너무 짧음')) return 'body_too_short'
+  if (failure.includes('본문 너무 김')) return 'body_too_long'
+  if (failure.includes('첫 문장이 설계서 문체')) return 'body_formal_tone'
+  if (failure.includes('정리문체 표현 사용') || failure.includes('약관/설명서체')) return 'answer_doc_style'
+  if (failure.includes('역할 누수')) return 'answer_role_leakage'
+  if (failure.includes('제목 너무 짧')) return 'title_too_short'
+  if (failure.includes('제목 너무 김')) return 'title_too_long'
+  if (failure.includes('블로그형')) return 'title_blog_style'
+  if (failure.includes('모든 키워드 검색량 0 또는 미확인')) return 'keyword_zero_volume'
+  if (failure.includes('제목에 키워드 미포함')) return 'keyword_missing'
+  if (failure.includes('답변 첫 문장') && failure.includes('유사도')) return 'human_first_sentence_repeat'
+  if (failure.includes('질문 첫 문장') && failure.includes('유사도')) return 'human_first_sentence_repeat'
+  if (failure.includes('유사도') && failure.includes('반복')) return 'human_first_sentence_repeat'
+  if (failure.includes('영업성') || failure.includes('상담 유도')) return 'thread_sales_ending'
+  if (failure.includes('마지막 agent 댓글 영업')) return 'thread_sales_ending'
+  if (failure.includes('Evidence 밖 단정')) return 'evidence_outside_facts'
+  if (failure.includes('금지 패턴')) return 'evidence_forbidden_pattern'
+  if (failure.includes('느낌표 남발')) return 'body_exclamation'
+  if (failure.includes('문단 중복') || failure.includes('같은 문장 반복')) return 'body_no_paragraph'
+  if (failure.includes('접미 반복')) return 'body_no_paragraph'
+  if (failure.includes('ㅠㅠ') || failure.includes('감탄 과밀')) return 'body_exclamation'
+  if (failure.includes('스레드 없음')) return 'thread_empty'
+  if (failure.includes('finalAgentEnding 미저장')) return 'operational_final_agent_ending_missing'
+  if (failure.includes('검색 키워드 없음')) return 'keyword_missing'
+  if (failure.includes('제목 키워드 과밀')) return 'keyword_overweight'
+  if (failure.includes('displayKeywords 5칸 구조 아님') || failure.includes('marketHeadKeyword 없음')) return 'keyword_zero_volume'
+  if (failure.includes('marketHeadKeyword 검색량')) return 'keyword_zero_volume'
+  if (failure.includes('제목에 내부 표기')) return 'title_internal_code'
+  if (failure.includes('답변 너무 짧')) return 'answer_too_short'
+  if (failure.includes('답변 너무 김')) return 'answer_too_long'
+  if (failure.includes('판단문')) return 'answer_no_judgment'
+  if (failure.includes('role 흐름 이상')) return 'thread_role_break'
+  if (failure.includes('댓글') && failure.includes('너무 짧')) return 'thread_too_short'
+  if (failure.includes('댓글') && failure.includes('너무 김')) return 'thread_too_long'
+  if (failure.includes('자기소개') || failure.includes('경력')) return 'human_self_intro'
+  if (failure.includes('CTA')) return 'human_excessive_cta'
+  if (failure.includes('정리/약관 문체') || failure.includes('문체 과다')) return 'human_formal_tone'
+  if (failure.includes('전문가님')) return 'human_role_leakage'
+  if (failure.includes('재생성') && failure.includes('개선 안됨')) return 'operational_regen_no_improvement'
+  if (failure.includes('family') && failure.includes('반복')) return 'operational_family_repeat'
+  if (failure.includes('첫 문장 유사도')) return 'operational_first_sentence_repeat'
+  if (failure.includes('canonical override')) return 'operational_no_analysis'
+  if (failure.includes('concern 키워드')) return 'keyword_missing'
+  return null
+}
 
+export function classifyFailureTags(gates: GateResult[], qualityWarningsCount?: number): FailureTag[] {
+  const tags: FailureTag[] = []
   for (const gate of gates) {
     for (const failure of gate.failures) {
-      for (const { pattern, tag } of failureMap) {
-        if (pattern.test(failure) && !tags.includes(tag)) {
-          tags.push(tag)
-        }
-      }
+      const tag = warningToTag(failure)
+      if (tag && !tags.includes(tag)) tags.push(tag)
     }
   }
-
+  // safety fallback: qualityWarnings가 1개 이상인데 결과가 빈 배열이면 uncategorized_warning
+  if ((qualityWarningsCount !== undefined && qualityWarningsCount >= 1) && tags.length === 0) {
+    tags.push('uncategorized_warning')
+  }
   return tags
 }
 
@@ -712,6 +814,11 @@ export function calculateOverallScore(gates: GateResult[]): {
   }
 
   const totalScore = totalWeight > 0 ? Math.round(weightedSum / totalWeight) : 0
+
+  // thread 점수가 없으면(스레드 없을 때) 기본 100으로 넣어 CSV 등에서 빈칸 방지
+  if (!('thread' in breakdown) || breakdown.thread == null) {
+    breakdown.thread = 100
+  }
 
   return {
     totalScore,

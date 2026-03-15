@@ -82,6 +82,7 @@ export async function GET(request: NextRequest) {
       .eq('id', row.user_id)
       .single()
 
+    const meta = row.meta as Record<string, unknown> | null
     return NextResponse.json({
       success: true,
       session: {
@@ -96,7 +97,23 @@ export async function GET(request: NextRequest) {
         total_tokens: row.total_tokens,
         prompt_tokens: row.prompt_tokens,
         completion_tokens: row.completion_tokens,
-        meta: row.meta,
+        meta,
+        questionTitle: meta?.questionTitle ?? null,
+        questionContentSnippet: meta?.questionContentSnippet ?? null,
+        qualityGate: meta?.qualityGate ?? null,
+        failureTags: meta?.failureTags ?? [],
+        regenHistory: meta?.regenHistory ?? [],
+        promptKeywords: meta?.promptKeywords ?? null,
+        displayKeywords: meta?.displayKeywords ?? null,
+        marketHeadKeyword: meta?.marketHeadKeyword ?? null,
+        selectedConcernVariant: meta?.selectedConcernVariant ?? null,
+        openingFamilyId: meta?.openingFamilyId ?? null,
+        titlePatternId: meta?.titlePatternId ?? null,
+        questionConceptId: meta?.questionConceptId ?? null,
+        thread: meta?.thread ?? null,
+        finalAgentEnding: meta?.finalAgentEnding ?? null,
+        questionFirstSentence: meta?.questionFirstSentence ?? null,
+        answerFirstSentence: meta?.answerFirstSentence ?? null,
       },
     })
   } catch (err: unknown) {

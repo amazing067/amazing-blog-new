@@ -295,6 +295,88 @@ function normalizeFinalAgentEnding(text: string): string {
   return result.replace(/\n{3,}/g, '\n\n').trim()
 }
 
+function jaccardSimilarityBody(a: string, b: string): number {
+  const tokenize = (s: string) =>
+    new Set(s.replace(/[^가-힣a-zA-Z0-9\s]/g, '').split(/\s+/).filter(t => t.length > 1))
+  const setA = tokenize(a)
+  const setB = tokenize(b)
+  if (setA.size === 0 && setB.size === 0) return 0
+  let inter = 0
+  for (const t of setA) if (setB.has(t)) inter++
+  const union = setA.size + setB.size - inter
+  return union === 0 ? 0 : inter / union
+}
+
+/** 문단/문장 중복 제거 (Jaccard 0.75 이상 뒤 문단 제거, 같은 문장 2회 이상 뒤쪽 제거) */
+function dedupeRepeatedParagraphs(text: string): string {
+  if (!text || text.length < 50) return text
+  let paragraphs = text.split(/\n\s*\n/).map(p => p.trim()).filter(p => p.length > 0)
+  const kept: string[] = []
+  for (let i = 0; i < paragraphs.length; i++) {
+    let duplicate = false
+    for (let j = 0; j < kept.length; j++) {
+      if (jaccardSimilarityBody(paragraphs[i], kept[j]) >= 0.75) {
+        duplicate = true
+        break
+      }
+    }
+    if (!duplicate) kept.push(paragraphs[i])
+  }
+  let out = kept.join('\n\n').trim()
+  const sentences = out.split(/(?<=[.?!？！\n])\s+/).map(s => s.trim()).filter(s => s.length > 15)
+  const seen = new Map<string, number>()
+  const uniqueSentences: string[] = []
+  for (const s of sentences) {
+    const key = s.replace(/\s+/g, ' ')
+    const count = (seen.get(key) || 0) + 1
+    seen.set(key, count)
+    if (count <= 1) uniqueSentences.push(s)
+  }
+  if (uniqueSentences.length < sentences.length) {
+    out = uniqueSentences.join(' ').replace(/\n\s*\n/g, '\n\n').trim()
+  }
+  return out
+}
+
+/** 220자 이상이고 빈 줄 부족하면 3블록(상황/배경, 걱정/갈등, 질문/판단요청)으로 재조립 */
+function forceThreeBlockParagraphs(text: string): string {
+  if (!text || text.length < 220) return text
+  const hasEnoughBreaks = (text.match(/\n\s*\n/g) || []).length >= 2
+  if (hasEnoughBreaks) return text
+  const sentences = text.split(/(?<=[?？!！.\n])\s*/).map(s => s.trim()).filter(s => s.length > 0)
+  if (sentences.length < 3) return text
+  const totalLen = sentences.reduce((sum, s) => sum + s.length, 0)
+  const b1End = Math.min(sentences.length, Math.max(1, Math.floor(sentences.length * 0.35)))
+  const b2End = Math.min(sentences.length, Math.max(b1End + 1, Math.floor(sentences.length * 0.75)))
+  const block1 = sentences.slice(0, b1End).join(' ').trim()
+  const block2 = sentences.slice(b1End, b2End).join(' ').trim()
+  const block3 = sentences.slice(b2End).join(' ').trim()
+  const result = [block1, block2, block3].filter(b => b.length > 0).join('\n\n').trim()
+  return result || text
+}
+
+/** 빈 줄 2개 연속으로 정규화 */
+function ensureDoubleLineBreaks(text: string): string {
+  if (!text) return text
+  return text.replace(/\n{3,}/g, '\n\n').replace(/\n/g, '\n').trim()
+}
+
+/** 첫 문장만 엄격 추출 (문장 종결 .?!？！\n 까지, 없으면 빈 문자열) */
+function extractStrictFirstSentence(text: string): string {
+  if (!text || typeof text !== 'string') return ''
+  const trimmed = text.trim()
+  const match = trimmed.match(/^.+?[.?!？！\n]/)
+  return match ? match[0].trim() : ''
+}
+
+/** 마지막 문장만 추출 (문장 종결자 기준) */
+function extractLastSentence(text: string): string {
+  if (!text || typeof text !== 'string') return ''
+  const trimmed = text.trim()
+  const parts = trimmed.split(/(?<=[.?!？！\n])\s*/).filter((s) => s.trim().length > 0)
+  return parts.length > 0 ? parts[parts.length - 1].trim() : trimmed
+}
+
 // 질문 본문 문단 자동 분리: 260자+ & 빈 줄 2개 미만이면 3블록으로 분리
 function autoSplitQuestionParagraphs(text: string): string {
   if (!text || text.length < 260) return text
@@ -592,6 +674,7 @@ export async function POST(request: NextRequest) {
     } = await supabase.auth.getUser()
 
     if (!user) {
+      console.warn('[generate-qa] 401 원인: route 내부 auth check — supabase.auth.getUser() returned null (쿠키 없음 또는 세션 만료)')
       return NextResponse.json({ error: '인증이 필요합니다' }, { status: 401 })
     }
 
@@ -870,6 +953,8 @@ export async function POST(request: NextRequest) {
     // 수동 모드: Google CSE 결과에서 추출
     let searchKeywords: string[] = []
     let searchKeywordsWithVolume: Array<{ keyword: string; volume: number | null }> = []
+    let marketHeadKeyword: { keyword: string; volume: number | null; source: 'searchAd' | 'fallback' | 'unavailable' } = { keyword: '', volume: null, source: 'unavailable' }
+    let displayKeywords: Array<{ keyword: string; volume: number | null; role: 'market_head' | 'product_core' | 'concern_search' | 'persona_longtail' | 'intent_head' }> = []
     const keywordCandidates: string[] = []
 
     if (hasUpstreamSearch && designSheetAnalysis?.searchKeywordHints?.length > 0) {
@@ -1343,6 +1428,40 @@ export async function POST(request: NextRequest) {
           console.log('[Q&A 생성] [실패 대응 9절] SearchAd 없음 → Google 후보 폴백:', searchKeywords)
         }
       }
+
+      // marketHeadKeyword: 동일 productGroup 내 실제 검색량 최대 키워드 1개만. 검색량 없으면 volume: null, source: "unavailable" (0 fallback 금지)
+      const marketCandidates = [groupKeyword, ...(RELATED_BIG_KEYWORDS_BY_GROUP[productGroup] || [])]
+      const withVolume = rankedWithVolume.filter(
+        (x) => marketCandidates.some((m) => x.keyword === m || x.keyword.includes(m) || m.includes(x.keyword))
+      )
+      const best = withVolume.length
+        ? withVolume.reduce((a, b) => ((a.volume ?? 0) >= (b.volume ?? 0) ? a : b))
+        : null
+      if (best && best.volume != null && best.volume > 0) {
+        marketHeadKeyword = { keyword: best.keyword, volume: best.volume, source: 'searchAd' }
+      } else if (best) {
+        marketHeadKeyword = { keyword: best.keyword, volume: null, source: 'unavailable' }
+      } else {
+        marketHeadKeyword = { keyword: groupKeyword, volume: null, source: 'unavailable' }
+      }
+      // displayKeywords: SearchAd(searchKeywordsWithVolume) 기준 5칸만. promptKeywords 재사용 금지
+      const volByKw = new Map(searchKeywordsWithVolume.map((x) => [x.keyword.trim(), x.volume]))
+      const safePersonaLabel = (): string => {
+        const raw = designSheetAnalysis?.personaBucket || shortPersonaForKeyword || ''
+        const t = raw.trim()
+        if (!t) return '연령/성별 미확인'
+        if (/^[가-힣]{2,4}$/.test(t) && !/\d+대/.test(t) && !/남|여|남성|여성/.test(t)) return '일반 가입자'
+        return t
+      }
+      const personaLabel = safePersonaLabel()
+      displayKeywords = [
+        { keyword: marketHeadKeyword.keyword, volume: marketHeadKeyword.volume, role: 'market_head' },
+        { keyword: cleanProductCore || shortKeywordName, volume: volByKw.get((cleanProductCore || shortKeywordName).trim()) ?? null, role: 'product_core' },
+        { keyword: topicConcernSearch || '', volume: topicConcernSearch ? (volByKw.get(topicConcernSearch.trim()) ?? null) : null, role: 'concern_search' },
+        { keyword: personaLabel ? `${personaLabel} ${groupKeyword}` : groupKeyword, volume: null, role: 'persona_longtail' },
+        { keyword: `${groupKeyword} 보험료`, volume: volByKw.get(`${groupKeyword} 보험료`.trim()) ?? null, role: 'intent_head' },
+      ]
+      console.log('[Q&A 생성] displayKeywords 5칸 / marketHeadKeyword:', { marketHeadKeyword, displayRoles: displayKeywords.map((d) => d.role) })
     } catch (keywordError) {
       console.warn('[Q&A 생성] Naver SearchAd 키워드 조회 중 오류:', keywordError)
       if (keywordCandidates.length > 0) {
@@ -1350,6 +1469,20 @@ export async function POST(request: NextRequest) {
         searchKeywordsWithVolume = searchKeywords.map((k) => ({ keyword: k, volume: null as number | null }))
         console.log('[Q&A 생성] [실패 대응 9절] SearchAd 예외 → Google 후보 폴백:', searchKeywords)
       }
+      marketHeadKeyword = { keyword: cleanProductCore || '보험', volume: null, source: 'unavailable' }
+      const personaLabelFallback = (): string => {
+        const raw = designSheetAnalysis?.personaBucket || ''
+        if (!raw.trim()) return '연령/성별 미확인'
+        if (/^[가-힣]{2,4}$/.test(raw.trim()) && !/\d+대/.test(raw) && !/남|여/.test(raw)) return '일반 가입자'
+        return raw.trim()
+      }
+      displayKeywords = [
+        { keyword: marketHeadKeyword.keyword, volume: null, role: 'market_head' },
+        { keyword: cleanProductCore || '', volume: null, role: 'product_core' },
+        { keyword: topicConcernSearch || '', volume: null, role: 'concern_search' },
+        { keyword: `${personaLabelFallback()} 보험`, volume: null, role: 'persona_longtail' },
+        { keyword: `${cleanProductCore || '보험'} 보험료`, volume: null, role: 'intent_head' },
+      ]
     }
     
     // API 호출 헬퍼 함수 (재시도 및 폴백 로직 포함, 이미지 지원)
@@ -3018,6 +3151,11 @@ export async function POST(request: NextRequest) {
     }
     if (finalQuestionContent) {
       finalQuestionContent = cleanForBody(finalQuestionContent)
+      finalQuestionContent = ensureDoubleLineBreaks(
+        forceThreeBlockParagraphs(
+          dedupeRepeatedParagraphs(normalizeExclamationMarks(finalQuestionContent))
+        )
+      )
     }
     if (answerContent) {
       answerContent = cleanForBody(answerContent)
@@ -3119,15 +3257,13 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    if (conversationThread.length > 0) {
-      const threadGate = gateThread(conversationThread, { forbiddenPatterns: forbiddenPats })
-      gateResults.push(threadGate)
-      if (!threadGate.passed) {
-        console.warn(`[품질 게이트] 스레드 실패 (${threadGate.score}점): ${threadGate.failures.join(', ')}`)
-        qualityWarnings.push(`스레드 품질 경고: ${threadGate.failures.join('; ')}`)
-      } else {
-        console.log(`[품질 게이트] 스레드 통과 (${threadGate.score}점)`)
-      }
+    const threadGate = gateThread(conversationThread, { forbiddenPatterns: forbiddenPats })
+    gateResults.push(threadGate)
+    if (!threadGate.passed) {
+      console.warn(`[품질 게이트] 스레드 실패 (${threadGate.score}점): ${threadGate.failures.join(', ')}`)
+      qualityWarnings.push(`스레드 품질 경고: ${threadGate.failures.join('; ')}`)
+    } else {
+      console.log(`[품질 게이트] 스레드 통과 (${threadGate.score}점)`)
     }
 
     // ── 인간미 점수 (첫 문장 유사도 검사 포함) ──
@@ -3164,12 +3300,16 @@ export async function POST(request: NextRequest) {
     }
 
     // ── 키워드 건강 게이트 ──
+    const keywordHealthOptions: { displayKeywords?: typeof displayKeywords; marketHeadKeyword?: typeof marketHeadKeyword } = {}
+    if (displayKeywords.length >= 5) keywordHealthOptions.displayKeywords = displayKeywords
+    if (marketHeadKeyword.keyword?.trim()) keywordHealthOptions.marketHeadKeyword = marketHeadKeyword
     const keywordHealthGate = gateKeywordHealth(
       searchKeywords,
       finalQuestionTitle || '',
       finalQuestionContent || '',
       searchKeywordsWithVolume.length > 0 ? searchKeywordsWithVolume : undefined,
-      topicConcern || undefined
+      topicConcern || undefined,
+      Object.keys(keywordHealthOptions).length > 0 ? keywordHealthOptions : undefined
     )
     gateResults.push(keywordHealthGate)
     if (!keywordHealthGate.passed) {
@@ -3181,6 +3321,8 @@ export async function POST(request: NextRequest) {
 
     // ── 운영 리스크 게이트 ──
     const canonicalOverrideApplied = isDesignSheetMode && !!designSheetAnalysis
+    const hasLastAgentContent = !!conversationThread.filter((m) => m.role === 'agent').pop()?.content?.trim()
+    const finalAgentEndingMissing = !!(conversationMode && conversationLength && !hasLastAgentContent)
     const operationalRiskGate = gateOperationalRisk({
       wasRegenerated: regenHistoryEntries.length > 0,
       regenImproved: regenHistoryEntries.some(r => r.improved),
@@ -3188,6 +3330,7 @@ export async function POST(request: NextRequest) {
       familyRepeatCount: 0,
       canonicalOverrideApplied,
       hasDesignSheetAnalysis: !!designSheetAnalysis,
+      finalAgentEndingMissing,
     })
     gateResults.push(operationalRiskGate)
     if (!operationalRiskGate.passed) {
@@ -3198,7 +3341,10 @@ export async function POST(request: NextRequest) {
     }
 
     const overallQuality = calculateOverallScore(gateResults)
-    const failureTags = classifyFailureTags(gateResults)
+    let failureTags = classifyFailureTags(gateResults, qualityWarnings.length)
+    if (qualityWarnings.length > 0 && failureTags.length === 0) {
+      failureTags = ['uncategorized_warning']
+    }
     console.log(`[품질 게이트] 종합 점수: ${overallQuality.totalScore}점, 필드별: ${JSON.stringify(overallQuality.breakdown)}`)
     if (failureTags.length > 0) {
       console.log(`[품질 게이트] failureTags: ${failureTags.join(', ')}`)
@@ -3207,11 +3353,22 @@ export async function POST(request: NextRequest) {
       console.warn(`[품질 게이트] Critical 실패: ${overallQuality.criticalFailures.join(' | ')}`)
     }
 
-    // 현재 결과의 첫 문장을 세션 저장소에 저장 (다음 생성 시 유사도 비교용)
+    // selectedConcernVariant 누락 시 강제 채움 (topicConcern | topicConcernSearch | conflictAxis.keywordNatural)
+    if (!selectedConcernVariant?.trim()) {
+      selectedConcernVariant = topicConcern || topicConcernSearch || (designSheetAnalysis?.conflictAxis as { keywordNatural?: string } | undefined)?.keywordNatural || undefined
+      if (selectedConcernVariant) console.log('[Q&A 생성] concernVariant 강제 채움:', selectedConcernVariant)
+    }
+
+    // 첫 문장/마지막 문장 엄격 추출 (표시층 저장용)
+    const questionFirstSentenceStrict = extractStrictFirstSentence(finalQuestionContent || '')
+    const answerFirstSentenceStrict = extractStrictFirstSentence(answerContent || '')
+    const lastAgentMsg = conversationThread.filter((m) => m.role === 'agent').pop()
+    const finalAgentEndingStrict = lastAgentMsg ? extractLastSentence(lastAgentMsg.content || '') : null
+
     const _getFirst = (t: string) => { const m = t.trim().match(/^.+?[.?!？！\n]/); return m ? m[0].trim() : t.trim().substring(0, 80) }
     const currentFirstSentences: FirstSentences = {
-      questionFirst: _getFirst(finalQuestionContent || ''),
-      answerFirst: _getFirst(answerContent || ''),
+      questionFirst: questionFirstSentenceStrict || _getFirst(finalQuestionContent || ''),
+      answerFirst: answerFirstSentenceStrict || _getFirst(answerContent || ''),
       customerCommentFirst: _getFirst(conversationThread.find(m => m.role === 'customer')?.content || ''),
       agentCommentFirst: _getFirst(conversationThread.find(m => m.role === 'agent')?.content || ''),
     }
@@ -3221,7 +3378,7 @@ export async function POST(request: NextRequest) {
     }
     console.log(`[Q&A 생성] 첫 문장 저장 완료 (저장소 크기: ${recentFirstSentencesStore.length})`)
 
-    // 사용량 로그 (실패해도 응답은 진행) — 문서 13·14절: 버전·KPI 메타
+    // 사용량 로그 (실패해도 응답은 진행) — 문서 13·14절: 버전·KPI 메타. thread/finalAgentEnding 항상 실제값 저장
     const usageLogMeta = {
       productName,
       conversationMode,
@@ -3255,6 +3412,14 @@ export async function POST(request: NextRequest) {
       failureTags: failureTags.length > 0 ? failureTags : undefined,
       regenHistory: regenHistoryEntries.length > 0 ? regenHistoryEntries : undefined,
       latencyMs: Date.now() - startTime,
+      questionFirstSentence: questionFirstSentenceStrict || currentFirstSentences.questionFirst || undefined,
+      answerFirstSentence: answerFirstSentenceStrict || currentFirstSentences.answerFirst || undefined,
+      finalAgentEnding: finalAgentEndingStrict ?? undefined,
+      thread: conversationThread,
+      selectedConcernVariant: selectedConcernVariant || undefined,
+      promptKeywords: searchKeywords && searchKeywords.length > 0 ? searchKeywords : undefined,
+      displayKeywords: displayKeywords.length >= 5 ? displayKeywords : undefined,
+      marketHeadKeyword: marketHeadKeyword.keyword ? marketHeadKeyword : undefined,
       selectedFamilies: {
         openingFamilyId: selectedOpeningFamilyId,
         titlePatternId: selectedTitlePatternId,
@@ -3302,7 +3467,7 @@ export async function POST(request: NextRequest) {
         content: finalAnswerContent,
         generatedAt: new Date().toISOString()
       },
-      conversation: conversationThread.length > 0 ? conversationThread : undefined,
+      conversation: conversationThread,
       qualityGate: {
         totalScore: overallQuality.totalScore,
         breakdown: overallQuality.breakdown,
@@ -3332,12 +3497,20 @@ export async function POST(request: NextRequest) {
         conversationMode: conversationMode || false,
         conversationLength: conversationLength || 0,
         searchKeywords: searchKeywords && searchKeywords.length > 0 ? searchKeywords : undefined,
+        promptKeywords: searchKeywords && searchKeywords.length > 0 ? searchKeywords : undefined,
+        displayKeywords: displayKeywords.length >= 5 ? displayKeywords : undefined,
+        marketHeadKeyword: marketHeadKeyword.keyword ? marketHeadKeyword : undefined,
         promptVersion: QA_PROMPT_VERSION,
         qualityWarnings: qualityWarnings.length > 0 ? qualityWarnings : undefined,
+        failureTags: failureTags.length > 0 ? failureTags : undefined,
         openingFamilyId: selectedOpeningFamilyId,
         titlePatternId: selectedTitlePatternId,
         questionConceptId: selectedQuestionConceptId,
         concernVariant: selectedConcernVariant || undefined,
+        thread: conversationThread,
+        finalAgentEnding: finalAgentEndingStrict ?? undefined,
+        questionFirstSentence: questionFirstSentenceStrict || undefined,
+        answerFirstSentence: answerFirstSentenceStrict || undefined,
       }
     })
   } catch (error: any) {
