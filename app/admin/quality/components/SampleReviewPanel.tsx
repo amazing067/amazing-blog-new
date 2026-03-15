@@ -9,16 +9,44 @@ type SessionSummary = {
   latencyMs: number | null; isDesignSheetMode: boolean; productName: string | null
 }
 
+type DisplayKeywordSlot = { keyword: string; volume: number | null; role: string }
 type SessionDetail = {
   id: string; created_at: string
   user: { id: string; username: string; full_name: string }
   type: string; total_tokens: number; prompt_tokens: number; completion_tokens: number
   meta: Record<string, any>
+  questionTitle?: string | null
+  questionContentSnippet?: string | null
+  qualityGate?: { totalScore?: number; breakdown?: Record<string, number> } | null
+  failureTags?: string[]
+  regenHistory?: unknown[]
+  promptKeywords?: string[] | null
+  displayKeywords?: DisplayKeywordSlot[] | null
+  marketHeadKeyword?: { keyword: string; volume: number | null; source?: string } | null
+  selectedConcernVariant?: string | null
+  openingFamilyId?: string | null
+  titlePatternId?: string | null
+  questionConceptId?: string | null
+  thread?: Array<{ role: string; content: string }> | null
+  finalAgentEnding?: string | null
+  questionFirstSentence?: string | null
+  answerFirstSentence?: string | null
+}
+
+function volumeBadge(vol: number | null | undefined, source?: string) {
+  if (vol != null && vol > 0) return <span className="text-green-600 dark:text-green-400 text-xs">({(vol / 10000).toFixed(1)}만)</span>
+  if (vol === 0) return <span className="text-red-600 dark:text-red-400 text-xs">(fallback 0 경고)</span>
+  if (source === 'unavailable') return <span className="text-gray-500 dark:text-slate-400 text-xs">(미확인)</span>
+  return <span className="text-gray-500 dark:text-slate-400 text-xs">(미확인)</span>
 }
 
 const TAG_SHORT: Record<string, string> = {
   answer_role_leakage: '역할누수', thread_sales_ending: '영업종결', body_no_paragraph: '문단없음',
   answer_no_judgment: '판단없음', human_self_intro: '자기소개', keyword_missing: '키워드없음',
+  uncategorized_warning: '미분류경고',
+}
+const ROLE_LABELS: Record<string, string> = {
+  market_head: '시장 대표', product_core: '상품 핵심', concern_search: '고민 검색', persona_longtail: '페르소나', intent_head: '의도',
 }
 
 export default function SampleReviewPanel({ days }: { days: number }) {
@@ -48,55 +76,86 @@ export default function SampleReviewPanel({ days }: { days: number }) {
       .finally(() => setDetailLoading(false))
   }
 
-  if (loading) return <div className="text-center py-8 text-gray-400">세션 목록 로딩...</div>
+  if (loading) return <div className="text-center py-8 text-gray-500 dark:text-slate-400">세션 목록 로딩...</div>
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-4">
-      <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2"><FileText className="w-5 h-5 text-indigo-500" />실물 샘플 리뷰</h2>
+    <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-700 p-6 space-y-4">
+      <h2 className="text-lg font-bold text-gray-800 dark:text-slate-100 flex items-center gap-2"><FileText className="w-5 h-5 text-indigo-500" />실물 샘플 리뷰</h2>
+      <p className="text-sm text-gray-500 dark:text-slate-400 -mt-2">최근 생성된 Q&A 세션 목록입니다. 행을 클릭하면 해당 건의 품질 점수, 키워드, 실패 태그 등 상세 메타를 확인할 수 있습니다.</p>
 
       {sessions.length === 0 ? (
-        <p className="text-sm text-gray-500">기간 내 세션이 없습니다.</p>
+        <p className="text-sm text-gray-500 dark:text-slate-400">기간 내 세션이 없습니다.</p>
       ) : (
         <div className="space-y-1 max-h-[500px] overflow-y-auto">
           {sessions.map(s => (
             <div key={s.id}>
               <div
-                className={`flex items-center gap-3 py-2 px-3 rounded-lg cursor-pointer text-sm hover:bg-gray-50 ${selectedId === s.id ? 'bg-blue-50' : ''}`}
+                className={`flex items-center gap-3 py-2 px-3 rounded-lg cursor-pointer text-sm hover:bg-gray-50 dark:hover:bg-slate-800 ${selectedId === s.id ? 'bg-blue-50 dark:bg-blue-500/20' : ''}`}
                 onClick={() => loadDetail(s.id)}
               >
-                <span className="text-gray-400 w-24 shrink-0">{new Date(s.created_at).toLocaleDateString('ko-KR')}</span>
-                <span className="w-16 shrink-0 font-medium">{s.username}</span>
-                <span className="flex-1 truncate">{s.questionTitle || '-'}</span>
-                <span className={`w-12 text-right font-bold ${(s.totalScore ?? 0) >= 90 ? 'text-green-600' : (s.totalScore ?? 0) >= 75 ? 'text-amber-600' : 'text-red-600'}`}>
+                <span className="text-gray-500 dark:text-slate-400 w-24 shrink-0">{new Date(s.created_at).toLocaleDateString('ko-KR')}</span>
+                <span className="w-16 shrink-0 font-medium text-gray-900 dark:text-slate-100">{s.username}</span>
+                <span className="flex-1 truncate text-gray-800 dark:text-slate-100">{s.questionTitle || '-'}</span>
+                <span className={`w-12 text-right font-bold ${(s.totalScore ?? 0) >= 90 ? 'text-green-600 dark:text-green-400' : (s.totalScore ?? 0) >= 75 ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400'}`}>
                   {s.totalScore ?? '-'}
                 </span>
                 {s.failureTags.length > 0 && (
-                  <span className="bg-red-50 text-red-600 px-1.5 py-0.5 rounded text-xs">{s.failureTags.length}</span>
+                  <span className="bg-red-500/20 text-red-700 dark:text-red-300 px-1.5 py-0.5 rounded text-xs font-medium">{s.failureTags.length}</span>
                 )}
-                {selectedId === s.id ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
+                {selectedId === s.id ? <ChevronUp className="w-4 h-4 text-gray-500 dark:text-slate-400" /> : <ChevronDown className="w-4 h-4 text-gray-500 dark:text-slate-400" />}
               </div>
 
               {selectedId === s.id && (
-                <div className="bg-gray-50 rounded-lg p-4 mt-1 mb-2 text-sm">
+                <div className="bg-gray-50 dark:bg-slate-800 rounded-lg p-4 mt-1 mb-2 text-sm border border-gray-200 dark:border-slate-600">
                   {detailLoading ? (
-                    <div className="text-gray-400">상세 로딩 중...</div>
+                    <div className="text-gray-500 dark:text-slate-400">상세 로딩 중...</div>
                   ) : detail ? (
-                    <div className="space-y-3">
+                    <div className="space-y-3 text-gray-800 dark:text-slate-200">
                       <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-                        <div><span className="text-gray-500">상품명:</span> {detail.meta?.productName || '-'}</div>
-                        <div><span className="text-gray-500">모드:</span> {detail.meta?.isDesignSheetMode ? '설계서' : '수동'}</div>
-                        <div><span className="text-gray-500">토큰:</span> {detail.total_tokens?.toLocaleString()}</div>
-                        <div><span className="text-gray-500">응답시간:</span> {detail.meta?.latencyMs ? `${(detail.meta.latencyMs / 1000).toFixed(1)}s` : '-'}</div>
-                        <div><span className="text-gray-500">topicCore:</span> {detail.meta?.topicCore || '-'}</div>
-                        <div><span className="text-gray-500">topicConcern:</span> {detail.meta?.topicConcern || '-'}</div>
+                        <div><span className="text-gray-500 dark:text-slate-400">상품명:</span> <span className="text-gray-900 dark:text-slate-100">{detail.meta?.productName || '-'}</span></div>
+                        <div><span className="text-gray-500 dark:text-slate-400">모드:</span> <span className="text-gray-900 dark:text-slate-100">{detail.meta?.isDesignSheetMode ? '설계서' : '수동'}</span></div>
+                        <div><span className="text-gray-500 dark:text-slate-400">토큰:</span> <span className="text-gray-900 dark:text-slate-100">{detail.total_tokens?.toLocaleString()}</span></div>
+                        <div><span className="text-gray-500 dark:text-slate-400">응답시간:</span> <span className="text-gray-900 dark:text-slate-100">{detail.meta?.latencyMs ? `${(detail.meta.latencyMs / 1000).toFixed(1)}s` : '-'}</span></div>
+                        <div><span className="text-gray-500 dark:text-slate-400">topicCore:</span> <span className="text-gray-900 dark:text-slate-100">{detail.meta?.topicCore || '-'}</span></div>
+                        <div><span className="text-gray-500 dark:text-slate-400">topicConcern:</span> <span className="text-gray-900 dark:text-slate-100">{detail.meta?.topicConcern || '-'}</span></div>
                       </div>
 
-                      {detail.meta?.qualityGate && (
+                      {(detail.thread?.length === 0 || detail.finalAgentEnding == null) && (
+                        <div className="bg-amber-50 border border-amber-200 rounded p-2 text-amber-800 text-xs">
+                          운영 경고: {!detail.thread?.length && '스레드 미저장. '}{detail.finalAgentEnding == null && 'finalAgentEnding 미저장.'}
+                        </div>
+                      )}
+
+                      {(detail.questionTitle || detail.questionContentSnippet || detail.questionFirstSentence) && (
                         <div>
-                          <div className="font-bold text-gray-700 mb-1">품질 게이트 ({detail.meta.qualityGate.totalScore}점)</div>
+                          <div className="font-bold text-gray-700 mb-1">질문</div>
+                          <div className="text-gray-600">{detail.questionTitle || '-'}</div>
+                          {detail.questionFirstSentence != null && <div className="text-gray-600 text-xs mt-1">첫 문장: {detail.questionFirstSentence || '(없음)'}</div>}
+                          {detail.questionContentSnippet && <div className="text-gray-500 text-xs mt-1 truncate max-w-full">{detail.questionContentSnippet}</div>}
+                        </div>
+                      )}
+
+                      {(detail.answerFirstSentence != null || detail.finalAgentEnding != null) && (
+                        <div>
+                          <div className="font-bold text-gray-700 mb-1">답변/스레드 문장</div>
+                          {detail.answerFirstSentence != null && <div className="text-xs text-gray-600">답변 첫 문장: {detail.answerFirstSentence || '(없음)'}</div>}
+                          {detail.finalAgentEnding != null && <div className="text-xs text-gray-600 mt-1">마지막 agent 끝 문장: {detail.finalAgentEnding || '(없음)'}</div>}
+                        </div>
+                      )}
+
+                      {detail.thread != null && (
+                        <div>
+                          <div className="font-bold text-gray-700 mb-1">thread</div>
+                          <div className="text-xs text-gray-500">{Array.isArray(detail.thread) ? `${detail.thread.length}개 메시지` : 'null'}</div>
+                        </div>
+                      )}
+
+                      {(detail.qualityGate || detail.meta?.qualityGate) && (
+                        <div>
+                          <div className="font-bold text-gray-700 dark:text-slate-200 mb-1">품질 게이트 ({(detail.qualityGate || detail.meta?.qualityGate)?.totalScore ?? '-'}점)</div>
                           <div className="flex flex-wrap gap-2">
-                            {Object.entries(detail.meta.qualityGate.breakdown || {}).map(([k, v]) => (
-                              <span key={k} className={`px-2 py-0.5 rounded text-xs ${(v as number) >= 90 ? 'bg-green-100 text-green-700' : (v as number) >= 75 ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'}`}>
+                            {Object.entries((detail.qualityGate || detail.meta?.qualityGate)?.breakdown || {}).map(([k, v]) => (
+                              <span key={k} className={`px-2 py-0.5 rounded text-xs font-medium ${(v as number) >= 90 ? 'bg-green-500/20 text-green-700 dark:text-green-300' : (v as number) >= 75 ? 'bg-amber-500/20 text-amber-700 dark:text-amber-300' : 'bg-red-500/20 text-red-700 dark:text-red-300'}`}>
                                 {k}: {v as number}
                               </span>
                             ))}
@@ -104,12 +163,63 @@ export default function SampleReviewPanel({ days }: { days: number }) {
                         </div>
                       )}
 
-                      {Array.isArray(detail.meta?.failureTags) && detail.meta.failureTags.length > 0 && (
+                      {Array.isArray(detail.failureTags ?? detail.meta?.failureTags) && (detail.failureTags ?? detail.meta?.failureTags).length > 0 && (
                         <div>
-                          <div className="font-bold text-gray-700 mb-1">실패 태그</div>
+                          <div className="font-bold text-gray-700 dark:text-slate-200 mb-1">실패 태그</div>
                           <div className="flex flex-wrap gap-1">
-                            {detail.meta.failureTags.map((t: string) => (
-                              <span key={t} className="bg-red-50 text-red-700 px-2 py-0.5 rounded text-xs">{TAG_SHORT[t] || t}</span>
+                            {(detail.failureTags ?? detail.meta?.failureTags).map((t: string) => (
+                              <span key={t} className="bg-red-500/20 text-red-700 dark:text-red-300 px-2 py-0.5 rounded text-xs font-medium">{TAG_SHORT[t] || t}</span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {(detail.marketHeadKeyword != null || detail.displayKeywords?.length) ? (
+                        <div>
+                          <div className="font-bold text-gray-700 dark:text-slate-200 mb-1">대표 키워드 (market_head)</div>
+                          <div className="mb-2 text-gray-900 dark:text-slate-100">
+                            {detail.marketHeadKeyword?.keyword
+                              ? <><span>{detail.marketHeadKeyword.keyword}</span> {volumeBadge(detail.marketHeadKeyword.volume, detail.marketHeadKeyword.source)}</>
+                              : <span className="text-gray-500 dark:text-slate-400">null</span>}
+                          </div>
+                          {Array.isArray(detail.displayKeywords) && detail.displayKeywords.length >= 5 && (
+                            <>
+                              <div className="font-bold text-gray-700 dark:text-slate-200 mb-1">표시용 키워드 5칸 (role별)</div>
+                              <div className="flex flex-wrap gap-2">
+                                {detail.displayKeywords.map((d, i) => (
+                                  <span key={i} className={`px-2 py-0.5 rounded text-xs font-medium ${d.volume != null && d.volume > 0 ? 'bg-green-500/20 text-green-800 dark:text-green-300' : d.volume === 0 ? 'bg-red-500/20 text-red-800 dark:text-red-300' : 'bg-slate-600 text-slate-200'}`}>
+                                    {ROLE_LABELS[d.role] || d.role}: {d.keyword} {d.volume != null && d.volume > 0 ? `(${(d.volume / 10000).toFixed(1)}만)` : d.volume === 0 ? '(fallback 0)' : '(미확인)'}
+                                  </span>
+                                ))}
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      ) : (
+                        <div>
+                          <div className="font-bold text-gray-700 dark:text-slate-200 mb-1">대표 키워드 / 5칸</div>
+                          <div className="text-gray-500 dark:text-slate-400 text-xs">marketHeadKeyword: {detail.marketHeadKeyword == null ? 'null' : '(없음)'} / displayKeywords: {detail.displayKeywords == null ? 'null' : detail.displayKeywords?.length ?? 0}칸</div>
+                        </div>
+                      )}
+
+                      {(detail.selectedConcernVariant || detail.openingFamilyId || detail.titlePatternId || detail.questionConceptId) && (
+                        <div>
+                          <div className="font-bold text-gray-700 dark:text-slate-200 mb-1">선택 Family / Variant</div>
+                          <div className="flex flex-wrap gap-2 text-xs">
+                            {detail.selectedConcernVariant && <span className="bg-blue-500/20 text-blue-800 dark:text-blue-300 px-2 py-0.5 rounded">concern: {detail.selectedConcernVariant}</span>}
+                            {detail.openingFamilyId && <span className="bg-purple-500/20 text-purple-800 dark:text-purple-300 px-2 py-0.5 rounded">opening: {detail.openingFamilyId}</span>}
+                            {detail.titlePatternId && <span className="bg-green-500/20 text-green-800 dark:text-green-300 px-2 py-0.5 rounded">title: {detail.titlePatternId}</span>}
+                            {detail.questionConceptId && <span className="bg-amber-500/20 text-amber-800 dark:text-amber-300 px-2 py-0.5 rounded">concept: {detail.questionConceptId}</span>}
+                          </div>
+                        </div>
+                      )}
+
+                      {Array.isArray(detail.promptKeywords) && detail.promptKeywords.length > 0 && (
+                        <div>
+                          <div className="font-bold text-gray-700 dark:text-slate-200 mb-1">프롬프트 키워드 (내부)</div>
+                          <div className="flex flex-wrap gap-1">
+                            {detail.promptKeywords.map((k, i) => (
+                              <span key={i} className="bg-slate-600 dark:bg-slate-600 text-slate-200 px-2 py-0.5 rounded text-xs">{k}</span>
                             ))}
                           </div>
                         </div>
@@ -117,9 +227,9 @@ export default function SampleReviewPanel({ days }: { days: number }) {
 
                       {Array.isArray(detail.meta?.regenHistory) && detail.meta.regenHistory.length > 0 && (
                         <div>
-                          <div className="font-bold text-gray-700 mb-1">재생성 이력</div>
+                          <div className="font-bold text-gray-700 dark:text-slate-200 mb-1">재생성 이력</div>
                           {detail.meta.regenHistory.map((r: any, i: number) => (
-                            <div key={i} className="text-xs text-gray-600">
+                            <div key={i} className="text-xs text-gray-600 dark:text-slate-300">
                               {r.field}: {r.beforeScore}점 → {r.afterScore}점 ({r.improved ? '개선' : '미개선'})
                             </div>
                           ))}
@@ -128,8 +238,8 @@ export default function SampleReviewPanel({ days }: { days: number }) {
 
                       {detail.meta?.selectedFamilies && (
                         <div>
-                          <div className="font-bold text-gray-700 mb-1">Family 선택</div>
-                          <div className="text-xs text-gray-600">
+                          <div className="font-bold text-gray-700 dark:text-slate-200 mb-1">Family 선택</div>
+                          <div className="text-xs text-gray-600 dark:text-slate-300">
                             Opening: {detail.meta.selectedFamilies.openingFamilyId || '-'} |
                             Title: {detail.meta.selectedFamilies.titlePatternId || '-'} |
                             Concern: {detail.meta.selectedFamilies.concernVariant || '-'}
@@ -139,19 +249,19 @@ export default function SampleReviewPanel({ days }: { days: number }) {
 
                       {detail.meta?.questionTitle && (
                         <div>
-                          <div className="font-bold text-gray-700 mb-1">제목</div>
-                          <div className="text-xs">{detail.meta.questionTitle}</div>
+                          <div className="font-bold text-gray-700 dark:text-slate-200 mb-1">제목</div>
+                          <div className="text-xs text-gray-800 dark:text-slate-200">{detail.meta.questionTitle}</div>
                         </div>
                       )}
                       {detail.meta?.questionContentSnippet && (
                         <div>
-                          <div className="font-bold text-gray-700 mb-1">본문 스니펫</div>
-                          <div className="text-xs text-gray-600 line-clamp-3">{detail.meta.questionContentSnippet}</div>
+                          <div className="font-bold text-gray-700 dark:text-slate-200 mb-1">본문 스니펫</div>
+                          <div className="text-xs text-gray-600 dark:text-slate-300 line-clamp-3">{detail.meta.questionContentSnippet}</div>
                         </div>
                       )}
                     </div>
                   ) : (
-                    <div className="text-gray-400">상세 정보를 불러올 수 없습니다.</div>
+                    <div className="text-gray-500 dark:text-slate-400">상세 정보를 불러올 수 없습니다.</div>
                   )}
                 </div>
               )}

@@ -36,11 +36,14 @@ export default function OperatingStatusBanner({ kpiSummary }: {
     regenRate?: number
     failureTopList?: Array<{ tag: string; count: number }>
     totalQa: number
+    totalRuns?: number
+    avgTotalScore?: number | null
     avgLatencyMs?: number
   }
 }) {
   const avgScores = Object.values(kpiSummary.sectionAverages || {})
-  const avgTotalScore = avgScores.length > 0 ? Math.round(avgScores.reduce((a, b) => a + b, 0) / avgScores.length) : 0
+  const computedAvg = avgScores.length > 0 ? Math.round(avgScores.reduce((a, b) => a + b, 0) / avgScores.length) : 0
+  const avgTotalScore = kpiSummary.avgTotalScore != null ? Math.round(kpiSummary.avgTotalScore) : computedAvg
   const status = getOperatingStatus({
     avgTotalScore,
     qualityWarningRate: kpiSummary.qualityWarningRate,
@@ -48,20 +51,21 @@ export default function OperatingStatusBanner({ kpiSummary }: {
     failureTopList: kpiSummary.failureTopList,
   })
   const cfg = STATUS_CONFIG[status]
+  const totalRuns = kpiSummary.totalRuns ?? kpiSummary.totalQa
 
   return (
-    <div className={`rounded-xl border-2 ${cfg.border} ${cfg.bg} px-6 py-4 flex items-center justify-between`}>
+    <div className={`rounded-xl border-2 ${cfg.border} ${cfg.bg} dark:bg-opacity-20 px-6 py-4 flex items-center justify-between`}>
       <div className="flex items-center gap-3">
         <Shield className={`w-6 h-6 ${cfg.color}`} />
         <div>
           <span className={`text-lg font-bold ${cfg.color}`}>{cfg.label}</span>
-          <span className="text-sm text-gray-600 ml-3">
+          <span className="text-sm text-gray-600 dark:text-slate-300 ml-3">
             평균 품질 {avgTotalScore}점 | 경고율 {kpiSummary.qualityWarningRate ?? 0}% | 재생성율 {kpiSummary.regenRate ?? 0}%
           </span>
         </div>
       </div>
-      <div className="text-sm text-gray-500">
-        총 {kpiSummary.totalQa}건 | 평균 {kpiSummary.avgLatencyMs ? `${(kpiSummary.avgLatencyMs / 1000).toFixed(1)}s` : '-'}
+      <div className="text-sm text-gray-500 dark:text-slate-400">
+        전체 생성 {totalRuns}건 | 평균 {kpiSummary.avgLatencyMs ? `${(kpiSummary.avgLatencyMs / 1000).toFixed(1)}s` : '-'}
       </div>
     </div>
   )

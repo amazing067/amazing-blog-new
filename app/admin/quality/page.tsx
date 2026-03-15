@@ -48,7 +48,7 @@ export default async function AdminQualityPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 dark:from-slate-900 dark:to-slate-800">
       <header className="bg-[#1e293b] shadow-md">
         <div className="container mx-auto px-4 py-4 flex justify-between items-center">
           <div className="flex items-center gap-3">
@@ -89,9 +89,9 @@ export default async function AdminQualityPage() {
               <Shield className="w-6 h-6 text-amber-700" />
             </div>
             <div>
-              <h2 className="text-xl font-bold text-gray-800">품질 게이트 · 실패 대응 · KPI</h2>
-              <p className="text-sm text-gray-500">
-                품질 경고 이력, KPI 요약, 실패 케이스 사전을 한 화면에서 확인하세요.
+              <h2 className="text-xl font-bold text-slate-50 dark:text-slate-50">전체 작성 품질 관제센터</h2>
+              <p className="text-sm text-slate-300 dark:text-slate-300">
+                최근 30일 동안 전체 사용자가 생성한 Q&A를 기준으로 품질, 실패, 키워드 건강 상태를 보여줍니다.
               </p>
             </div>
           </div>

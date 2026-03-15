@@ -36,6 +36,7 @@ const RECOMMENDED_ACTIONS: Record<string, { action: string; priority: 'high' | '
   operational_family_repeat: { action: 'Family 샘플링 중복 방지 로직 강화', priority: 'low' },
   operational_first_sentence_repeat: { action: '첫 문장 유사도 검사 임계값 조정', priority: 'medium' },
   operational_no_analysis: { action: 'canonical override 시 분석 결과 필수 검증', priority: 'high' },
+  uncategorized_warning: { action: '품질 경고 문구를 failureTags 매핑에 추가', priority: 'medium' },
 }
 
 export async function GET(request: NextRequest) {
@@ -81,7 +82,7 @@ export async function GET(request: NextRequest) {
 
     const tagCounts: Record<string, number> = {}
     const tagExamples: Record<string, Array<{ id: string; created_at: string; username: string; questionTitle: string; totalScore: number | null }>> = {}
-    const userFailures: Record<string, { username: string; count: number; tags: Record<string, number> }> = {}
+    const userFailures: Record<string, { username: string; full_name: string; count: number; tags: Record<string, number> }> = {}
 
     for (const r of usageRows || []) {
       const meta = r.meta as any
@@ -90,6 +91,7 @@ export async function GET(request: NextRequest) {
 
       const p = profileMap.get(r.user_id)
       const username = p?.username ?? '-'
+      const full_name = p?.full_name ?? ''
 
       for (const tag of tags) {
         tagCounts[tag] = (tagCounts[tag] || 0) + 1
@@ -106,7 +108,7 @@ export async function GET(request: NextRequest) {
       }
 
       if (!userFailures[r.user_id]) {
-        userFailures[r.user_id] = { username, count: 0, tags: {} }
+        userFailures[r.user_id] = { username, full_name, count: 0, tags: {} }
       }
       userFailures[r.user_id].count += tags.length
       for (const tag of tags) {
@@ -156,6 +158,7 @@ export async function GET(request: NextRequest) {
       .map(([user_id, data]) => ({
         user_id,
         username: data.username,
+        full_name: data.full_name,
         failureCount: data.count,
         topFailureTags: Object.entries(data.tags)
           .sort((a, b) => b[1] - a[1])

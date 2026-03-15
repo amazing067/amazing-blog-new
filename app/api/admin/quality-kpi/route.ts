@@ -107,6 +107,20 @@ export async function GET(request: NextRequest) {
     let totalLatencyMs = 0
     let latencyCount = 0
     let designSheetCount = 0
+    let sumQuestionFirstSim = 0
+    let sumAnswerFirstSim = 0
+    let sumFinalAgentSim = 0
+    let simCount = 0
+    let totalScoreSum = 0
+    let totalScoreCount = 0
+    let totalKeywordSlots = 0
+    let zeroVolumeSlots = 0
+    let qaWithMarketHead = 0
+    let marketHeadNonZero = 0
+    let marketHeadUnavailable = 0
+    let marketHeadFakePresence = 0
+    let threadMissingCount = 0
+    let finalAgentEndingMissingCount = 0
 
     ;(usageRows || []).forEach((r) => {
       if (r.type === 'qa') totalQa++
@@ -137,6 +151,10 @@ export async function GET(request: NextRequest) {
           sectionCounts[key] = (sectionCounts[key] || 0) + 1
         }
       }
+      if (typeof meta?.qualityGate?.totalScore === 'number') {
+        totalScoreSum += meta.qualityGate.totalScore
+        totalScoreCount++
+      }
       if (Array.isArray(meta?.failureTags)) {
         for (const tag of meta.failureTags) {
           failureTagCounts[tag] = (failureTagCounts[tag] || 0) + 1
@@ -151,6 +169,43 @@ export async function GET(request: NextRequest) {
       }
       if (meta?.isDesignSheetMode) {
         designSheetCount++
+      }
+      if (typeof meta?.questionFirstSentenceSimilarity === 'number') {
+        sumQuestionFirstSim += meta.questionFirstSentenceSimilarity
+        simCount++
+      }
+      if (typeof meta?.answerFirstSentenceSimilarity === 'number') {
+        sumAnswerFirstSim += meta.answerFirstSentenceSimilarity
+      }
+      if (typeof meta?.finalAgentEndingSimilarity === 'number') {
+        sumFinalAgentSim += meta.finalAgentEndingSimilarity
+      }
+      const displayKw = meta?.displayKeywords as Array<{ keyword?: string; volume?: number | null }> | undefined
+      if (Array.isArray(displayKw) && displayKw.length > 0) {
+        for (const d of displayKw) {
+          totalKeywordSlots++
+          if (d.volume == null || d.volume === 0) zeroVolumeSlots++
+        }
+      } else {
+        const withVol = meta?.searchKeywordsWithVolume as Array<{ volume?: number | null }> | undefined
+        if (Array.isArray(withVol)) {
+          for (const w of withVol) {
+            totalKeywordSlots++
+            if (w.volume == null || w.volume === 0) zeroVolumeSlots++
+          }
+        }
+      }
+      const mh = meta?.marketHeadKeyword as { keyword?: string; volume?: number | null; source?: string } | undefined
+      if (r.type === 'qa' && mh?.keyword?.trim()) {
+        qaWithMarketHead++
+        if (mh.volume != null && mh.volume > 0) marketHeadNonZero++
+        else if (mh.source === 'unavailable') marketHeadUnavailable++
+        else if (mh.volume === 0) marketHeadFakePresence++
+      }
+      if (r.type === 'qa') {
+        const thread = meta?.thread
+        if (!Array.isArray(thread) || thread.length === 0) threadMissingCount++
+        if (meta?.finalAgentEnding == null || meta?.finalAgentEnding === '') finalAgentEndingMissingCount++
       }
     })
 
@@ -181,9 +236,12 @@ export async function GET(request: NextRequest) {
     const kpiSummary = {
       days,
       since: sinceIso,
+      totalUsers: userIds.length,
+      totalRuns: totalQa,
       totalQa,
       totalBlog,
       totalTokens,
+      avgTotalScore: totalScoreCount > 0 ? Math.round(totalScoreSum / totalScoreCount * 10) / 10 : null,
       totalCostUsd: Math.round(totalCostUsd * 1e6) / 1e6,
       totalCostKrw: Math.round(totalCostUsd * usdToKrw),
       qualityWarningCount,
@@ -196,6 +254,16 @@ export async function GET(request: NextRequest) {
       regenRate: totalQa > 0 ? Math.round(regenCount / totalQa * 1000) / 10 : 0,
       avgLatencyMs: latencyCount > 0 ? Math.round(totalLatencyMs / latencyCount) : 0,
       designSheetModeRate: totalQa > 0 ? Math.round(designSheetCount / totalQa * 1000) / 10 : 0,
+      avgQuestionFirstSentenceSimilarity: simCount > 0 ? Math.round(sumQuestionFirstSim / simCount * 1000) / 1000 : null,
+      avgAnswerFirstSentenceSimilarity: simCount > 0 ? Math.round(sumAnswerFirstSim / simCount * 1000) / 1000 : null,
+      avgFinalAgentEndingSimilarity: simCount > 0 ? Math.round(sumFinalAgentSim / simCount * 1000) / 1000 : null,
+      similarityInsufficientData: simCount === 0,
+      zeroVolumeKeywordRate: totalKeywordSlots > 0 ? Math.round(zeroVolumeSlots / totalKeywordSlots * 1000) / 10 : null,
+      marketHeadNonZeroRate: qaWithMarketHead > 0 ? Math.round(marketHeadNonZero / qaWithMarketHead * 1000) / 10 : null,
+      marketHeadUnavailableRate: qaWithMarketHead > 0 ? Math.round(marketHeadUnavailable / qaWithMarketHead * 1000) / 10 : null,
+      fakePresenceRate: qaWithMarketHead > 0 ? Math.round(marketHeadFakePresence / qaWithMarketHead * 1000) / 10 : null,
+      threadMissingCount,
+      finalAgentEndingMissingCount,
     }
 
     // 연관 키워드 사용 현황 (키워드·검색량 잘 잡히는지 확인용)
