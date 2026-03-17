@@ -39,6 +39,7 @@ type QualityLog = {
 type KpiSummary = {
   days: number
   since: string
+  sinceDate?: string
   totalQa: number
   totalBlog?: number
   totalTokens: number
@@ -60,6 +61,11 @@ type KpiSummary = {
   zeroVolumeKeywordRate?: number | null
   threadMissingCount?: number
   finalAgentEndingMissingCount?: number
+  threadRoleBreakCount?: number
+  internalKeywordLeakRate?: number | null
+  marketHeadMissingRate?: number | null
+  customerConcernDiversityScore?: number | null
+  concernLockRate?: number | null
 }
 
 type KeywordLog = {
@@ -83,8 +89,11 @@ const FAILURE_CASES = [
   { type: 'persona 추출 실패', desc: 'targetPersona에서 나이/성별 파싱 실패 시 기본값만 사용', action: '로그로 추출 결과 확인, 특수 페르소나 케이스 문서화' },
 ]
 
-/** 내일 밤 테스트 시 true로 바꾸면 설계서 배치 테스트 섹션이 다시 보입니다 */
+/** 설계서 배치 테스트/8회 검증 UI 노출 여부 — 나중에 다시 사용 시 true 로 */
 const SHOW_BATCH_TEST_UI = false
+
+const PERIOD_OPTIONS = [7, 30, 365] as const
+const PERIOD_LABELS: Record<number, string> = { 7: '최근 7일', 30: '최근 30일', 365: '전체' }
 
 export default function QualityKpiPanel() {
   const [days, setDays] = useState(30)
@@ -252,16 +261,16 @@ export default function QualityKpiPanel() {
       </div>
       )}
 
-      {/* 기간 선택 */}
+      {/* 기간: 최근 7일 / 최근 30일 / 전체 */}
       <div className="flex flex-wrap items-center gap-4">
         <span className="text-sm font-medium text-gray-600 dark:text-slate-300">기간:</span>
-        {[7, 30, 90].map((d) => (
+        {PERIOD_OPTIONS.map((d) => (
           <button
             key={d}
             onClick={() => setDays(d)}
             className={`px-4 py-2 rounded-lg font-medium transition-colors ${days === d ? 'bg-blue-600 text-white' : 'bg-gray-100 dark:bg-slate-700 text-gray-700 dark:text-slate-200 hover:bg-gray-200 dark:hover:bg-slate-600'}`}
           >
-            최근 {d}일
+            {PERIOD_LABELS[d]}
           </button>
         ))}
       </div>
@@ -275,12 +284,14 @@ export default function QualityKpiPanel() {
           <OperatingStatusBanner kpiSummary={data.kpiSummary} />
 
           {(data.kpiSummary.threadMissingCount ?? 0) > 0 || (data.kpiSummary.finalAgentEndingMissingCount ?? 0) > 0 ? (
-            <div className="rounded-xl border-2 border-amber-500/50 bg-amber-500/10 dark:bg-amber-500/10 px-4 py-3 flex items-center gap-3">
-              <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0" />
-              <div className="text-sm text-amber-800 dark:text-amber-200">
-                <span className="font-bold">운영 경고:</span>
-                {data.kpiSummary.threadMissingCount ? ` 댓글 대화 미저장 ${data.kpiSummary.threadMissingCount}건` : ''}
-                {data.kpiSummary.finalAgentEndingMissingCount ? ` / 최종 마무리 문장 미저장 ${data.kpiSummary.finalAgentEndingMissingCount}건` : ''}
+            <div className="rounded-xl border-2 border-amber-600/70 bg-amber-950 px-4 py-3 flex flex-col md:flex-row md:items-center gap-3">
+              <AlertTriangle className="w-5 h-5 text-amber-200 shrink-0" aria-hidden />
+              <div className="text-sm text-amber-50 font-medium">
+                <span className="font-bold mr-1 text-amber-50">운영 경고 (전체 conversation 모드 기준):</span>
+                <span className="text-amber-50">
+                  {data.kpiSummary.threadMissingCount ? ` 대화형 모드인데 댓글 대화 미저장 ${data.kpiSummary.threadMissingCount}건` : ''}
+                  {data.kpiSummary.finalAgentEndingMissingCount ? ` / 대화형 모드인데 마지막 설계사 마무리 문장 미저장 ${data.kpiSummary.finalAgentEndingMissingCount}건` : ''}
+                </span>
               </div>
             </div>
           ) : null}

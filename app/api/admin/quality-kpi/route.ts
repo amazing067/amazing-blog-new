@@ -40,10 +40,18 @@ export async function GET(request: NextRequest) {
     }
 
     const { searchParams } = new URL(request.url)
-    const days = Math.min(90, Math.max(1, parseInt(searchParams.get('days') || '30', 10)))
-    const since = new Date()
-    since.setDate(since.getDate() - days)
-    const sinceIso = since.toISOString()
+    const sinceDateParam = searchParams.get('sinceDate')?.trim() // YYYY-MM-DD, 오늘부터 새로 시작 시 사용
+    let sinceIso: string
+    let days: number
+    if (sinceDateParam && /^\d{4}-\d{2}-\d{2}$/.test(sinceDateParam)) {
+      sinceIso = `${sinceDateParam}T00:00:00.000Z`
+      days = 0 // "오늘부터" 모드에서는 days 의미 없음, 응답에만 표시용
+    } else {
+      days = Math.min(365, Math.max(1, parseInt(searchParams.get('days') || '30', 10)))
+      const since = new Date()
+      since.setDate(since.getDate() - days)
+      sinceIso = since.toISOString()
+    }
 
     // 최근 usage_logs (qa 위주로 품질 경고 확인용 + KPI 집계용)
     const { data: usageRows, error: usageError } = await client
@@ -121,6 +129,12 @@ export async function GET(request: NextRequest) {
     let marketHeadFakePresence = 0
     let threadMissingCount = 0
     let finalAgentEndingMissingCount = 0
+    let threadRoleBreakCount = 0
+    let internalKeywordLeakChecked = 0
+    let internalKeywordLeakDetectedCount = 0
+    let marketHeadChecked = 0
+    let marketHeadMissingCount = 0
+    const selectedConcernCounts: Record<string, number> = {}
 
     ;(usageRows || []).forEach((r) => {
       if (r.type === 'qa') totalQa++
@@ -203,9 +217,37 @@ export async function GET(request: NextRequest) {
         else if (mh.volume === 0) marketHeadFakePresence++
       }
       if (r.type === 'qa') {
-        const thread = meta?.thread
-        if (!Array.isArray(thread) || thread.length === 0) threadMissingCount++
-        if (meta?.finalAgentEnding == null || meta?.finalAgentEnding === '') finalAgentEndingMissingCount++
+        const isConversationMode = !!meta?.conversationMode
+
+        // 스레드/엔딩 관련 운영 실패는 conversationMode=true 인 경우에만 집계
+        if (isConversationMode) {
+          const thread = meta?.thread
+          if (!Array.isArray(thread) || thread.length === 0) threadMissingCount++
+          if (meta?.finalAgentEnding == null || meta?.finalAgentEnding === '') finalAgentEndingMissingCount++
+
+          const failureTags: string[] | undefined = Array.isArray(meta?.failureTags) ? meta.failureTags : undefined
+          if (failureTags && failureTags.includes('thread_role_break')) {
+            threadRoleBreakCount++
+          }
+        }
+
+        // 내부 키워드 유출 여부 (신규 메타가 있는 경우에만 집계)
+        if (typeof meta?.internalKeywordLeakDetected === 'boolean') {
+          internalKeywordLeakChecked++
+          if (meta.internalKeywordLeakDetected) internalKeywordLeakDetectedCount++
+        }
+
+        // market head 누락 여부 (신규 메타가 있는 경우에만 집계)
+        if (meta?.keywordRoleValidation && typeof meta.keywordRoleValidation.hasMarketHead === 'boolean') {
+          marketHeadChecked++
+          if (!meta.keywordRoleValidation.hasMarketHead) marketHeadMissingCount++
+        }
+
+        // concern 잠김 / 다양성 지표용: selectedCustomerConcern 기반
+        const selConcern = (meta?.selectedCustomerConcern || '').trim()
+        if (selConcern) {
+          selectedConcernCounts[selConcern] = (selectedConcernCounts[selConcern] || 0) + 1
+        }
       }
     })
 
@@ -236,6 +278,7 @@ export async function GET(request: NextRequest) {
     const kpiSummary = {
       days,
       since: sinceIso,
+      sinceDate: sinceDateParam || undefined,
       totalUsers: userIds.length,
       totalRuns: totalQa,
       totalQa,
@@ -264,6 +307,25 @@ export async function GET(request: NextRequest) {
       fakePresenceRate: qaWithMarketHead > 0 ? Math.round(marketHeadFakePresence / qaWithMarketHead * 1000) / 10 : null,
       threadMissingCount,
       finalAgentEndingMissingCount,
+      threadRoleBreakCount,
+      internalKeywordLeakRate: internalKeywordLeakChecked > 0
+        ? Math.round(internalKeywordLeakDetectedCount / internalKeywordLeakChecked * 1000) / 10
+        : null,
+      marketHeadMissingRate: marketHeadChecked > 0
+        ? Math.round(marketHeadMissingCount / marketHeadChecked * 1000) / 10
+        : null,
+      customerConcernDiversityScore: (() => {
+        const totalSessionsWithConcern = Object.values(selectedConcernCounts).reduce((a, b) => a + b, 0)
+        const uniqueConcerns = Object.keys(selectedConcernCounts).length
+        if (totalSessionsWithConcern === 0 || uniqueConcerns === 0) return null
+        return Math.round((uniqueConcerns / totalSessionsWithConcern) * 1000) / 10
+      })(),
+      concernLockRate: (() => {
+        const totalSessionsWithConcern = Object.values(selectedConcernCounts).reduce((a, b) => a + b, 0)
+        if (totalSessionsWithConcern === 0) return null
+        const maxCount = Object.values(selectedConcernCounts).reduce((a, b) => Math.max(a, b), 0)
+        return Math.round((maxCount / totalSessionsWithConcern) * 1000) / 10
+      })(),
     }
 
     // 연관 키워드 사용 현황 (키워드·검색량 잘 잡히는지 확인용)

@@ -9,6 +9,87 @@ export interface TermEntry {
   context?: string
 }
 
+// 설계서/상품 내부 구조어: 고객 노출 키워드에서 반드시 제거되어야 하는 표현들
+export const INTERNAL_PRODUCT_TERMS: (string | RegExp)[] = [
+  '해약환급금미지급형',
+  '무해약',
+  '세만기형',
+  '20년납',
+  '10년납',
+  '2종',
+  '1종',
+  '5N5',
+  'I',
+  'II',
+  'III',
+  'Ⅰ',
+  'Ⅱ',
+  'Ⅲ',
+  /\(\d{3,4}\)/, // (4165), (2601) 등 내부 코드
+]
+
+export type ProductGroup = 'cancer' | 'silsan' | 'simple' | 'jongsin' | 'driver' | 'health' | 'other'
+
+// 상품군별 시장 대표 키워드 (검색량과 무관하게 고정 유지)
+export const MARKET_HEAD_BY_GROUP: Record<ProductGroup, string> = {
+  health: '건강보험',
+  cancer: '암보험',
+  silsan: '실손보험',
+  simple: '간편보험',
+  driver: '운전자보험',
+  jongsin: '종신보험',
+  other: '보험',
+}
+
+// 고객 판단 갈등 축(고객 고민 패밀리)
+export const CUSTOMER_CONCERN_FAMILIES = {
+  keepability_risk: [
+    '지금 보험료는 괜찮은데 오래 유지할 수 있을지 걱정',
+    '중간에 해지하게 되면 손해가 클까 고민',
+    '끝까지 유지하지 못했을 때 낭비가 되는지 걱정',
+  ],
+  price_vs_structure: [
+    '보험료가 구조에 비해 비싼 건 아닌지 고민',
+    '조금 더 내고 구조를 단순하게 가는 게 나을지 헷갈림',
+    '보험료를 아끼다 보니 보장 구조가 너무 공격적인지 걱정',
+  ],
+  coverage_balance: [
+    '내 상황에 비해 보장이 과한지 혹은 부족한지 애매함',
+    '암·입원·수술 보장 비율이 적당한지 고민',
+    '실제 쓰게 될 보장에 맞춰져 있는지 헷갈림',
+  ],
+  age_fit: [
+    '지금 나이에서 이 구조로 들어가는 게 맞는지 고민',
+    '나중 연령대까지 고려하면 지금 가입이 유리한지 헷갈림',
+    '언제까지 이 보험을 끌고 가는 게 좋을지 고민',
+  ],
+  switch_timing: [
+    '지금 갈아타야 할지, 조금 더 기다렸다가 바꿀지 고민',
+    '기존 보험을 유지하면서 추가로 들어가는 게 맞는지 헷갈림',
+    '갈아타면 손해보는 부분이 없는지 걱정',
+  ],
+  judgment_confusion: [
+    '설계서가 복잡해서 어디를 봐야 할지 모르겠음',
+    '설계사가 좋다고 한 부분이 내 기준에도 좋은 건지 헷갈림',
+    '이게 나한테 유리한 구조인지 스스로 판단이 잘 안 됨',
+  ],
+} as const
+
+export type CustomerConcernFamilyKey = keyof typeof CUSTOMER_CONCERN_FAMILIES
+
+export interface TranslateConcernOptions {
+  internalConcern?: string | null
+  productGroup?: ProductGroup
+  targetPersona?: string
+  coverages?: string[]
+  evidenceMapQuestionFacts?: string[]
+}
+
+export interface CustomerConcernResult {
+  internalConcern: string | null
+  customerConcernCandidates: string[]
+}
+
 export const INSURANCE_TERM_DICTIONARY: TermEntry[] = [
   // ── 환급금/해지 관련 ──
   { internal: '해약환급금미지급형', natural: '환급금 없는 구조', context: '중도해지 시 환급금이 없어 보험료가 저렴한 타입' },
@@ -102,17 +183,81 @@ function escapeRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
+// 내부 상품 구조어 여부 판별
+export function isInternalProductTerm(keyword: string | null | undefined): boolean {
+  if (!keyword) return false
+  const text = keyword.replace(/\s+/g, '').trim()
+  if (!text) return false
+  for (const term of INTERNAL_PRODUCT_TERMS) {
+    if (typeof term === 'string') {
+      if (text.includes(term.replace(/\s+/g, ''))) return true
+    } else {
+      if (term.test(text)) return true
+    }
+  }
+  return false
+}
+
+// 고객 노출용 키워드 정제: 내부어/괄호/종류 코드 제거 후 자연어만 남김
+export function sanitizeCustomerFacingKeyword(keyword: string | null | undefined): string | null {
+  if (!keyword) return null
+  let k = keyword
+
+  // 괄호 코드 제거
+  k = k.replace(/\(\d{3,4}\)/g, '')
+
+  // 5N5, 3N4 등 내부 코드 제거
+  k = k.replace(/\b\d+N\d+\b/g, '')
+
+  // 1종, 2종 등 제거
+  k = k.replace(/\d+종(?=\s|$)/g, '')
+
+  // 로마 숫자/한글 로마 숫자 제거
+  k = k.replace(/\s+(I{1,3}|Ⅴ|Ⅰ|Ⅱ|Ⅲ|Ⅳ|Ⅴ)(?=[\s,.\)]|[가-힣]|$)/g, '')
+
+  // 명시된 내부어 문자열 제거
+  for (const term of INTERNAL_PRODUCT_TERMS) {
+    if (typeof term === 'string' && term.length > 0) {
+      const pattern = new RegExp(escapeRegex(term), 'g')
+      k = k.replace(pattern, '')
+    }
+  }
+
+  // 괄호만 남은 조각 제거
+  k = k.replace(/[()]/g, '')
+
+  // 공백 정리
+  k = k.replace(/\s{2,}/g, ' ').trim()
+
+  if (!k) return null
+  return k
+}
+
+// 설계서 모드에서 고객에게 노출하기 전에, 해약환급금/환급 관련 표현을 생활어로 치환
+export function scrubNoRefundStructureTerm(text: string): string {
+  if (!text) return text
+  let result = text
+
+  result = result.replace(/해약\s*환급금\s*미지급형/gi, '중간에 해지하면 돌려받는 돈이 거의 없는 상품 구조')
+  result = result.replace(/환급금\s*미지급형/gi, '중간에 해지하면 돌려받는 돈이 거의 없는 상품 구조')
+  result = result.replace(/해약\s*환급금/gi, '중간에 해지하면 돌려받는 돈')
+  result = result.replace(/환급금/gi, '돌려받는 돈')
+  result = result.replace(/환급/gi, '돌려받는 돈')
+
+  return result
+}
+
 /**
  * concern 동의어 사전: 같은 의미를 다양한 생활형 표현으로 변주
  * 제목에는 원본 concern/search concern 우선, 본문/답변/댓글에서 variant 사용
  */
 export const CONCERN_SYNONYM_MAP: Record<string, string[]> = {
   '해약환급금미지급형': [
-    '환급금이 없는 구조',
+    '중간에 해지하면 돌려받는 돈이 없는 구조',
     '중간에 해지하면 돌려받는 돈이 없는 형태',
     '끝까지 유지해야 의미가 있는 구조',
     '중도해지 부담이 큰 상품 구조',
-    '보험료는 낮지만 해지 리스크가 큰 형태',
+    '보험료는 낮지만 중간에 해지하면 손해가 큰 형태',
     '유지 자신 있을 때 유리한 구조',
   ],
   '갱신형': [
@@ -263,4 +408,139 @@ export function buildCoverageEvidence(coverages: string[]): string[] {
   }
 
   return evidence
+}
+
+export interface ConflictAxisInput {
+  concern: string
+  concernSearch: string
+}
+
+export interface CustomerConcernUpstreamOptions {
+  internalConcern?: string | null
+  productGroup?: ProductGroup
+  targetPersona?: string
+  coverages?: string[]
+}
+
+export interface CustomerConcernUpstreamResult {
+  internalConcern: string | null
+  customerConcernCandidates: string[]
+}
+
+// 내부 concern → 고객 고민 후보군 생성
+export function translateInternalConcernToCustomerCandidates(
+  options: CustomerConcernUpstreamOptions
+): CustomerConcernUpstreamResult {
+  const internalConcern = (options.internalConcern || '').trim()
+  const result: string[] = []
+
+  const families: CustomerConcernFamilyKey[] = [
+    'keepability_risk',
+    'price_vs_structure',
+    'coverage_balance',
+    'age_fit',
+    'switch_timing',
+    'judgment_confusion',
+  ]
+
+  // 상품군 기반 우선순위
+  const pg = options.productGroup || 'other'
+  const prioritizedFamilies: CustomerConcernFamilyKey[] = (() => {
+    switch (pg) {
+      case 'silsan':
+        return ['keepability_risk', 'price_vs_structure', 'switch_timing', 'coverage_balance', 'judgment_confusion', 'age_fit']
+      case 'cancer':
+      case 'health':
+        return ['coverage_balance', 'keepability_risk', 'price_vs_structure', 'age_fit', 'switch_timing', 'judgment_confusion']
+      case 'simple':
+        return ['price_vs_structure', 'keepability_risk', 'judgment_confusion', 'coverage_balance', 'age_fit', 'switch_timing']
+      case 'jongsin':
+        return ['age_fit', 'keepability_risk', 'switch_timing', 'price_vs_structure', 'coverage_balance', 'judgment_confusion']
+      case 'driver':
+        return ['price_vs_structure', 'coverage_balance', 'keepability_risk', 'judgment_confusion', 'age_fit', 'switch_timing']
+      default:
+        return families
+    }
+  })()
+
+  // 내부 concern 패턴 기반 family 힌트
+  const norm = internalConcern.replace(/\s+/g, '')
+  const hintedFamilies = new Set<CustomerConcernFamilyKey>()
+  if (/해약환급금|무해약/.test(norm)) {
+    hintedFamilies.add('keepability_risk')
+    hintedFamilies.add('price_vs_structure')
+  }
+  if (/세만기|만기|종신/.test(norm)) {
+    hintedFamilies.add('age_fit')
+  }
+  if (/갱신|비갱신/.test(norm)) {
+    hintedFamilies.add('keepability_risk')
+    hintedFamilies.add('switch_timing')
+  }
+
+  // coverage 기반 coverage_balance 힌트
+  const coveragesText = (options.coverages || []).join(' ')
+  if (/암|입원|수술|사망|실손|실비/.test(coveragesText)) {
+    hintedFamilies.add('coverage_balance')
+  }
+
+  // persona 기반 age_fit 힌트
+  if (options.targetPersona && /(\d{2})대/.test(options.targetPersona)) {
+    hintedFamilies.add('age_fit')
+  }
+
+  const orderedFamilies: CustomerConcernFamilyKey[] = []
+  for (const f of prioritizedFamilies) {
+    if (hintedFamilies.has(f) && !orderedFamilies.includes(f)) orderedFamilies.push(f)
+  }
+  for (const f of prioritizedFamilies) {
+    if (!orderedFamilies.includes(f)) orderedFamilies.push(f)
+  }
+
+  for (const fam of orderedFamilies) {
+    const variants = CUSTOMER_CONCERN_FAMILIES[fam]
+    for (const v of variants) {
+      if (result.length >= 5) break
+      if (!result.includes(v)) result.push(v)
+    }
+    if (result.length >= 5) break
+  }
+
+  return {
+    internalConcern: internalConcern || null,
+    customerConcernCandidates: result,
+  }
+}
+
+// 최근에 선택된 concern을 피하면서 후보 중 하나 선택
+export function pickCustomerConcernCandidate(
+  candidates: string[],
+  seedOrRecent?: number | string[],
+  recentMaybe?: string[]
+): string | null {
+  if (!candidates || candidates.length === 0) return null
+  const unique = Array.from(new Set(candidates.map(c => c.trim()).filter(Boolean)))
+  if (unique.length === 0) return null
+
+  let seed: number | undefined
+  let recent: string[] | undefined
+
+  // 2-파라미터 사용 패턴 지원:
+  // - pickCustomerConcernCandidate(candidates, recent[])
+  // 3-파라미터 기존 패턴도 유지:
+  // - pickCustomerConcernCandidate(candidates, seed, recent[])
+  if (Array.isArray(seedOrRecent)) {
+    recent = seedOrRecent
+  } else {
+    seed = seedOrRecent
+    recent = recentMaybe
+  }
+
+  const recentSet = new Set((recent || []).map(r => r.trim()).filter(Boolean))
+  const filtered = unique.filter(c => !recentSet.has(c))
+  const pool = filtered.length > 0 ? filtered : unique
+
+  const base = typeof seed === 'number' && !Number.isNaN(seed) ? seed : Math.random()
+  const idx = Math.floor(base * pool.length) % pool.length
+  return pool[idx]
 }

@@ -13,22 +13,56 @@ type FailureAgg = {
 
 type RecommendedAction = { tag: string; action: string; priority: 'high' | 'medium' | 'low' }
 
-const PRIORITY_COLORS = { high: 'text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-500/20', medium: 'text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-500/20', low: 'text-gray-600 dark:text-slate-400 bg-gray-50 dark:bg-slate-700' }
+const PRIORITY_COLORS = {
+  high: 'text-red-100 dark:text-red-100 bg-red-900 dark:bg-red-900 border border-red-500/70',
+  medium: 'text-amber-100 dark:text-amber-100 bg-amber-900 dark:bg-amber-900 border border-amber-500/70',
+  low: 'text-slate-100 dark:text-slate-100 bg-slate-800 dark:bg-slate-800 border border-slate-600/70',
+}
 const PRIORITY_LABELS: Record<string, string> = { high: '높음', medium: '중간', low: '낮음' }
 const TREND_ICONS = { up: TrendingUp, down: TrendingDown, stable: Minus }
 
 const TAG_LABELS: Record<string, string> = {
-  title_too_short: '제목 짧음', title_too_long: '제목 김', title_blog_style: '블로그형 제목', title_internal_code: '내부 코드 노출',
-  body_no_paragraph: '문단 없음', body_formal_tone: '격식체 본문', body_too_short: '본문 짧음', body_too_long: '본문 김', body_exclamation: '느낌표 남발',
-  answer_role_leakage: '역할 누수', answer_no_judgment: '판단 없음', answer_doc_style: '설명체 답변', answer_too_short: '답변 짧음', answer_too_long: '답변 김',
-  thread_sales_ending: '영업 종결', thread_role_break: '역할 흐름 깨짐', thread_too_short: '댓글 짧음', thread_too_long: '댓글 김',
-  human_self_intro: '자기소개', human_excessive_cta: '행동 유도 과다', human_first_sentence_repeat: '첫 문장 반복', human_formal_tone: '격식체', human_role_leakage: '역할 누수',
-  evidence_outside_facts: '근거 이탈', evidence_forbidden_pattern: '금지 패턴',
-  keyword_missing: '키워드 없음', keyword_overweight: '키워드 과밀', keyword_zero_volume: '검색량 0', keyword_no_title: '제목 키워드 없음',
-  operational_regen_no_improvement: '재생성 미개선', operational_family_repeat: '패밀리 반복', operational_first_sentence_repeat: '첫 문장 유사', operational_no_analysis: '분석 없이 덮어쓰기',
-  operational_final_agent_ending_missing: '최종 마무리 문장 미저장',
-  thread_empty: '댓글 대화 없음',
-  uncategorized_warning: '미분류 경고',
+  title_too_short: '제목이 너무 짧아요',
+  title_too_long: '제목이 너무 길어요',
+  title_blog_style: '블로그 광고 같은 제목이에요',
+  title_internal_code: '제목에 상품 코드가 그대로 보여요',
+  body_no_paragraph: '본문에 문단 나눔이 거의 없어요',
+  body_formal_tone: '본문이 약관/설명서 말투예요',
+  body_too_short: '본문이 너무 짧아요',
+  body_too_long: '본문이 너무 길어요',
+  body_exclamation: '느낌표, ㅠㅠ 같은 표현이 너무 많아요',
+  answer_role_leakage: '답변에서 설계사 자기소개나 영업 멘트가 나와요',
+  answer_no_judgment: '답변에 “그래서 어떤지” 정리가 없어요',
+  answer_doc_style: '답변이 안내문처럼 딱딱해요',
+  answer_too_short: '답변이 너무 짧아요',
+  answer_too_long: '답변이 너무 길어요',
+  thread_sales_ending: '댓글이 상담/가입 유도로 끝나요',
+  thread_role_break: '고객/설계사 역할이 섞여 보여요',
+  thread_too_short: '댓글 길이가 너무 짧아요',
+  thread_too_long: '댓글 길이가 너무 길어요',
+  human_self_intro: '“몇 년 경력 설계사입니다” 같은 자기소개가 나와요',
+  human_excessive_cta: '“연락 주세요/문의 주세요”가 너무 자주 나와요',
+  human_first_sentence_repeat: '여러 글의 첫 문장이 너무 비슷해요',
+  human_formal_tone: '전체 말투가 지나치게 격식 있어요',
+  human_role_leakage: '전문가/고객 역할이 헷갈리게 섞여요',
+  evidence_outside_facts: '설계서에 없는 수치나 조건을 확정처럼 말해요',
+  evidence_forbidden_pattern: '“약관을 참고하세요” 같은 금지 문장이 남아 있어요',
+  keyword_missing: '검색 키워드가 거의 안 쓰였어요',
+  keyword_overweight: '키워드를 너무 많이 우겨 넣었어요',
+  keyword_zero_volume: '검색량 0인 키워드가 많이 쓰였어요',
+  keyword_no_title: '제목에 핵심 키워드가 안 들어가요',
+  internal_keyword_leak: '내부 상품 코드/약어가 겉으로 드러났어요',
+  internal_concern_lock: '비슷한 고민 문장이 계속 복붙돼요',
+  market_head_missing: '큰 시장 키워드(암보험, 실손보험 등)가 빠졌어요',
+  market_head_not_big_keyword: '시장 키워드 자리에 애매한 단어가 들어갔어요',
+  customer_concern_missing: '고객 고민 칸이 비어 있거나 내부어로만 채워졌어요',
+  operational_regen_no_improvement: '여러 번 다시 생성했지만 내용이 안 좋아졌어요',
+  operational_family_repeat: '비슷한 제목/패턴이 같은 가족처럼 반복돼요',
+  operational_first_sentence_repeat: '질문·답변 첫 문장이 비슷한 패턴으로 반복돼요',
+  operational_no_analysis: '분석 없이 결과만 덮어쓴 기록이 있어요',
+  operational_final_agent_ending_missing: '마지막 설계사 마무리 문장이 저장되지 않았어요',
+  thread_empty: 'conversation 모드인데 댓글 대화가 비어 있어요',
+  uncategorized_warning: '다른 분류에 안 들어가는 경고예요',
 }
 
 export default function FailureResponseCenter({ days }: { days: number }) {

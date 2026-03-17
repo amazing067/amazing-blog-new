@@ -53,6 +53,22 @@ export async function GET(request: NextRequest) {
     let concernSetCount = 0
     let concernInKeywordsCount = 0
     const rolePresence: Record<string, number> = { market_head: 0, product_core: 0, concern_search: 0, persona_longtail: 0, intent_head: 0 }
+    let marketHeadBigKeywordSessions = 0
+    let internalKeywordLeakCount = 0
+    let sessionsWithCustomerConcern = 0
+    let sessionsWithCustomerLanguageConcern = 0
+
+    const bigMarketHeads = ['건강보험', '암보험', '실손보험', '간편보험', '운전자보험', '종신보험', '보험']
+    const internalPatterns = [
+      /해약환급금미지급형/,
+      /세만기형/,
+      /\d+년납/,
+      /\d+종/,
+      /\b\d+N\d+\b/,
+      /I{1,3}\b/,
+      /[ⅠⅡⅢ]/,
+      /\(\d{3,4}\)/,
+    ]
 
     for (const r of usageRows || []) {
       const meta = r.meta as any
@@ -63,15 +79,41 @@ export async function GET(request: NextRequest) {
       const product: string = meta?.productName || meta?.topicCore || ''
       const concern: string = meta?.topicConcern || ''
 
-      if (Array.isArray(displayKw) && displayKw.length >= 5) {
+      if (Array.isArray(displayKw) && displayKw.length > 0) {
         displayGenCount++
-        if (displayKw.some((d) => d.role === 'market_head' && d.keyword?.trim())) marketHeadPresent++
+
+        const marketHeadSlots = displayKw.filter((d) => d.role === 'market_head' && d.keyword?.trim())
+        if (marketHeadSlots.length > 0) {
+          marketHeadPresent++
+          const hasBig = marketHeadSlots.some((d) => bigMarketHeads.includes((d.keyword || '').trim()))
+          if (hasBig) marketHeadBigKeywordSessions++
+        }
+
+        const concernSlots = displayKw.filter((d) => d.role === 'customer_concern')
+        if (concernSlots.length > 0) {
+          sessionsWithCustomerConcern++
+          const allCustomerLanguage = concernSlots.every((s) => {
+            const kw = (s.keyword || '').trim()
+            if (!kw) return false
+            return !internalPatterns.some((p) => p.test(kw))
+          })
+          if (allCustomerLanguage) sessionsWithCustomerLanguageConcern++
+        }
+
         for (const d of displayKw) {
           displayTotalSlots++
           const role = d.role || ''
           if (role && rolePresence[role] !== undefined) rolePresence[role]++
           if (d.volume == null) displayNullVolume++
           else if (d.volume === 0) displayZeroVolume++
+
+          // 고객 노출 계층에서 내부어 유출 카운트
+          const kw = (d.keyword || '').trim()
+          if (kw && (d.role === 'market_head' || d.role === 'product_core' || d.role === 'customer_concern' || d.role === 'concern_search')) {
+            if (internalPatterns.some((p) => p.test(kw))) {
+              internalKeywordLeakCount++
+            }
+          }
         }
       }
 
@@ -154,13 +196,19 @@ export async function GET(request: NextRequest) {
 
     const totalWithDisplay = displayGenCount
     const displayStats = totalWithDisplay > 0 ? {
+      totalGenerationsWithDisplay: totalWithDisplay,
       marketHeadPresenceRate: Math.round(marketHeadPresent / totalWithDisplay * 1000) / 10,
+      marketHeadBigKeywordRate: totalWithDisplay > 0 ? Math.round(marketHeadBigKeywordSessions / totalWithDisplay * 1000) / 10 : 0,
+      internalKeywordLeakCount,
       zeroVolumeRate: displayTotalSlots > 0 ? Math.round(displayZeroVolume / displayTotalSlots * 1000) / 10 : 0,
       unknownVolumeRate: displayTotalSlots > 0 ? Math.round(displayNullVolume / displayTotalSlots * 1000) / 10 : 0,
       displayWithVolumeRate: displayTotalSlots > 0
         ? Math.round((displayTotalSlots - displayZeroVolume - displayNullVolume) / displayTotalSlots * 1000) / 10
         : 0,
       concernReflectionRate: concernSetCount > 0 ? Math.round(concernInKeywordsCount / concernSetCount * 1000) / 10 : null,
+      concernCustomerLanguageRate: sessionsWithCustomerConcern > 0
+        ? Math.round(sessionsWithCustomerLanguageConcern / sessionsWithCustomerConcern * 1000) / 10
+        : null,
       rolePresenceRate: {
         market_head: totalWithDisplay > 0 ? Math.round(rolePresence.market_head / totalWithDisplay * 1000) / 10 : 0,
         product_core: totalWithDisplay > 0 ? Math.round(rolePresence.product_core / totalWithDisplay * 1000) / 10 : 0,

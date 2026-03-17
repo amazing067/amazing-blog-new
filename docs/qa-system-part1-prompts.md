@@ -450,18 +450,16 @@ export interface QuestionPromptResult {
 // 출력: JSON { "customer": "...", "agent": "..." }
 
 // ============================================
-// generateUnifiedQAPrompt (통합 생성 — 현재 비활성)
+// generateUnifiedQAPrompt (통합 생성 — 통합 경로에서 사용)
 // ============================================
-// 1237~1372행 — 제목 N개 + 질문 본문 + 답변을 1회 Pro 호출
-// PART A: 제목 후보 (titleFamilies별 1개씩)
-// PART B: 질문 본문 (300~500자, 문단 2~3개)
-// PART C: 전문가 답변 (300~500자, 4블록 구조)
+// UnifiedQAPromptData에 selectedConcern, selectedConcernSearch, coverageSummaryForPrompt, coverageFocusLabels 수용.
+// 값이 있으면 공통 규칙에 설계서 고민 축 블록 추가: 고민 축 중심 전개, 보장 요약 1~2개 반영, coverageFocusLabels 참고.
 
 // ============================================
 // generateThreadBatchPrompt (댓글 배치 — 통합 경로용)
 // ============================================
-// 1396~1504행 — N개 댓글을 1회 Pro 호출
-// 각 step별 role/persona/family/길이 자동 지정
+// ThreadBatchPromptData에 selectedConcern, selectedConcernSearch, coverageSummaryForPrompt, coverageFocusLabels 수용.
+// 값이 있으면 공통 규칙에 대화 고민 축·보장 요약 1개 이상 반영 블록 추가.
 
 // ============================================
 // generateReviewMessagePrompt (후기 — 고객)
@@ -512,9 +510,12 @@ export interface QuestionPromptResult {
 [📋 Evidence Map] — questionFacts
 [⛔ 절대 사용 금지] — forbiddenPatterns
 [⚖️ Conflict Axis] — 갈등 구조
+[📌 설계서 고민 축] — (설계서 모드) data에 selectedConcern/selectedConcernSearch/coverageSummaryForPrompt/coverageFocusLabels가 있으면: 질문 중심을 해당 고민 축으로, 보장 요약 1~2개 자연스럽게 반영, 구조어 대신 "보장 구성/쏠림/균형" 표현
 
 [출력 형식] — JSON { "title": "...", "body": "..." }
 ```
+
+- **QAPromptData** 확장 필드(설계서 모드): `selectedConcern`, `selectedConcernSearch`, `coverageSummaryForPrompt`, `coverageFocusLabels`. 질문/답변/댓글/통합/스레드배치 프롬프트에서 destructure 후 값이 있을 때만 설계서 전용 블록 삽입.
 
 ### generateAnswerPrompt 프롬프트 골격
 
@@ -524,10 +525,12 @@ export interface QuestionPromptResult {
 [상품명 사용 규칙]
 - 첫 언급 "{displayName}" 1회 → 이후 "{customerFacingName}"
 - 내부 표기 절대 금지
+- **해지·환급 구조 설명 절대 금지**: "중간에 해지하면 돌려받는 돈이 거의 없는", "해지하면 돌려받는 돈이 없는 구조", "해약환급금이 없는 대신" 등은 전문가 답변에 절대 쓰지 마세요
 
 [⛔ 절대 사용 금지] — forbiddenPatterns
 [📋 답변 근거 사실 (Evidence Map)] — answerFacts
 [⚖️ 판단 축 (Conflict Axis)] — 판단 한 줄 강제
+[📌 설계서 판단 축] — selectedConcern으로 판단 시작, coverageSummaryForPrompt 중 2개 안팎 근거 사용, 고정 문장 반복 금지
 
 [핵심 지침]
 0. 세일즈 모드 (CTA, 구체 숫자)
@@ -565,6 +568,7 @@ export interface QuestionPromptResult {
 3. 카페 댓글 말투
 4. 생활형 표현
 5. conflictAxis 반영
+6. (설계서 모드) [📌 설계서 댓글 축] — 고객: selectedConcern/보장 요약으로 추가 질문, 설계사: 보장 기준 정리·보장 요약 1개 이상 근거, 영업성/동일 마무리 반복 금지
 
 [글자 수]
 쌍0: 고객 150~250 / 설계사 180~280

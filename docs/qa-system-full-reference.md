@@ -5,9 +5,9 @@
 > **핵심 원칙**: "사실은 잠그고, 표현만 단계별로 다듬는다"
 >
 > **관련 소스 파일 목록**:
-> - `app/api/analyze-design-sheet/route.ts` (723줄) — 설계서 분석 API
-> - `app/api/generate-qa/route.ts` (3166줄) — Q&A 생성 API
-> - `lib/prompts/qa-prompt.ts` (1737줄) — 모든 프롬프트 템플릿
+> - `app/api/analyze-design-sheet/route.ts` — 설계서 분석 API (keyCoverages, concern 후보, mainAxis 스코어링, scrubNoRefundStructureTerm)
+> - `app/api/generate-qa/route.ts` — Q&A 생성 API (canonicalConcernContext, 설계서 모드 displayKeywords/promptKeywords 5칸, 4필드 프롬프트 전달)
+> - `lib/prompts/qa-prompt.ts` — 모든 프롬프트 템플릿 (설계서 모드 selectedConcern/coverageSummaryForPrompt 블록, unified/threadBatch 4필드 수용)
 > - `lib/product-name-correction.ts` (356줄) — 상품명 OCR 교정 (alias + fuzzy + 검색 빈도)
 > - `lib/quality-gate.ts` (332줄) — 필드별 품질 게이트
 > - `lib/insurance-terminology.ts` (223줄) — 보험 용어 번역 사전 + 갈등 축
@@ -42,8 +42,9 @@
   ▼
 [analyze-design-sheet API]
   ├─ 1단계: Flash 모델로 기본 정보 추출 (상품명, 보험료, 담보)
-  ├─ 2단계: Google CSE 검색 (4 쿼리: 후기/특약/장점/가입)
-  ├─ 3단계: Pro 모델로 최종 분석 (1단계 결과 + 검색 결과 주입)
+  ├─ 3단계: Pro 모델로 최종 분석 (1단계 결과만 주입, 검색 없음)
+  ├─ 상품명 정규화·keyCoverages·concern 선택 등 후처리
+  ├─ 축 기반 검색: topicConcern/topicConcernSearch 확정 후 브랜드+축으로 1~2회만 검색, 결과 없으면 포기 → searchSummary
   ├─ 상품명 정규화: normalizeExtractedProductName → correctAndLog → convertToCustomerTopicName
   ├─ Evidence Map 구축: questionFacts / answerFacts / forbiddenPatterns
   ├─ Conflict Axis 구축: buildConflictAxis(topicConcern, topicConcernSearch)
@@ -118,19 +119,16 @@
 ⚠️ 이미지에 명시된 정확한 정보만 추출하세요. 추정하지 마세요.
 ```
 
-**2단계: Google CSE 검색** — 4개 쿼리 실행:
+**3단계** — 검색 없이 1단계 결과만으로 최종 분석 (설계서 이미지 기반으로 worryPoint/sellingPoint/축 확정).  
+- **worryPoint/sellingPoint**: 프롬프트에 "해약환급금, 중간에 해지하면 돌려받는 돈, 해약환급금이 없는 대신 등 해지·환급 구조에 대한 문장은 절대 포함하지 마세요"라고 명시하여, **처음부터 해당 문구가 나오지 않도록** 지시함. (후처리로 제거하지 않음)
 
-```typescript
-const searchQueries = [
-  `${searchFriendlyName} 후기`,
-  `${searchFriendlyName} 특약`,
-  `${searchFriendlyName} 장점`,
-  `${searchFriendlyName} 가입`
-]
-// 각 쿼리당 3건 수집, 120ms 간격, 중복 URL 제거
-```
+**축 기반 검색** (3단계·후처리 완료 후):
+- `topicConcern` / `topicConcernSearch`와 `companyShort`가 확정된 경우에만 실행.
+- 쿼리 1: `{companyShort} {topicConcernSearch 또는 topicConcern}` (최대 5건).
+- 결과 없으면 쿼리 2: `{companyShort} {첫 keyCoverage 이름}` (1회만 추가 시도).
+- 결과 없으면 바로 포기. 수집된 결과를 `searchSummary`로 응답에 포함 (generate-qa에서 재사용).
 
-**3단계 프롬프트** (Pro) — 1단계 결과 + 검색 결과 주입:
+**3단계 프롬프트** (Pro) — 1단계 결과만 주입 (검색 블록 없음):
 
 ```
 이 이미지는 보험 설계서/제안서입니다. 이미지를 자세히 읽고,
@@ -191,9 +189,23 @@ if (specialClauses.length > 0)
 // forbiddenPatterns: 절대 사용 금지 내부 표기
 forbiddenPatterns.push('무배당', '(주)', 'Ⅰ', 'Ⅱ', 'Ⅲ', 'II', 'III')
 // + 내부 코드 패턴, 설계사 표현 금지
+// + 설계서 공통: 해지·환급 구조 문구 (질문/답변에 노출 금지)
+forbiddenPatterns.push('중간에 해지하면 돌려받는 돈이 거의 없는')
+forbiddenPatterns.push('해지하면 돌려받는 돈이 없는 구조')
+forbiddenPatterns.push('중도에 해지하면 돌려받는 돈')
+
+// answerFacts에 topicConcern이 있으면 "concern 구조: {naturalConcern}" 추가
+if (topicConcern) answerFacts.push(`concern 구조: ${translateToNatural(topicConcern)}`)
 ```
 
-**최종 응답 구조**: 이전 버전과 동일 (evidenceMap + conflictAxis 포함)
+**keyCoverages·designFocusLabel**:  
+- `keyCoverages` = `buildKeyCoverages(merged)` (merged = cleanCoverages + cleanSpecialClauses 일부). category별 우선순위 정렬 후 최대 5개.  
+- `designFocusLabel` = axisCounts·axisWeight로 mainAxis 산출 후 designFocusLabelMap 매핑 (예: cancer → '암 보장 중심', brain → '치매 보장 중심').  
+- 응답에 `keyCoverages`, `designFocusLabel` 포함. **프론트(BlogGenerator)는 이 두 값을 designSheetAnalysis에 넣어 generate-qa로 전달해야** coverage_focus 슬롯에 암/치매 등 담보 키워드가 반영됨.
+
+**축 후처리**: topicConcern/topicConcernSearch에만 `scrubNoRefundStructureTerm` 적용 (해약환급금미지급형 등 제거). worryPoint/sellingPoint는 3단계에서 뽑지 않도록 지시했으므로 후처리 없음.
+
+**최종 응답 구조**: evidenceMap + conflictAxis + keyCoverages + designFocusLabel 포함
 
 ---
 
@@ -220,24 +232,43 @@ if (isDesignSheetMode) {
 }
 ```
 
-### 3-2. 상품명 구조화 (재정규화 금지)
+### 3-2. canonicalConcernContext (설계서 모드 전용)
+
+설계서 모드(`isDesignSheetMode && designSheetAnalysis`)일 때 상류 분석 결과를 한 번에 정리한 객체:
+
+```typescript
+canonicalConcernContext = {
+  selectedConcern: designSheetAnalysis.topicConcern,
+  selectedConcernSearch: designSheetAnalysis.topicConcernSearch,
+  selectedConcernSource: designSheetAnalysis.selectedConcernSource,
+  selectedConcernReason: designSheetAnalysis.selectedConcernReason,
+  keyCoverages: rawKeyCoverages,  // { name, amount?, isRenewal? }[]
+  coverageSummaryForPrompt: buildCoverageSummaryForPrompt(rawKeyCoverages),  // 고객형 요약 3~5개
+  coverageFocusLabels: buildCoverageFocusLabels(rawKeyCoverages),            // 강조 보장 축 2~4개
+}
+```
+
+- **Canonical Payload**: designSheetAnalysis에 worryPoint·sellingPoint가 있으면 canonical에서 우선 사용(분석 결과가 폼값보다 우선). 프론트는 분석 응답 시 이 두 필드도 designSheetAnalysis에 넣어 전달해야 함.
+- **데이터 소스**: `rawKeyCoverages` = designSheetAnalysis.keyCoverages (각 항목 name = normalizedName || customerLabel || rawName). **프론트가 analyze 응답의 keyCoverages·designFocusLabel을 designSheetAnalysis에 포함해 전달해야** coverageSummaryForPrompt/coverageFocusLabels가 채워짐. 비어 있으면 coverage_focus는 designSheetAnalysis.designFocusLabel로 fallback 후, 없으면 "보장 균형".
+- **프롬프트 전달**: `generateQuestionPrompt`, `generateAnswerPrompt`(메인/재생성/품질게이트), `generateConversationThreadPrompt`, `generateCommentPairPrompt`, `generateUnifiedQAPrompt`, `generateThreadBatchPrompt` 호출 시 `selectedConcern`, `selectedConcernSearch`, `coverageSummaryForPrompt`, `coverageFocusLabels` 4개 필드를 data 객체에 포함.
+- **키워드**: 설계서 모드 displayKeywords 5칸 역할 — `market_head`, `product_core`, `concern_search`, `persona_longtail`, `coverage_focus`. promptKeywords 우선순위: concern_search → product_core → persona_longtail → coverage_focus → market_head. 내부 구조어(해약환급금미지급형, 20년납, 2종 등)는 최종 키워드에서 제외.
+- **usageLogMeta / 응답 metadata**: 설계서 모드일 때 `selectedConcernSource`, `selectedConcernReason`, `selectedConcernSearch`, `coverageSummaryForPrompt`, `coverageFocusLabels` 저장 및 반환.
+
+### 3-3. 상품명 구조화 (재정규화 금지)
 
 ```typescript
 if (preStructured) {
-  // 설계서 분석에서 이미 구조화 완료 → 그대로 사용
   cleanProductCore = designSheetAnalysis.topicCore
   topicConcern = designSheetAnalysis.topicConcern || ''
   topicConcernSearch = designSheetAnalysis.topicConcernSearch || ''
-  companyShort = designSheetAnalysis.companyShort || ''
-  displayProductName = designSheetAnalysis.displayProductName || productName
+  // ...
 } else {
-  // 수동 모드 → convertToCustomerTopicName으로 추출
   const converted = convertToCustomerTopicName(productName)
   // ...
 }
 ```
 
-### 3-3. 검색 재사용
+### 3-4. 검색 재사용
 
 ```typescript
 const hasUpstreamSearch = isDesignSheetMode
@@ -252,7 +283,7 @@ if (hasUpstreamSearch) {
 }
 ```
 
-### 3-4. 키워드 추출 (Naver SearchAd + 스코어링)
+### 3-5. 키워드 추출 (Naver SearchAd + 스코어링)
 
 ```typescript
 // 상품군 판별: cancer/silsan/simple/jongsin/driver/health/other
@@ -264,7 +295,7 @@ if (hasUpstreamSearch) {
 // concern 키워드 최우선 삽입 (설계서 모드)
 ```
 
-### 3-5. Gemini 모델 사용 분배
+### 3-6. Gemini 모델 사용 분배
 
 ```
 Flash 사용 (비용 절감): 질문 생성 (Step 1), 고객 댓글, 후기
@@ -274,7 +305,7 @@ Pro 사용 (품질 유지): 답변 생성 (Step 2), 설계사 댓글, 제목 후
 폴백 순서 (Pro): gemini-2.5-pro → gemini-2.5-flash → gemini-2.0-flash
 ```
 
-### 3-6. Step 1: 질문 생성 (Flash)
+### 3-7. Step 1: 질문 생성 (Flash)
 
 ```typescript
 const questionPromptResult = generateQuestionPrompt({
@@ -283,13 +314,17 @@ const questionPromptResult = generateQuestionPrompt({
   searchResultsText, searchKeywords,
   evidenceMap: designSheetAnalysis?.evidenceMap || undefined,
   conflictAxis: designSheetAnalysis?.conflictAxis || undefined,
+  selectedConcern: selectedConcernForPrompt,
+  selectedConcernSearch: selectedConcernSearchForPrompt,
+  coverageSummaryForPrompt: coverageSummaryForPromptForPrompt,
+  coverageFocusLabels: coverageFocusLabelsForPrompt,
 })
 // Flash 모델로 호출 → JSON 파싱 → 텍스트 파싱 fallback
 // vocative-only 첫 줄 제거 ("선배님들!", "옆집 언니들!")
 // formatQuestionContent: 문단 3개 보장, 문장 중간 줄바꿈 수정
 ```
 
-### 3-7. Step 1.5: 제목 후보 (Pro)
+### 3-8. Step 1.5: 제목 후보 (Pro)
 
 ```typescript
 const sampledFamilies = sampleFamilies(6) // 12개 중 6개 가중치 기반 샘플
@@ -298,7 +333,7 @@ const titlePrompt = buildTitlePrompt({ families, cleanProductCore, topicConcern,
 // 실패 시 규칙형 폴백 5개 후보 중 선택
 ```
 
-### 3-8. Step 2: 답변 생성 (Pro)
+### 3-9. Step 2: 답변 생성 (Pro)
 
 ```typescript
 const answerPrompt = generateAnswerPrompt({
@@ -310,7 +345,7 @@ const answerPrompt = generateAnswerPrompt({
 // 300자 미만 시 자동 1회 재생성
 ```
 
-### 3-9. Step 3: 댓글 2쌍 구조
+### 3-10. Step 3: 댓글 2쌍 구조
 
 ```typescript
 const totalPairs = Math.ceil(threadStepsNeeded / 2) // 보통 2쌍
@@ -329,14 +364,14 @@ for (let pairIdx = 0; pairIdx < totalPairs; pairIdx++) {
 // 마지막 설계사 댓글 직후에 삽입
 ```
 
-### 3-10. 필드별 정제
+### 3-11. 필드별 정제
 
 ```typescript
 // 제목: cleanForTitle (괄호·버전·로마숫자·무배당 모두 제거)
 // 본문/답변/댓글: cleanForBody (버전코드·무배당만 제거, 해약환급금미지급형 등 보존)
 ```
 
-### 3-11. Quality Gate 통합
+### 3-12. Quality Gate 통합
 
 ```typescript
 const gateResults: GateResult[] = []
@@ -356,7 +391,7 @@ if (answerGate.score < 70) {
 const overallQuality = calculateOverallScore(gateResults)
 ```
 
-### 3-12. 최종 응답 구조
+### 3-13. 최종 응답 구조
 
 ```json
 {
@@ -368,12 +403,16 @@ const overallQuality = calculateOverallScore(gateResults)
     "totalScore": 85,
     "breakdown": { "title": 95, "questionBody": 85, "answer": 80, "thread": 90 },
     "allPassed": true,
-    "criticalFailures": []
+    "criticalFailures": [],
+    "qualityWarning": false,
+    "qualitySuggestRegenerate": false
   },
   "usage": { "promptTokens": ..., "completionTokens": ..., "costEstimate": {...} },
   "metadata": { "productName": ..., "topicName": ..., "searchKeywords": [...], ... }
 }
 ```
+
+**품질 게이트 저장 정책**: 저장은 항상 허용(`allow_with_warning`). `qualityWarning`(Critical 실패 존재), `qualitySuggestRegenerate`(총점 70 미만 또는 Critical 실패)가 true이면 클라이언트에서 경고·재생성 유도 문구 표시.
 
 ---
 
@@ -495,6 +534,7 @@ function getDialogueState(currentStep, totalSteps) {
 [📋 Evidence Map] — questionFacts 주입
 [⛔ 절대 사용 금지] — forbiddenPatterns 주입
 [⚖️ Conflict Axis] — 핵심 갈등 구조 주입
+[📌 설계서 고민 축] — (설계서 모드) selectedConcern/selectedConcernSearch + coverageSummaryForPrompt/coverageFocusLabels 있으면: 질문 중심을 해당 고민 축으로, 보장 요약 1~2개 자연스럽게 반영, 구조어 대신 "보장 구성/쏠림/균형" 표현
 [출력 형식] — JSON { "title": "...", "body": "..." }
 ```
 
@@ -508,7 +548,7 @@ function getDialogueState(currentStep, totalSteps) {
 [📋 답변 근거 사실 (Evidence Map)] — answerFacts 주입
   - 근거에 없는 내용 단정 금지, 추정 시 "~로 보입니다" 표시
 [⚖️ 판단 축 (Conflict Axis)] — 판단 한 줄 강제
-  - proCondition / conCondition / summary
+[📌 설계서 판단 축] — (설계서 모드) selectedConcern으로 판단 시작, coverageSummaryForPrompt 중 2개 안팎을 근거로 사용, 고정 문장 반복 금지
 [핵심 지침 0~10]
   0. 세일즈 모드 (CTA, 구체 숫자)
   1. 고객 호명 + 공감 (empathyText 랜덤)
@@ -616,10 +656,18 @@ function getDialogueState(currentStep, totalSteps) {
 | concern | `걱정/고민/궁금/불안/환급금/보험료/보장/해지/유지` | -15 |
 | forbiddenPatterns | | 각 -10 |
 
+### 기타 품질 게이트 (quality-gate.ts)
+
+- **firstSentenceSimilarity**: 질문 본문 첫 문장이 저장된 첫문장과 유사하면 감점 (강한 감점 -20 / 약한 -10).
+- **humanLikeness**: 설계서 문체·기계적 표현 감지 시 감점.
+- **evidenceConsistency**: 답변이 Evidence Map과 충돌하는지 검사.
+- **keywordHealth**: displayKeywords 5칸·marketHead·customer_concern·검색량 등 키워드 건강도. 70점 미만 시 Critical 실패로 기록.
+
 ### calculateOverallScore
 
 ```typescript
-const weights = { title: 20, questionBody: 15, answer: 20, thread: 10 }
+// weights 예시 (실제 코드는 quality-gate.ts 참조)
+const weights = { title: 20, questionBody: 15, answer: 20, thread: 10, humanLikeness: 15, evidenceConsistency: 17, keywordHealth: 12, ... }
 // 가중 평균 → totalScore
 // 70점 미만 → criticalFailures에 추가
 ```
@@ -830,5 +878,56 @@ Title Family별 1개씩 제목 생성 + concern 교차 사용 (내부 고민어 
 
 ---
 
-*전체 소스 코드 약 6,700줄 기준 완전판 정리*
-*최종 업데이트: 2026-03-14*
+## 9. 문제점·개선안·테스트 제안
+
+### 9-1. 핵심 고민이 너무 짧게 나오는 문제
+
+**원인**
+- **topicConcern / worryPoint**: concern 후보 선택 시 `selectedConcernCandidate.concern`은 **고정된 한 문장** 템플릿(예: "상해 쪽 보장은 있는데 질병 대비가 부족한 건 아닌지 걱정")으로 설정됨.
+- 3단계 AI가 생성한 **긴 worryPoint**는, 후보가 선택되면 `buildWorryPointFromConcern`에서 **완전히 덮어쓰기**되어 설계서 기준 자세한 고민이 사라짐.
+- **topicConcernSearch**는 `buildConcernSearchLabel`에서 **20자로 잘림**되어 검색어만 짧게 유지됨.
+
+**해결 방향**
+1. **worryPoint 덮어쓰기 완화**: 설계서 모드에서 `topicConcern`/`topicConcernSearch`는 후보 기준으로 두되, **worryPoint**는 "후보 한 문장 + 3단계 worryPoint 요약 1~2문장" 형태로 합치거나, 후보가 선택되어도 3단계 worryPoint를 **concernDetail** 같은 별도 필드로 보존해 generate 쪽에서 본문/답변에 풍부한 고민 문맥으로 넣기.
+2. **concern 확장 단계 추가**: keyCoverages·premium·담보 이름을 넣어 "이 설계서 기준 구체적 고민 2~3문장"을 한 번 더 생성(또는 3단계 프롬프트에서 worryPoint를 2~4문장으로 쓰라고 강조)하고, 그 결과를 worryPoint 또는 concernDetail로 사용.
+3. **프롬프트에 길이/구체성 지시**: 질문·답변 프롬프트에 "설계서에 나온 담보·보험료를 1~2개 이상 구체적으로 언급하며, 고민을 한두 문장이 아닌 **설계서 기준으로 자세히** 풀어서 써 주세요" 같은 문구 추가.
+
+### 9-2. 답변이 짧거나 일반론으로 흐르는 문제
+
+**현재**
+- 답변 목표 300~450자, soft cap 450자, 300자 미만 시 재생성.
+- 설계서 모드에서 coverageSummaryForPrompt를 근거로 쓰라고 하지만, 실제로 요약이 비어 있으면 설계서 축이 약해짐.
+
+**해결 방향**
+1. **keyCoverages·designFocusLabel 전달**: analyze-design-sheet 응답에 keyCoverages·designFocusLabel이 포함되며, **BlogGenerator가 designSheetAnalysis에 이 두 필드를 넣어 generate-qa에 전달**해야 함. 미전달 시 canonicalConcernContext.coverageFocusLabels/coverageSummaryForPrompt가 비어 있어 coverage_focus가 "보장 균형"으로만 나옴. generate-qa에서는 coverage_focus fallback으로 designFocusLabel 사용.
+2. analyze 단계에서 coverages+specialClauses 병합으로 keyCoverages 구축(이미 반영됨).
+3. 답변 프롬프트에 "**350자 이상** 권장, 설계서 보장을 **2개 이상** 구체적으로 언급해 판단 근거를 제시하세요" 명시.
+3. (선택) 답변 soft cap을 500자로 올리고, 품질 게이트에서 "판단 근거로 보장 2개 이상 언급" 여부를 체크해 미달 시 재생성 유도.
+
+### 9-3. 테스트로 확인할 항목
+
+| 항목 | 확인 방법 |
+|------|-----------|
+| 치매/뇌 위주 설계서 | keyCoverages에 brain 다수, topicConcern이 injury_only가 아님, coverageSummaryForPrompt에 치매·장기요양 등 포함 |
+| 상해 위주 설계서 | injury 담보 2개 이상일 때만 injury_only 후보 생성, mainAxis와 맞는 concern 선택 |
+| 해약환급금미지급형 | topicConcern/topicConcernSearch/worryPoint/제목/displayKeywords에 "해약환급금미지급형" 문구 없음 |
+| 고민/답변 길이 | worryPoint 100자 이상, 질문 본문 300자대, 답변 350자 이상 비율 |
+| 설계서 4필드 전달 | 로그에서 canonicalConcernContext 적용 후, 각 generate* 호출 시 selectedConcern 등 4필드 포함 여부 |
+
+### 9-4. 배치 테스트 스크립트
+
+- `scripts/run-design-sheet-batch-test.mjs`: 여러 설계서 이미지에 대해 analyze → generate-qa 파이프라인 실행 후, 결과 JSON/품질점수/키워드/고민 문구를 저장. 위 표 항목을 스크립트에서 자동 체크하거나, 생성된 worryPoint·questionContent·answerContent 길이와 "보장"/"치매" 등 키워드 포함 여부를 요약하면 유리함.
+
+### 9-5. 추가 개선·확인 사항
+
+| 항목 | 설명 |
+|------|------|
+| **문서–코드 동기화** | analyze-design-sheet 라인 수(723+) 등은 실제 파일 기준으로 주기적으로 맞출 것. |
+| **품질 게이트 가중치** | quality-gate.ts의 calculateOverallScore 가중치(title, questionBody, answer, thread, humanLikeness, evidenceConsistency, keywordHealth)는 코드 기준으로 full-reference와 일치하는지 확인. |
+| **designSheetAnalysis 타입** | 프론트/API 간 designSheetAnalysis 타입을 공유 타입으로 두면 keyCoverages·designFocusLabel 누락 방지에 유리함. |
+| **3단계 검색 블록** | 검색 결과가 있을 때만 3단계 프롬프트에 "[최근 검색 요약]" 블록이 들어감. 축 기반 검색은 3단계·concern 선택 이후에 수행됨. |
+
+---
+
+*전체 소스 코드 기준 완전판 정리*
+*최종 업데이트: 2026-03-17 (3단계 해지·환급 문구 출력 금지, keyCoverages/designFocusLabel 전달, 품질게이트 보조 항목 반영)*

@@ -1,5 +1,6 @@
 import { pickOpeningFamily as _pickOpeningFamily } from '@/lib/title-family'
 import { pickConcernVariant } from '@/lib/insurance-terminology'
+import type { DesignSheetAnalysis } from '@/types/qa'
 
 /**
  * 보험카페 Q&A 자동 생성 프롬프트 템플릿
@@ -397,11 +398,7 @@ export interface QAPromptData {
   answerTone: string
   answerLength?: 'default'
   designSheetImage?: string
-  designSheetAnalysis?: {
-    premium?: string
-    coverages?: string[]
-    specialClauses?: string[]
-  }
+  designSheetAnalysis?: DesignSheetAnalysis | null
   searchResultsText?: string
   searchKeywords?: string[]
   evidenceMap?: {
@@ -416,6 +413,11 @@ export interface QAPromptData {
     conCondition: string
     summary: string
   } | null
+  /** 설계서 모드: 상류(analyze)에서 넘어온 concern/보장 축. 있으면 질문·답변·댓글에 강하게 반영 */
+  selectedConcern?: string
+  selectedConcernSearch?: string
+  coverageSummaryForPrompt?: string[]
+  coverageFocusLabels?: string[]
 }
 
 export interface ConversationMessage {
@@ -449,7 +451,7 @@ export interface QuestionPromptResult {
  * Step 1: 일반인 질문 생성 프롬프트
  */
 export function generateQuestionPrompt(data: QAPromptData): QuestionPromptResult {
-  const { productName, topicName, displayProductName, targetPersona, worryPoint, sellingPoint, designSheetImage, designSheetAnalysis, searchResultsText, searchKeywords, evidenceMap, conflictAxis } = data
+  const { productName, topicName, displayProductName, targetPersona, worryPoint, sellingPoint, designSheetImage, designSheetAnalysis, searchResultsText, searchKeywords, evidenceMap, conflictAxis, selectedConcern, selectedConcernSearch, coverageSummaryForPrompt, coverageFocusLabels } = data
   // 제목·키워드용 (강한 정제)
   const customerFacingName = topicName || productName
   // 본문 첫 언급용 (중간 정제 — 핵심 구조어 보존)
@@ -585,7 +587,7 @@ ${searchResultsText}
        - "갱신 시기 다가와서 이것저것 보다가 질문드려요"
        - "중간에 사정 생기면 어쩌나 싶어서 고민돼요"
        - "설계서 받고 보니까 이게 맞는 건지 헷갈려서요"
-   - 길게 쓰지 마세요. 300~500자 내외로, 문단은 2~3개면 충분합니다.
+   - **본문 길이: 반드시 300~500자 이내로 작성하세요. 550자를 초과하면 시스템에서 잘립니다.** 문단은 2~3개면 충분합니다.
    - **문장 중간에 엔터를 치지 마세요.** 말이 다 끝난 뒤(물음표, 느낌표 뒤)에만 줄을 바꾸세요.
    - 문단은 2~3개로 나누고, 문단 사이에는 빈 줄을 넣으세요.
    - 마침표(.) 금지.
@@ -607,7 +609,8 @@ ${COMMON_GUIDELINES.SENTENCE_INTEGRITY}
 - 본문 첫 언급용 상품명 (1회만): ${displayName}
 - 정식 상품명 (내부 참고만, 글에 그대로 쓰지 말 것): ${productName}
 - 고민: ${worryPoint}
-- 강조점(판매 포인트): ${sellingPoint}
+- 강조점 (답변에서 참고할 포인트): ${sellingPoint}
+- 질문 본문에서는 위 고민이 읽는 사람이 공감할 수 있도록 자연스럽게 드러나면 좋아요.
 ${designSheetAnalysis ? `- 설계서 내용: ${JSON.stringify(designSheetAnalysis)}` : '- 설계서: 없음 (위 고민·강조점만 사용)'}
 ${searchResultsText ? `- 최근 검색 요약: ${searchResultsText}` : ''}
 ${searchKeywords && searchKeywords.length > 0 ? `- 연관 키워드 (상위 1~2개 필수, 나머지 가능하면): ${searchKeywords.join(', ')}` : ''}
@@ -627,24 +630,34 @@ ${conflictAxis ? `
 - 핵심: ${conflictAxis.summary}
 ${concernVariant ? `- 본문에서 이 갈등을 표현할 때 "${concernVariant}" 같은 생활형 표현을 쓰세요 (전문 용어 대신)` : ''}
 이 갈등 구조가 질문 본문에 자연스럽게 드러나야 합니다.` : ''}
+${(selectedConcern ?? selectedConcernSearch) && designSheetAnalysis ? `
+[📌 설계서 고민 축]
+- 질문 초점: "${selectedConcern || selectedConcernSearch}" 축을 중심으로 쓰면 됩니다. 문장을 그대로 복붙하지 말고 자기 말로 풀어서 쓰세요.
+${(coverageSummaryForPrompt?.length ?? 0) > 0 ? `- 보장은 아래 요약 중 1~2개만 자연스럽게 언급하면 됩니다. 구조어보다 "보장 구성", "보장 균형" 쪽 표현을 쓰세요.
+  보장 요약: ${(coverageSummaryForPrompt || []).slice(0, 5).join(' / ')}` : (designSheetAnalysis as { designFocusLabel?: string })?.designFocusLabel ? `- 담보 초점: ${(designSheetAnalysis as { designFocusLabel: string }).designFocusLabel}. 이 초점을 본문에 자연스럽게 녹이세요.` : ''}
+${coverageFocusLabels && coverageFocusLabels.length > 0 ? `- 보장 축 참고: ${coverageFocusLabels.join(', ')}` : ''}` : ''}
+${designSheetAnalysis ? `
+[⛔ 설계서 질문 본문 금지]
+- 질문 **본문**에 "해지하면 돌려받는 돈", "환급금 없는 구조", "중도에 해지하면", "돌려받는 돈이 거의 없는", "해약환급금" 등 해약/환급 구조 설명을 넣지 마세요. 설계서의 중요한 포인트가 아니에요.` : ''}
 ${searchKeywords && searchKeywords.length > 0 ? `
 [연관 키워드 반영]
-- **상위 1~2개**만 반드시 제목 또는 본문에 포함하세요
-- **제목에는 최대 1개**만 넣고, **질문 본문에는 최대 2개** 수준으로 문맥에 녹이세요
-- 억지로 나열하지 말고, 문장 흐름에 맞게 자연스럽게 사용하세요` : ''}
+- 상위 1~2개를 제목 또는 본문에 문맥에 맞게 녹이세요
+- 제목에는 최대 1개, 본문에는 최대 2개 수준으로 자연스럽게 사용하세요` : ''}
 
 [출력 형식 - 반드시 JSON]
 아래 JSON 형식으로만 출력하세요. 다른 텍스트 없이 JSON만 출력하세요.
 \`\`\`json
 {
   "title": "카페 질문형 제목 (25~40자, 의문형 종결)",
-  "body": "카페 질문 본문 (300~500자)"
+  "body": "카페 질문 본문 (반드시 300~500자, 최대 550자 초과 금지)"
 }
 \`\`\`
 
 주의:
 - title과 body를 반드시 분리해서 JSON으로 출력하세요
 - title에는 본문 내용을 넣지 마세요
+- **body는 300~500자 이내로만 작성하세요. 550자 초과 시 잘리므로 길게 쓰지 마세요.**
+- **body는 2~3문단으로 나누고, 문단 사이에 빈 줄을 넣어주세요.** (한 덩어리로 쓰지 말 것)
 - body 첫 문장에 호칭만 단독으로 넣지 마세요 (❌ "선배님들!", ❌ "옆집 언니들!")
 - body 첫 문장은 반드시 상황 설명이나 고민 문장으로 시작하세요
 - JSON 외의 텍스트를 출력하지 마세요`
@@ -663,7 +676,7 @@ ${searchKeywords && searchKeywords.length > 0 ? `
  * Step 2: 전문가 답변 생성 프롬프트
  */
 export function generateAnswerPrompt(data: QAPromptData, questionTitle: string, questionContent: string): string {
-  const { productName, topicName, displayProductName, sellingPoint, answerTone, targetPersona, designSheetAnalysis, answerLength, searchResultsText, searchKeywords } = data
+  const { productName, topicName, displayProductName, sellingPoint, answerTone, targetPersona, designSheetAnalysis, answerLength, searchResultsText, searchKeywords, evidenceMap, conflictAxis, selectedConcern, selectedConcernSearch, coverageSummaryForPrompt, coverageFocusLabels } = data
   const customerFacingName = topicName || productName
   const displayName = displayProductName || customerFacingName
   
@@ -695,9 +708,6 @@ export function generateAnswerPrompt(data: QAPromptData, questionTitle: string, 
   const coverageInfo = designSheetAnalysis?.coverages || []
   const specialClauseInfo = designSheetAnalysis?.specialClauses || []
 
-  // Evidence Map & Conflict Axis (설계서 모드에서 사실 잠금)
-  const { evidenceMap, conflictAxis } = data
-  
   // concern 생활형 변주 (답변에서 사용)
   const rawConcern = conflictAxis?.keyword || ''
   const answerConcernVariant = rawConcern ? pickConcernVariant(rawConcern) : ''
@@ -718,7 +728,7 @@ export function generateAnswerPrompt(data: QAPromptData, questionTitle: string, 
 - 이후에는 "${customerFacingName}"처럼 짧은 주제명만
 - 정식 상품명("${productName}") 그대로 쓰지 말 것
 - 괄호, 버전 코드, 로마숫자(I, II, III), (주), 무배당 같은 내부 표기 절대 금지
-- 해약환급금미지급형, 간편심사 같은 보장 구조어는 자연스럽게 사용 가능
+- 해지·환급 구조 설명 절대 금지: "중간에 해지하면 돌려받는 돈이 거의 없는", "해지하면 돌려받는 돈이 없는 구조", "해약환급금이 없는 대신" 등은 전문가 답변에 절대 쓰지 마세요. 간편심사 등 다른 보장 구조어는 자연스럽게 사용 가능
 ${evidenceMap?.forbiddenPatterns && evidenceMap.forbiddenPatterns.length > 0 ? `
 [⛔ 절대 사용 금지 표기]
 ${evidenceMap.forbiddenPatterns.map(p => `- "${p}"`).join('\n')}` : ''}
@@ -738,44 +748,55 @@ ${searchKeywords && searchKeywords.length > 0 ? `
 - 상위 1~2개만 답변에 자연스럽게 녹이세요 (나열 금지)
 - 키워드: ${searchKeywords.join(', ')}` : ''}
 ${evidenceMap?.answerFacts && evidenceMap.answerFacts.length > 0 ? `
-[📋 답변 근거 사실 (Evidence Map) - 반드시 활용]
-아래는 설계서에서 확인된 사실입니다. 답변은 반드시 이 근거에 기반해야 합니다.
-근거에 없는 내용을 단정적으로 말하지 마세요. 추정할 경우 "~로 보입니다", "~일 가능성이 있어요" 등으로 표시하세요.
+[📋 답변 근거 사실 (Evidence Map)]
+아래는 설계서에서 확인된 사실입니다. 답변은 이 근거를 참고해 쓰면 됩니다.
+근거에 없는 내용은 단정하지 말고, 추정할 경우 "~로 보여요", "~일 수 있어요" 등으로 표시하세요.
 ${evidenceMap.answerFacts.map((f, i) => `${i + 1}. ${f}`).join('\n')}` : ''}
 ${conflictAxis ? `
-[⚖️ 판단 축 (Conflict Axis) - 반드시 반영]
+[⚖️ 판단 축 (Conflict Axis)]
 이 상품의 핵심 판단 갈등:
 - 키워드: ${conflictAxis.keywordNatural}
 - 유리한 경우: ${conflictAxis.proCondition}
 - 불리한 경우: ${conflictAxis.conCondition}
 - 핵심: ${conflictAxis.summary}
-${answerConcernVariant ? `- 답변에서 이 갈등을 설명할 때 "${answerConcernVariant}" 같은 생활형 표현을 쓰세요 (전문 용어 대신)` : ''}
+${answerConcernVariant ? `- 답변에서는 "${answerConcernVariant}" 같은 생활형 표현을 쓰면 좋아요 (전문 용어 대신)` : ''}
 
-답변에 반드시 이 판단 축을 바탕으로 한 "판단 한 줄"을 포함하세요.
-예시: "이 상품은 ${conflictAxis.proCondition.split(' ')[0]}~${conflictAxis.proCondition.split(' ').slice(-2).join(' ')}인데, ${conflictAxis.conCondition.split(' ')[0]}~${conflictAxis.conCondition.split(' ').slice(-2).join(' ')}이기도 해요"
-이 한 줄이 없으면 답변은 정보 나열에 그치게 됩니다.` : ''}
+답변에 이 판단 축을 바탕으로 한 "판단 한 줄"을 넣으면 됩니다.
+예시 느낌: "이 상품은 ${conflictAxis.proCondition.split(' ')[0]}~${conflictAxis.proCondition.split(' ').slice(-2).join(' ')}인데, ${conflictAxis.conCondition.split(' ')[0]}~${conflictAxis.conCondition.split(' ').slice(-2).join(' ')}이기도 해요"` : ''}
+${(selectedConcern ?? selectedConcernSearch) && designSheetAnalysis ? `
+[📌 설계서 판단 축]
+- 판단은 "${selectedConcern || selectedConcernSearch}" 축으로 시작하면 됩니다. 이 고민에 대한 답을 먼저 제시한 뒤 이유를 풀어가세요.
+${(coverageSummaryForPrompt?.length ?? 0) > 0 ? `- 근거는 아래 보장 요약 중 2개 안팎을 사용하면 됩니다. 설계서에 없는 특약·치료는 넣지 마세요.
+  보장 요약: ${(coverageSummaryForPrompt || []).slice(0, 5).join(' / ')}` : (designSheetAnalysis as { designFocusLabel?: string })?.designFocusLabel ? `- 담보 초점: ${(designSheetAnalysis as { designFocusLabel: string }).designFocusLabel}. 이 초점을 근거로 1~2문장 언급하면 됩니다.` : ''}
+${coverageFocusLabels?.length ? `- 보장 축 참고: ${coverageFocusLabels.join(', ')}` : ''}
+- "끝까지 유지할 수 있으면 괜찮다" 같은 고정 문장만 반복하지 말고, 공감 → 판단 → 근거 → 마무리 흐름을 유지하세요.` : ''}
 
 [핵심 지침]
 
-1. **답변 4블록 구조 (반드시 지키세요)**:
-   ① 공감 1문장: "${empathyText}" — 이 톤으로 짧게 걱정 포인트를 받아줌
-   ② 판단 한 줄: ${conflictAxis ? `"${conflictAxis.proCondition}" vs "${conflictAxis.conCondition}" 축으로 바로 판단 제시` : '이 상품이 누구에게 유리하고 누구에게 불리한지 한 줄로 정리'}
-   ③ 이유 2~3개: ${evidenceMap?.answerFacts ? 'Evidence Map 근거 기반으로' : ''} 왜 그런지 구체적 이유 (보험료, 환급금 구조, 보장 범위)
-   ④ 판단 기준 마무리 1문장: "좋다/나쁘다"가 아니라 "이걸 먼저 확인해보면 판단이 쉬워요" 방향
-   ${premiumInfo ? `- 보험료(${premiumInfo}) 언급 필수` : ''}
-   ${coverageInfo.length > 0 ? `- 핵심 담보(${coverageInfo.slice(0, 3).join(', ')}) 언급` : ''}
+1. **답변 4블록 구조**:
+   ① 공감 1문장: "${empathyText}" — 짧게 걱정 포인트를 받아줌
+   ② 판단 한 줄: ${conflictAxis ? `"${conflictAxis.proCondition}" vs "${conflictAxis.conCondition}" 축으로 판단 제시` : '이 상품이 누구에게 유리/불리한지 한 줄로 정리'}
+   ③ 이유 2~3개: ${evidenceMap?.answerFacts ? 'Evidence Map 근거를 참고해' : ''} 왜 그런지 구체적 이유 (보험료, 보장 범위, 유지 가능성)
+   ④ 판단 기준 마무리: "이걸 먼저 확인해보면 판단이 쉬워요" 방향. 여기서 위 "답변 강조 포인트"를 참고해 체크할 항목을 구체화하면 좋아요.
+   ${premiumInfo ? `- 보험료(${premiumInfo})가 있으면 언급` : ''}
+   ${coverageSummaryForPrompt && coverageSummaryForPrompt.length > 0 ? `- 아래 보장 요약 중 최소 2개 이상을 실제 이름을 살짝 풀어서 언급 (대괄호·코드·로마숫자 없이 자연어로)` : coverageInfo.length > 0 ? `- 설계서 담보 중 최소 2개 이상을 실제 이름을 살짝 풀어서 언급 (대괄호·코드·로마숫자 없이 자연어로)` : ''}
 
 2. **말투 규칙**:
    - 톤: ${selectedTone}
-   - 허용: "저라면", "보통은", "이건", "결국", "먼저 볼 건", "핵심은"
+   - 허용: "저라면", "보통은", "이건"
+   - 가급적 피하기: "결국", "먼저 볼 건", "핵심은", "정리해드리면", "따라서", "한번 정리해보면"
    - 금지: "전문적으로 말씀드리면", "상담 경험상", "설계사 관점에서", "연락 주시면", "비교 설계"
    - 예시 느낌:
      * "이건 끝까지 유지 가능하면 괜찮고, 중간 해지 가능성이 있으면 부담이 큰 구조예요"
      * "보험료가 싼 이유가 환급금 구조 때문이라, 가격만 보고 들어가면 나중에 불편할 수 있어요"
      * "납입면제보다 먼저 20년 유지 가능성을 보는 게 더 중요해 보여요"
+${designSheetAnalysis && answerTone === 'expert' ? `
+   - **설계서 모드(expert 톤)**: 전문적인 사람이 존댓말·카페 문장 구조만 빌린 톤으로 작성하세요. 이모티콘/과한 카페체는 줄이고, 치매·장기요양 관련 설계라면 아래처럼 실제로 짚어주는 한 줄을 넣으면 좋습니다.
+     * "치매 진단 기준(CDR)이나 장기요양 등급이 설계서에 어떻게 반영돼 있는지 먼저 보시면 좋아요"
+     * "갱신 시 나이·건강에 따라 보장이 바뀌는지 한 번 확인해보시는 게 좋아요"` : ''}
 ${COMMON_GUIDELINES.NO_PERIOD}
 
-3. **답변 길이**: 300~450자
+3. **답변 길이**: 350~500자
    - 문단 2~3개, 문단 사이 빈 줄
    - 문장 중간 줄바꿈 금지
    - 공감은 짧게, 판단은 날카롭게
@@ -807,11 +828,13 @@ ${empathyText}
 - 질문 내용: ${questionContent}
 - 고객용 주제명 (답변에 사용): ${customerFacingName}
 - 정식 상품명 (내부 참고, 본문 최대 1회만): ${productName}
-- 답변 강조 포인트: ${sellingPoint}
+- 답변 강조 포인트 (참고): ${sellingPoint}
 - 질문자 정보: ${targetPersona}
+- 답변 흐름(공감 → 판단 → 이유 → 마무리) 안에서 위 강조 포인트를 자연스럽게 녹이면 좋아요. 복붙하지 말고 문맥에 맞게 풀어 쓰세요.
 ${premiumInfo ? `- 설계서 보험료: ${premiumInfo}` : ''}
 ${coverageInfo.length > 0 ? `- 설계서 담보: ${coverageInfo.join(', ')}` : ''}
 ${specialClauseInfo.length > 0 ? `- 설계서 특약: ${specialClauseInfo.join(', ')}` : ''}
+${(coverageSummaryForPrompt?.length ?? 0) > 0 ? `- 보장 요약(답변 근거로 사용): ${coverageSummaryForPrompt!.slice(0, 5).join(' / ')}` : ''}
 
 [출력 형식]
 
@@ -874,7 +897,7 @@ export function generateConversationThreadPrompt(
   data: QAPromptData,
   context: ConversationContext
 ): string {
-  const { productName, topicName, displayProductName, targetPersona, worryPoint, sellingPoint, answerTone, answerLength, designSheetAnalysis, searchResultsText, conflictAxis } = data
+  const { productName, topicName, displayProductName, targetPersona, worryPoint, sellingPoint, answerTone, answerLength, designSheetAnalysis, searchResultsText, conflictAxis, selectedConcern, selectedConcernSearch, coverageSummaryForPrompt, coverageFocusLabels } = data
   const customerFacingName = topicName || productName
   const displayName = displayProductName || customerFacingName
   const { initialQuestion, firstAnswer, conversationHistory, totalSteps, currentStep } = context
@@ -1030,6 +1053,11 @@ ${conflictAxis ? `
 - 불리한 경우: ${conflictAxis.conCondition}
 ${threadConcernVariant ? `- 이 갈등을 말할 때 "${threadConcernVariant}" 같은 생활형 표현을 쓰세요` : ''}
 → 이 갈등과 관련된 고민을 자연스럽게 드러내세요` : ''}
+${(selectedConcern ?? selectedConcernSearch) && (coverageSummaryForPrompt?.length ?? 0) > 0 ? `
+[📌 설계서 고민/보장 축]
+- 고객 댓글은 **"${selectedConcern || selectedConcernSearch}"**를 자기 말로 다시 묻거나 확인하는 흐름으로 쓰세요. 또는 아래 보장 요약 중 1개를 집어서 추가 질문하세요.
+- 보장 요약: ${(coverageSummaryForPrompt || []).slice(0, 4).join(' / ')}
+- 매번 "그럼 결국 유지가 핵심이네요"처럼 같은 문장으로 수렴하지 말고, 고민 축에 맞춰 다른 반응을 하세요.` : ''}
 
 [이전 대화]
 Q: ${initialQuestion.title}
@@ -1102,6 +1130,11 @@ ${conflictAxis ? `
 - 핵심 판단: ${conflictAxis.summary}
 ${threadConcernVariant ? `- 이 갈등을 설명할 때 "${threadConcernVariant}" 같은 생활형 표현을 쓰세요` : ''}
 → 이 갈등 구조에 기반해 판단 기준을 제시하세요` : ''}
+${(selectedConcern ?? selectedConcernSearch) && (coverageSummaryForPrompt?.length ?? 0) > 0 ? `
+[📌 설계서 답글 규칙]
+- 답글은 **보장 기준**으로 정리하세요. selectedConcern("${selectedConcern || selectedConcernSearch}")을 그대로 복붙하지 말고 자연스럽게 풀어 설명하세요.
+- 아래 보장 요약 중 **1개 이상**을 실제 판단 근거로 사용하세요. 보장 요약: ${(coverageSummaryForPrompt || []).slice(0, 4).join(' / ')}
+- 마지막 문장은 영업성("연락 주세요", "상담 받아보세요") 금지. "그럼 결국 유지만 잘 하면~" 같은 같은 마무리 문장을 매번 반복하지 말고, 톤을 바꿔서 마무리하세요.` : ''}
 
 [이전 대화]
 ${historyText}
@@ -1125,7 +1158,7 @@ export function generateCommentPairPrompt(
     isLastPair: boolean
   }
 ): string {
-  const { productName, topicName, displayProductName, targetPersona, worryPoint, sellingPoint, designSheetAnalysis, conflictAxis } = data
+  const { productName, topicName, displayProductName, targetPersona, worryPoint, sellingPoint, designSheetAnalysis, conflictAxis, selectedConcern, selectedConcernSearch, coverageSummaryForPrompt, coverageFocusLabels } = data
   const customerFacingName = topicName || productName
   const price = designSheetAnalysis?.premium || '이 보험료'
   const coverage = designSheetAnalysis?.coverages?.[0] || ''
@@ -1189,6 +1222,10 @@ ${conflictAxis ? `5. [⚖️ 핵심 갈등 축 (Conflict Axis)]
    - 핵심 판단: ${conflictAxis.summary}
    ${commentConcernVariant ? `- 댓글에서 이 갈등을 말할 때 "${commentConcernVariant}" 같은 생활형 표현을 쓰세요` : ''}
    → 고객은 이 갈등을 느끼고, 설계사는 판단 기준을 제시하세요.` : ''}
+${(selectedConcern ?? selectedConcernSearch) && (coverageSummaryForPrompt?.length ?? 0) > 0 ? `
+[📌 설계서 댓글 축]
+- 고객 댓글: **"${selectedConcern || selectedConcernSearch}"**를 자기 말로 묻거나, 아래 보장 요약 중 1개를 집어서 추가 질문하세요. 보장 요약: ${(coverageSummaryForPrompt || []).slice(0, 4).join(' / ')}
+- 설계사 답글: 보장 기준으로 정리하고, 위 보장 요약 중 1개 이상을 실제 판단 근거로 사용하세요. 마지막 문장은 영업성 금지. 같은 마무리 문장("결국 유지가 핵심이네요" 등) 반복 금지.` : ''}
 
 [글자 수 제한]
 - 고객 댓글: ${context.pairIndex === 0 ? '150~250자' : '120~200자'}
@@ -1249,6 +1286,7 @@ export function generateUnifiedQAPrompt(data: UnifiedQAPromptData): UnifiedQAPro
     productName, topicName, displayProductName, targetPersona,
     worryPoint, sellingPoint, designSheetAnalysis, searchResultsText, searchKeywords,
     cleanProductCore, personaBucket, topicConcern, topicConcernSearch, titleFamilies,
+    selectedConcern, selectedConcernSearch, coverageSummaryForPrompt, coverageFocusLabels,
   } = data
   const customerFacingName = topicName || productName
   const displayName = displayProductName || customerFacingName
@@ -1302,6 +1340,14 @@ ${unifiedConcernVariant ? `- 본문/답변에서 이 고민을 말할 때 "${uni
     ? `- 핵심키워드: ${searchKeywords.join(', ')} (제목에 1개, 본문에 1~2개, 답변에 1~2개 자연스럽게)`
     : ''
 
+  const hasDesignSheetConcernBlock = (selectedConcern ?? selectedConcernSearch) && (coverageSummaryForPrompt?.length ?? 0) > 0
+  const designSheetConcernBlock = hasDesignSheetConcernBlock
+    ? `- 이번 글의 고민 축: "${selectedConcern || selectedConcernSearch}"를 중심으로 질문과 답변을 전개하세요. 이 문장을 그대로 복붙하지 말고, 고객 입장에서 자연스럽게 풀어 쓰세요.
+- 아래 보장 요약 중 1~2개를 실제 예시로 사용하여, "보장 구성/보장 쏠림/보장 균형" 관점에서 장단점을 설명하세요.
+  보장 요약: ${(coverageSummaryForPrompt || []).slice(0, 5).join(' / ')}
+${coverageFocusLabels && coverageFocusLabels.length > 0 ? `- 강조할 보장 축(참고): ${coverageFocusLabels.join(', ')}` : ''}`
+    : ''
+
   const prompt = `너는 보험카페 Q&A 콘텐츠 전문가다. 아래 설계서 분석 결과를 기반으로 **제목 후보 ${titleFamilies.length}개 + 질문 본문 1개 + 전문가 답변 1개**를 JSON으로 한 번에 생성한다.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1312,6 +1358,7 @@ ${unifiedConcernVariant ? `- 본문/답변에서 이 고민을 말할 때 "${uni
 - 괄호, 버전 코드(3.105 등), 로마숫자(I, II, III), (주), 무배당 같은 내부 표기 금지
 - 입력에 없는 보험료 금액, 보장 기간, 보장 금액, 특약명을 임의로 만들어 넣지 마세요
 ${kwBlock}
+${designSheetConcernBlock}
 ${concernMixGuide}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1410,6 +1457,11 @@ export interface ThreadBatchPromptData {
   questionBody: string
   answerBody: string
   threadSteps: number
+  // 설계서 모드: 대화 전체에 공유할 고민/보장 축
+  selectedConcern?: string
+  selectedConcernSearch?: string
+  coverageSummaryForPrompt?: string[]
+  coverageFocusLabels?: string[]
 }
 
 export function generateThreadBatchPrompt(data: ThreadBatchPromptData): string {
@@ -1417,6 +1469,7 @@ export function generateThreadBatchPrompt(data: ThreadBatchPromptData): string {
     productName, topicName, displayProductName, targetPersona,
     worryPoint, sellingPoint, designSheetAnalysis,
     questionTitle, questionBody, answerBody, threadSteps,
+    selectedConcern, selectedConcernSearch, coverageSummaryForPrompt, coverageFocusLabels,
   } = data
   const customerFacingName = topicName || productName
   const price = designSheetAnalysis?.premium || '이 보험료'
@@ -1501,6 +1554,11 @@ export function generateThreadBatchPrompt(data: ThreadBatchPromptData): string {
 - 각 댓글은 앞선 댓글의 내용을 발전시키되, 같은 주제를 반복하지 말 것
 - 스레드 전체가 자연스러운 하나의 대화 흐름을 이루어야 함
 - 상품명은 "${customerFacingName}" 짧은 주제명만 사용
+${(selectedConcern ?? selectedConcernSearch) && (coverageSummaryForPrompt?.length ?? 0) > 0 ? `
+- 대화의 고민 축: "${selectedConcern || selectedConcernSearch}"를 기준으로, 고객 댓글은 이 고민을 자기 말로 다시 묻거나 확인하고 설계사 답글은 이 고민에 대한 판단 기준을 제시하세요.
+- 아래 보장 요약 중 1개 이상을 실제 예시로 사용하여, "보장 구성/보장 쏠림/보장 균형" 관점에서 장단점을 설명하세요.
+  보장 요약: ${(coverageSummaryForPrompt || []).slice(0, 5).join(' / ')}
+${coverageFocusLabels && coverageFocusLabels.length > 0 ? `- 강조할 보장 축(참고): ${coverageFocusLabels.join(', ')}` : ''}` : ''}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 원글 컨텍스트

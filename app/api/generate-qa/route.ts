@@ -6,7 +6,156 @@ import { searchGoogle, SearchResult } from '@/lib/google-search'
 import { getBestKeywordsFromNaverSearchAd } from '@/lib/naver-searchad'
 import { convertToCustomerTopicName, extractPersonaBucket, type TopicStructure } from '@/lib/topic-utils'
 import { sampleFamilies, buildTitlePrompt, scoreTitleCandidate as scoreTitleFamily, pickOpeningFamily, OPENING_FAMILIES, type TitleScoreInput } from '@/lib/title-family'
-import { gateTitle, gateQuestionBody, gateAnswer, gateThread, gateHumanLikeness, gateEvidenceConsistency, gateKeywordHealth, gateOperationalRisk, calculateOverallScore, classifyFailureTags, type GateResult, type FirstSentences, type FailureTag } from '@/lib/quality-gate'
+import { gateTitle, gateQuestionBody, gateAnswer, gateThread, gateHumanLikeness, gateEvidenceConsistency, gateKeywordHealth, gateOperationalRisk, calculateOverallScore, classifyFailureTags, type GateResult, type FirstSentences, type FailureTag, type DisplayKeywordSlot } from '@/lib/quality-gate'
+import { MARKET_HEAD_BY_GROUP, sanitizeCustomerFacingKeyword, isInternalProductTerm, pickCustomerConcernCandidate, scrubNoRefundStructureTerm } from '@/lib/insurance-terminology'
+import type { GenerateQABody } from '@/types/qa'
+
+/** 품질 게이트 저장 정책: 저장은 항상 허용. 품질 미달 시 qualityWarning/qualitySuggestRegenerate 플래그로 클라이언트에서 경고·재생성 유도 */
+const QUALITY_GATE_SAVE_POLICY = 'allow_with_warning' as const
+
+/**
+ * 방어 로직 (유지 권장)
+ * - 요청: normalizeGenerateQABody()로 body 정규화 후 필수 필드 검증
+ * - AI 응답: response.text() try-catch, AI 출력 JSON.parse는 try-catch 또는 safeParseJson
+ * - 응답: question/answer/conversation/qualityGate 필드에 안전 기본값 적용 (undefined 방지)
+ * - 파이프라인: POST 상단 JSDoc 참고 (Step 1 → 1.5 → 2 → 3)
+ */
+
+type DisplayRole =
+  | 'market_head'
+  | 'product_core'
+  | 'customer_concern'
+  | 'persona_longtail'
+  | 'intent_head'
+  | 'concern_search'
+  | 'coverage_focus'
+type DisplaySlot = { keyword: string; volume: number | null; role: DisplayRole }
+
+type KeyCoverageForPrompt = {
+  name: string
+  amount?: string
+  isRenewal?: boolean
+}
+
+type CanonicalConcernContext = {
+  selectedConcern: string
+  selectedConcernSearch: string
+  selectedConcernSource: string
+  selectedConcernReason: string
+  keyCoverages: KeyCoverageForPrompt[]
+  coverageSummaryForPrompt: string[]
+  coverageFocusLabels: string[]
+}
+
+const DESIGN_SHEET_FORBIDDEN_KEYWORD_PATTERNS: RegExp[] = [
+  /해약환급금미지급형/,
+  /무해지/,
+  /무배당/,
+  /20년납/,
+  /30년납/,
+  /세만기형/,
+  /\b1종\b/,
+  /\b2종\b/,
+  /5N5/i,
+  /[ⅠⅡⅢ]/,
+  /\b[IVX]{1,3}\b/,
+  /\(\d+\)/,
+]
+
+function isDesignSheetForbiddenTerm(keyword: string | null | undefined): boolean {
+  if (!keyword) return false
+  const compact = keyword.replace(/\s+/g, '')
+  return DESIGN_SHEET_FORBIDDEN_KEYWORD_PATTERNS.some((re) => re.test(compact))
+}
+
+function normalizeCoverageNameForPrompt(name: string): string {
+  let n = name || ''
+  // 괄호 코드, 로마숫자, 연속 공백 제거
+  n = n.replace(/\([^)]*\d+[^)]*\)/g, '')
+  n = n.replace(/\s+(I{2,3}|IV|VI{0,3})(?=[\s,.]|[가-힣]|$)/g, '')
+  n = n.replace(/\s+(Ⅰ|Ⅱ|Ⅲ|Ⅳ|Ⅴ)(?=[\s,.]|[가-힣]|$)/g, '')
+  n = n.replace(/\s+/g, ' ').trim()
+  return n
+}
+
+function buildCoverageSummaryForPrompt(keyCoverages: KeyCoverageForPrompt[] | undefined | null): string[] {
+  if (!Array.isArray(keyCoverages) || keyCoverages.length === 0) return []
+
+  const summaries: string[] = []
+  const seenBuckets = new Set<string>()
+
+  const pushSummary = (bucket: string, label: string) => {
+    if (seenBuckets.has(bucket)) return
+    seenBuckets.add(bucket)
+    summaries.push(label)
+  }
+
+  for (const cov of keyCoverages) {
+    const rawName = normalizeCoverageNameForPrompt(cov.name || '')
+    const lower = rawName.toLowerCase()
+
+    if (!rawName) continue
+
+    if (/치매|뇌\s|장기요양|CDR|인지/.test(rawName)) {
+      pushSummary('brain', '치매·장기요양 보장')
+    } else if (/암/.test(rawName)) {
+      pushSummary('cancer', '암 치료비 보장')
+    } else if (/수술/.test(rawName)) {
+      pushSummary('surgery', '수술 관련 보장')
+    } else if (/항암|방사선|표적/.test(rawName)) {
+      pushSummary('anti_cancer', '항암치료 보장')
+    } else if (/입원/.test(rawName)) {
+      pushSummary('hospital', '입원 치료비 보장')
+    } else if (/상해/.test(rawName)) {
+      pushSummary('injury', '상해 관련 보장')
+    } else if (/질병/.test(rawName)) {
+      pushSummary('disease', '질병 대비 보장')
+    } else if (/납입면제|면제/.test(rawName)) {
+      pushSummary('waiver', '보험료 납입면제 관련 보장')
+    } else {
+      const generic = rawName.replace(/보험|특약|담보/g, '').trim() || rawName
+      const bucket = `other:${generic}`
+      if (!seenBuckets.has(bucket)) {
+        seenBuckets.add(bucket)
+        summaries.push(`${generic} 보장`)
+      }
+    }
+
+    if (summaries.length >= 5) break
+  }
+
+  return summaries.slice(0, 5)
+}
+
+function buildCoverageFocusLabels(keyCoverages: KeyCoverageForPrompt[] | undefined | null): string[] {
+  if (!Array.isArray(keyCoverages) || keyCoverages.length === 0) return []
+
+  const labels = new Set<string>()
+
+  for (const cov of keyCoverages) {
+    const name = normalizeCoverageNameForPrompt(cov.name || '')
+    if (!name) continue
+
+    if (/치매|뇌\s|장기요양|CDR/.test(name)) labels.add('치매·장기요양')
+    else if (/암/.test(name)) labels.add('암')
+    else if (/수술/.test(name)) labels.add('수술비')
+    else if (/항암|방사선|표적/.test(name)) labels.add('항암치료')
+    else if (/입원/.test(name)) labels.add('입원비')
+    else if (/상해/.test(name)) labels.add('상해')
+    else if (/질병/.test(name)) labels.add('질병 대비')
+    else if (/납입면제|면제/.test(name)) labels.add('납입면제')
+
+    if (labels.size >= 4) break
+  }
+
+  if (labels.size === 0) return []
+  return Array.from(labels).slice(0, 4)
+}
+
+/** null을 undefined로만 통일 (프롬프트 타입이 undefined만 허용할 때 사용) */
+function toUndefined<T>(v: T | null | undefined): T | undefined {
+  return v == null ? undefined : v
+}
 
 /** 문서 14절: 프롬프트·운영 명세 버전 (변경 시 문서 버전 표 업데이트) */
 const QA_PROMPT_VERSION = '1.2'
@@ -92,6 +241,45 @@ const estimateCost = (usages: TokenUsage[]): CostEstimate => {
     totalCost,
     details
   }
+}
+
+// ============================================
+// 방어: AI/외부 응답 파싱 (JSON 파싱 실패 시 로그 + fallback)
+// ============================================
+function safeParseJson<T>(raw: string, fallback: T, label = 'JSON'): T {
+  if (raw == null || typeof raw !== 'string') return fallback
+  const trimmed = raw.trim()
+  if (!trimmed) return fallback
+  try {
+    const parsed = JSON.parse(trimmed) as T
+    return parsed != null ? parsed : fallback
+  } catch (e) {
+    console.warn(`[Q&A 생성] ${label} 파싱 실패, fallback 사용:`, (e as Error)?.message?.slice(0, 100))
+    return fallback
+  }
+}
+
+/** 요청 body 필드 정규화: 문자열은 trim, designSheetAnalysis는 객체만 허용 (null/배열 등은 null로) */
+function normalizeGenerateQABody(raw: GenerateQABody): GenerateQABody {
+  const body = { ...raw }
+  if (typeof body.productName !== 'string') body.productName = ''
+  else body.productName = body.productName.trim()
+  if (typeof body.targetPersona !== 'string') body.targetPersona = ''
+  else body.targetPersona = body.targetPersona.trim()
+  if (typeof body.worryPoint !== 'string') body.worryPoint = ''
+  else body.worryPoint = body.worryPoint.trim()
+  if (typeof body.sellingPoint !== 'string') body.sellingPoint = ''
+  else body.sellingPoint = body.sellingPoint.trim()
+  if (body.designSheetAnalysis != null && (typeof body.designSheetAnalysis !== 'object' || Array.isArray(body.designSheetAnalysis))) {
+    body.designSheetAnalysis = null as any
+  }
+  if (body.questionTitle != null && typeof body.questionTitle !== 'string') body.questionTitle = undefined
+  if (body.questionContent != null && typeof body.questionContent !== 'string') body.questionContent = undefined
+  if (body.conversationMode != null && typeof body.conversationMode !== 'boolean') body.conversationMode = undefined
+  if (body.conversationLength != null && typeof body.conversationLength !== 'number') body.conversationLength = undefined
+  if (body.reviewCount != null && typeof body.reviewCount !== 'number') body.reviewCount = undefined
+  if (body.generateStep != null && typeof body.generateStep !== 'string') body.generateStep = undefined
+  return body
 }
 
 // 검색 결과를 프롬프트용 불릿 문자열로 변환 (출처 표기 없이 내용만)
@@ -251,20 +439,13 @@ const findKoreanSentenceEnd = (text: string, maxPos: number, searchRange: number
   return null
 }
 
-// 답변/댓글 역할 누수 제거: 전문가 자기소개, 상담 유도, 영업성 CTA 패턴 제거
+// 역할 누수만 제거: "설계사입니다", "N년 경력", "전문가님" 등 자작글 톤을 깨는 자기소개/호칭만 제거.
+// 연락·문의·비교설계 등 CTA/영업 문구는 유입·전환이 목적이므로 제거하지 않음.
 const ROLE_LEAKAGE_PATTERNS = [
   /\d{1,2}년\s*(이상\s*)?경력[^.?!\n]*/g,
   /전문가\s*님[-~]?/g,
   /나[-~]\s*전문가님/g,
   /설계사입니다[.!]?/g,
-  /상담\s*(요청|문의)[^.?!\n]*/g,
-  /연락\s*주세요[.!]?/g,
-  /문의\s*주세요[.!]?/g,
-  /전화\s*주세요[.!]?/g,
-  /쪽지\s*주세요[.!]?/g,
-  /언제든\s*문의[^.?!\n]*/g,
-  /상담\s*환영[^.?!\n]*/g,
-  /상담\s*도와드릴[^.?!\n]*/g,
 ]
 
 function stripAnswerRoleLeakage(text: string): string {
@@ -279,20 +460,9 @@ function stripAnswerRoleLeakage(text: string): string {
   return result.replace(/\n{3,}/g, '\n\n').replace(/^\s*\n/, '').trim()
 }
 
-// 마지막 agent 댓글 영업성 제거: "비교 설계", "설계 받아보세요" 등을 판단 정리형으로 대체
-const SALES_ENDING_PATTERNS = [
-  /비교\s*설계[^.?!\n]*(받아|한번|해보)[^.?!\n]*/gi,
-  /설계\s*(다시|한번|받아)[^.?!\n]*/gi,
-  /상담\s*(받아|한번)[^.?!\n]*/gi,
-  /설계사\s*(만나|찾아)[^.?!\n]*/gi,
-]
-
+// 마지막 agent 댓글: 영업/CTA는 유입·전환 목적이므로 제거하지 않음. 줄바꿈만 정리.
 function normalizeFinalAgentEnding(text: string): string {
-  let result = text
-  for (const pat of SALES_ENDING_PATTERNS) {
-    result = result.replace(pat, '')
-  }
-  return result.replace(/\n{3,}/g, '\n\n').trim()
+  return text.replace(/\n{3,}/g, '\n\n').trim()
 }
 
 function jaccardSimilarityBody(a: string, b: string): number {
@@ -338,13 +508,19 @@ function dedupeRepeatedParagraphs(text: string): string {
   return out
 }
 
-/** 220자 이상이고 빈 줄 부족하면 3블록(상황/배경, 걱정/갈등, 질문/판단요청)으로 재조립 */
+/** 200자 이상이고 빈 줄 부족하면 2~3블록으로 재조립 (문단 구분 보장) */
 function forceThreeBlockParagraphs(text: string): string {
-  if (!text || text.length < 220) return text
-  const hasEnoughBreaks = (text.match(/\n\s*\n/g) || []).length >= 2
+  if (!text || text.length < 200) return text
+  const hasEnoughBreaks = (text.match(/\n\s*\n/g) || []).length >= 1
   if (hasEnoughBreaks) return text
   const sentences = text.split(/(?<=[?？!！.\n])\s*/).map(s => s.trim()).filter(s => s.length > 0)
-  if (sentences.length < 3) return text
+  if (sentences.length < 2) return text
+  if (sentences.length === 2) {
+    const block1 = sentences[0].trim()
+    const block2 = sentences[1].trim()
+    if (block1 && block2) return [block1, block2].join('\n\n').trim()
+    return text
+  }
   const totalLen = sentences.reduce((sum, s) => sum + s.length, 0)
   const b1End = Math.min(sentences.length, Math.max(1, Math.floor(sentences.length * 0.35)))
   const b2End = Math.min(sentences.length, Math.max(b1End + 1, Math.floor(sentences.length * 0.75)))
@@ -377,14 +553,54 @@ function extractLastSentence(text: string): string {
   return parts.length > 0 ? parts[parts.length - 1].trim() : trimmed
 }
 
-// 질문 본문 문단 자동 분리: 260자+ & 빈 줄 2개 미만이면 3블록으로 분리
-function autoSplitQuestionParagraphs(text: string): string {
-  if (!text || text.length < 260) return text
-  const existingBreaks = (text.match(/\n\s*\n/g) || []).length
-  if (existingBreaks >= 2) return text
+// 긴 고민 문장을 키워드용 짧은 버전으로 축약
+function makeConcernKeywordShort(topicConcern?: string, topicConcernSearch?: string): string {
+  const base = (topicConcernSearch || topicConcern || '').trim()
+  if (!base) return ''
+  if (base.length <= 18) return base
+  const cutIndex = base.search(/구성|고민|걱정|부담|위험|리스크/)
+  const raw = (cutIndex > 0 ? base.slice(0, cutIndex) : base.slice(0, 18)).trim()
+  return raw.replace(/[.,!?~]+$/g, '').trim()
+}
 
-  const sentences = text.split(/(?<=[?？!！\n])\s*/).filter(s => s.trim().length > 0)
-  if (sentences.length < 3) return text
+/** 댓글 길이 상한(400자) 적용 — 문장 경계에서 자름 (thread_too_long 방지) */
+function capThreadMessageLength(content: string, maxLen: number = 400): string {
+  if (!content || content.length <= maxLen) return content
+  const cut = content.slice(0, maxLen)
+  const lastEnd = Math.max(cut.lastIndexOf('.'), cut.lastIndexOf('?'), cut.lastIndexOf('!'), cut.lastIndexOf('\n'))
+  if (lastEnd > maxLen * 0.6) return cut.slice(0, lastEnd + 1).trim()
+  return cut.trim()
+}
+
+/** 질문 본문 길이 상한(550자) — 문장 경계에서 자름 (본문 너무 김 방지, 프롬프트 300~500자 권장 준수) */
+const QUESTION_BODY_MAX = 550
+function capQuestionBodyLength(content: string, maxLen: number = QUESTION_BODY_MAX): string {
+  if (!content || content.length <= maxLen) return content
+  const cut = content.slice(0, maxLen)
+  const lastEnd = Math.max(cut.lastIndexOf('.'), cut.lastIndexOf('?'), cut.lastIndexOf('!'), cut.lastIndexOf('요'), cut.lastIndexOf('\n'))
+  if (lastEnd > maxLen * 0.5) return cut.slice(0, lastEnd + 1).trim()
+  return cut.trim()
+}
+
+// 질문 본문 문단 자동 분리: 200자+ & 빈 줄 부족 시 2~3블록으로 분리
+function autoSplitQuestionParagraphs(text: string): string {
+  if (!text || text.length < 200) return text
+  const existingBreaks = (text.match(/\n\s*\n/g) || []).length
+  if (existingBreaks >= 1) return text
+
+  // forceThreeBlockParagraphs와 동일하게 ?, !, . 및 줄바꿈 기준으로 문장 분리
+  const sentences = text.split(/(?<=[?？!！.\n])\s*/).filter(s => s.trim().length > 0)
+  if (sentences.length < 2) return text
+  if (sentences.length === 2) {
+    const b1 = sentences[0].trim()
+    const b2 = sentences[1].trim()
+    if (b1 && b2) {
+      const twoBlock = [b1, b2].join('\n\n').trim()
+      console.log(`[Q&A 생성] 문단 자동 분리 적용: 2문장 → 2문단`)
+      return twoBlock
+    }
+    return text
+  }
 
   const totalLen = sentences.reduce((sum, s) => sum + s.length, 0)
   const block1Target = totalLen * 0.35
@@ -419,15 +635,24 @@ function autoSplitQuestionParagraphs(text: string): string {
 }
 
 function normalizeExclamationMarks(text: string): string {
-  const exclamationCount = (text.match(/!/g) || []).length
-  if (exclamationCount <= 2) return text
-
-  let replaced = 0
-  return text.replace(/!/g, (match) => {
-    replaced++
-    if (replaced <= 2) return match
-    return replaced === exclamationCount ? '요' : ''
-  })
+  let out = text
+  // 느낌표: 최대 2개 유지, 나머지는 '요' 또는 제거
+  const exclamationCount = (out.match(/!/g) || []).length
+  if (exclamationCount > 2) {
+    let replaced = 0
+    out = out.replace(/!/g, () => {
+      replaced++
+      if (replaced <= 2) return '!'
+      return replaced === exclamationCount ? '요' : ''
+    })
+  }
+  // ㅠ/ㅜ/ㅡ: 게이트는 3개 초과 시 감점 → 최대 2개로 제한 (3개 이상이면 앞 2개만 유지)
+  const cryMatch = out.match(/ㅠ|ㅜ|ㅡ/g)
+  if (cryMatch && cryMatch.length > 2) {
+    let n = 0
+    out = out.replace(/ㅠ|ㅜ|ㅡ/g, () => (n++ < 2 ? 'ㅠ' : ''))
+  }
+  return out
 }
 
 // 답변 길이 제한 함수 (정확히 maxLength로 맞추기 - 의미 보존, 문장 중간 끊김 방지)
@@ -665,6 +890,12 @@ const enforceAnswerLength = (content: string, maxLength: number = 120): string =
   }
 }
 
+/**
+ * 파이프라인: Step 1(질문) → Step 1.5(제목 채점) → Step 2(답변) → Step 3(대화/후기)
+ * - 설계서 모드: designSheetImage + designSheetAnalysis 필수, 분석값이 canonical
+ * - 방어: 요청 body 정규화 후 필수값 검증, AI 응답 text()/JSON 파싱은 try-catch 또는 safeParseJson
+ * - 응답: question/answer/conversation/qualityGate/usage/metadata 항상 객체, 문자열 필드는 빈 문자열 fallback
+ */
 export async function POST(request: NextRequest) {
   const startTime = Date.now()
   try {
@@ -678,38 +909,42 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '인증이 필요합니다' }, { status: 401 })
     }
 
-    let requestBody
+    let requestBody: GenerateQABody
     try {
-      requestBody = await request.json()
+      const raw = await request.json()
+      if (raw == null || typeof raw !== 'object') {
+        return NextResponse.json({ error: '요청 본문이 객체가 아닙니다' }, { status: 400 })
+      }
+      requestBody = normalizeGenerateQABody(raw as GenerateQABody)
     } catch (jsonError: any) {
-      console.error('JSON 파싱 오류:', jsonError)
+      console.error('[generate-qa] JSON 파싱 오류:', jsonError?.message)
       return NextResponse.json(
         { error: '요청 데이터 형식이 올바르지 않습니다', details: jsonError?.message },
         { status: 400 }
       )
     }
-    
-    let { 
-      productName, 
-      targetPersona, 
-      worryPoint, 
-      sellingPoint, 
+
+    let {
+      productName,
+      targetPersona,
+      worryPoint,
+      sellingPoint,
       answerTone,
-      answerLength, // 답변 길이: 'default' (단계별)
+      answerLength,
       designSheetImage,
-      designSheetAnalysis, // 설계서 분석 결과 (보험료, 담보, 특약 등)
-      questionTitle, // 답변 재생성 시 사용
-      questionContent, // 답변 재생성 시 사용
-      conversationMode, // 대화형 모드 활성화 여부
-      conversationLength, // 대화 횟수 (기본 6회 - 짝수만 허용, 항상 설계사가 마무리)
-      reviewCount, // 후기성 댓글 개수 (0, 1, 2 - 고객만 생성, 설계사 응답 없음)
-      generateStep // 생성 단계: 'question' | 'answer' | 'conversation' | 'all' (기본값: 'all')
+      designSheetAnalysis,
+      questionTitle,
+      questionContent,
+      conversationMode,
+      conversationLength,
+      reviewCount,
+      generateStep,
     } = requestBody
 
-    // 필수 입력 검증
+    // 필수 입력 검증 (정규화 후 빈 문자열도 거부)
     if (!productName || !targetPersona || !worryPoint || !sellingPoint) {
       return NextResponse.json(
-        { error: '필수 입력 항목을 모두 입력해주세요' },
+        { error: '필수 입력 항목을 모두 입력해주세요 (상품명, 타겟 고객, 고객 고민, 강조 포인트)' },
         { status: 400 }
       )
     }
@@ -738,12 +973,21 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // 설계서 분석 데이터에서 로마숫자·내부 코드 정제 (AI 입력 전처리)
+    // 프롬프트에 넘길 answerLength (qa-prompt 타입이 'default' 리터럴만 허용하는 경우 대비)
+    const answerLengthForPrompt = (answerLength === 'short' ? 'short' : 'default') as 'default'
+
+    // 설계서 분석 데이터에서 로마숫자·내부 코드·태그([간편], [갱신형] 등) 정제 (AI 입력 전처리)
     if (designSheetAnalysis?.coverages) {
       designSheetAnalysis.coverages = designSheetAnalysis.coverages.map((c: string) =>
-        c.replace(/\s+(I{2,3}|IV|VI{0,3})(?=[\s,.]|[가-힣]|$)/g, '')
-         .replace(/\s+(Ⅰ|Ⅱ|Ⅲ|Ⅳ|Ⅴ)(?=[\s,.]|[가-힣]|$)/g, '')
-         .replace(/\s+/g, ' ').trim()
+        c
+          // 앞/중간의 태그 제거: [간편], [갱신형], [무배당] 등
+          .replace(/\[[^\]]*]/g, '')
+          // 로마 숫자(영문/한글) 제거
+          .replace(/\s+(I{1,3}|IV|VI{0,3})(?=[\s,.]|[가-힣]|$)/g, '')
+          .replace(/\s+(Ⅰ|Ⅱ|Ⅲ|Ⅳ|Ⅴ)(?=[\s,.]|[가-힣]|$)/g, '')
+          // 공백 정리
+          .replace(/\s+/g, ' ')
+          .trim()
       )
       // coverages 중복 제거 (같은 보장명 반복 방지)
       const seen = new Set<string>()
@@ -760,6 +1004,8 @@ export async function POST(request: NextRequest) {
     // 폼에서 온 값이 아니라, analysisResult가 persona/worry/selling 전체를 지배
     // ============================================
     const isDesignSheetMode = !!(designSheetImage && designSheetAnalysis)
+    // 설계서 모드: 톤을 조금 더 전문가 쪽으로 (기본값 expert)
+    const defaultAnswerTone = isDesignSheetMode ? 'expert' : 'friendly'
     const canonical = {
       productName: isDesignSheetMode
         ? (designSheetAnalysis.rawProductName || productName)
@@ -774,6 +1020,52 @@ export async function POST(request: NextRequest) {
         ? designSheetAnalysis.sellingPoint
         : sellingPoint,
     }
+
+    // 설계서 concern/keyCoverages → canonicalConcernContext (질문/답변/댓글 공통 축)
+    let canonicalConcernContext: CanonicalConcernContext | null = null
+    if (isDesignSheetMode && designSheetAnalysis) {
+      const selectedConcern = (designSheetAnalysis.topicConcern || '').trim()
+      const selectedConcernSearch = (designSheetAnalysis.topicConcernSearch || '').trim()
+      const selectedConcernSource = (designSheetAnalysis.selectedConcernSource || '').trim()
+      const selectedConcernReason = (designSheetAnalysis.selectedConcernReason || '').trim()
+      // 설계서 keyCoverages는 normalizedName/customerLabel 사용 (name 필드 없을 수 있음)
+      const rawKeyCoverages: KeyCoverageForPrompt[] = Array.isArray(designSheetAnalysis.keyCoverages)
+        ? (designSheetAnalysis.keyCoverages as any[]).map((k) => ({
+            name: typeof k?.name === 'string' ? k.name : (k?.normalizedName || k?.customerLabel || k?.rawName || ''),
+            amount: typeof k?.amount === 'string' ? k.amount : undefined,
+            isRenewal: typeof k?.isRenewal === 'boolean' ? k.isRenewal : undefined,
+          }))
+        : []
+
+      const coverageSummaryForPrompt = buildCoverageSummaryForPrompt(rawKeyCoverages)
+      const coverageFocusLabels = buildCoverageFocusLabels(rawKeyCoverages)
+
+      canonicalConcernContext = {
+        selectedConcern,
+        selectedConcernSearch,
+        selectedConcernSource,
+        selectedConcernReason,
+        keyCoverages: rawKeyCoverages,
+        coverageSummaryForPrompt,
+        coverageFocusLabels,
+      }
+
+      console.log('[Q&A 생성] canonicalConcernContext:', canonicalConcernContext)
+      console.log('[Q&A 생성] coverageSummaryForPrompt:', coverageSummaryForPrompt)
+      console.log('[Q&A 생성] coverageFocusLabels:', coverageFocusLabels)
+      console.log('[Q&A 생성] canonical concern context applied:', {
+        selectedConcern: canonicalConcernContext.selectedConcern,
+        selectedConcernSearch: canonicalConcernContext.selectedConcernSearch,
+        source: canonicalConcernContext.selectedConcernSource,
+        coverageSummaryForPrompt: canonicalConcernContext.coverageSummaryForPrompt,
+        coverageFocusLabels: canonicalConcernContext.coverageFocusLabels,
+      })
+    }
+
+    const selectedConcernForPrompt = canonicalConcernContext?.selectedConcern
+    const selectedConcernSearchForPrompt = canonicalConcernContext?.selectedConcernSearch
+    const coverageSummaryForPromptForPrompt = canonicalConcernContext?.coverageSummaryForPrompt
+    const coverageFocusLabelsForPrompt = canonicalConcernContext?.coverageFocusLabels
 
     // 설계서 모드: 분석값과 폼값 불일치 시 경고 + 분석값 우선
     if (isDesignSheetMode) {
@@ -848,15 +1140,20 @@ export async function POST(request: NextRequest) {
 
     if (preStructured) {
       // 설계서 분석에서 이미 구조화 완료 → 그대로 사용 (재정규화 금지)
-      cleanProductCore = designSheetAnalysis.topicCore
-      topicConcern = designSheetAnalysis.topicConcern || ''
-      topicConcernSearch = designSheetAnalysis.topicConcernSearch || ''
-      companyShort = designSheetAnalysis.companyShort || ''
-      displayProductName = designSheetAnalysis.displayProductName || productName
-      customerTopicName = companyShort && companyShort.length <= 6
+      cleanProductCore = designSheetAnalysis!.topicCore ?? ''
+      topicConcern = designSheetAnalysis!.topicConcern || ''
+      topicConcernSearch = designSheetAnalysis!.topicConcernSearch || ''
+      companyShort = designSheetAnalysis!.companyShort ?? ''
+      displayProductName = designSheetAnalysis!.displayProductName || productName
+      const baseTopic = companyShort && companyShort.length <= 6
         ? `${companyShort} ${cleanProductCore}`.trim()
         : cleanProductCore
-      console.log('[Q&A 생성] ✅ 분석 구조화 topic 그대로 사용 (재정규화 건너뜀):', { topicCore: cleanProductCore, topicConcern, topicConcernSearch, display: displayProductName, topic: customerTopicName })
+      // 설계 초점 라벨이 있으면 주제가 "상품명만"이 아니라 "무엇 보장 중심인지" 드러나도록
+      const designFocusLabel = (designSheetAnalysis as { designFocusLabel?: string }).designFocusLabel
+      customerTopicName = designFocusLabel
+        ? `${baseTopic} (${designFocusLabel})`
+        : baseTopic
+      console.log('[Q&A 생성] ✅ 분석 구조화 topic 그대로 사용 (재정규화 건너뜀):', { topicCore: cleanProductCore, topicConcern, topicConcernSearch, display: displayProductName, topic: customerTopicName, designFocusLabel: designFocusLabel || '(없음)' })
     } else {
       // 설계서 분석 없음 → 기존 로직으로 productName에서 추출
       const converted = convertToCustomerTopicName(productName)
@@ -868,6 +1165,8 @@ export async function POST(request: NextRequest) {
       topicConcernSearch = converted.topicConcernSearch
       console.log('[Q&A 생성] 🔄 productName에서 구조화:', { raw: productName, topicCore: cleanProductCore, topicConcern, topicConcernSearch, display: displayProductName, topic: customerTopicName })
     }
+
+    const topicConcernShort = makeConcernKeywordShort(topicConcern, topicConcernSearch)
 
     // ============================================
     // Q&A 전용 최신 검색 요약
@@ -881,7 +1180,7 @@ export async function POST(request: NextRequest) {
 
     if (hasUpstreamSearch) {
       // 설계서 모드: 상류 분석에서 이미 검색된 결과를 그대로 사용 (Google CSE 스킵)
-      searchResultsText = designSheetAnalysis.searchSummary
+      searchResultsText = designSheetAnalysis!.searchSummary ?? ''
       console.log(`[Q&A 생성] ✅ 설계서 모드 - 상류 검색 요약 재사용 (${searchResultsText.length}자, Google CSE 스킵)`)
     } else {
       // 수동 모드 또는 상류 검색 결과 없음: 기존 Google CSE 검색
@@ -954,11 +1253,11 @@ export async function POST(request: NextRequest) {
     let searchKeywords: string[] = []
     let searchKeywordsWithVolume: Array<{ keyword: string; volume: number | null }> = []
     let marketHeadKeyword: { keyword: string; volume: number | null; source: 'searchAd' | 'fallback' | 'unavailable' } = { keyword: '', volume: null, source: 'unavailable' }
-    let displayKeywords: Array<{ keyword: string; volume: number | null; role: 'market_head' | 'product_core' | 'concern_search' | 'persona_longtail' | 'intent_head' }> = []
+    let displayKeywords: DisplaySlot[] = []
     const keywordCandidates: string[] = []
 
-    if (hasUpstreamSearch && designSheetAnalysis?.searchKeywordHints?.length > 0) {
-      keywordCandidates.push(...designSheetAnalysis.searchKeywordHints)
+    if (hasUpstreamSearch && (designSheetAnalysis?.searchKeywordHints?.length ?? 0) > 0) {
+      keywordCandidates.push(...(designSheetAnalysis!.searchKeywordHints ?? []))
       console.log('[Q&A 생성] ✅ 설계서 모드 - 상류 키워드 힌트 재사용:', keywordCandidates)
     } else {
       try {
@@ -1021,16 +1320,16 @@ export async function POST(request: NextRequest) {
 
       // 롱테일/노출용 키워드는 상품명이 길 때(18자 초과) 상품군별 짧은 이름 사용. 예: "36세 여성 간편건강보험"
       const SHORT_KEYWORD_NAME_BY_GROUP: Record<ProductGroup, string> = {
-        cancer: '암보험',
-        silsan: '실손보험',
-        simple: '간편건강보험',
-        jongsin: '종신보험',
-        driver: '운전자보험',
-        health: '건강보험',
-        other: productNameTrim.length <= 12 ? productNameTrim : '보험'
+        cancer: MARKET_HEAD_BY_GROUP.cancer,
+        silsan: MARKET_HEAD_BY_GROUP.silsan,
+        simple: MARKET_HEAD_BY_GROUP.simple,
+        jongsin: MARKET_HEAD_BY_GROUP.jongsin,
+        driver: MARKET_HEAD_BY_GROUP.driver,
+        health: MARKET_HEAD_BY_GROUP.health,
+        other: productNameTrim.length <= 12 ? productNameTrim : MARKET_HEAD_BY_GROUP.other,
       }
       // 키워드용 상품명: cleanProductCore(회사명 제거, 코드 제거) 우선, 너무 길면 상품군 키워드
-      const groupKeyword = SHORT_KEYWORD_NAME_BY_GROUP[productGroup] || productNameTrim
+      const groupKeyword = SHORT_KEYWORD_NAME_BY_GROUP[productGroup] || MARKET_HEAD_BY_GROUP[productGroup] || MARKET_HEAD_BY_GROUP.other
       const shortKeywordName = cleanProductCore.length > 0 && cleanProductCore.length <= 14 && cleanProductCore !== productNameTrim
         ? cleanProductCore
         : productNameTrim.length > 14
@@ -1225,14 +1524,26 @@ export async function POST(request: NextRequest) {
         console.log('[Q&A 생성] 핵심키워드 후보(SearchAd):', coreCandidates.length, '개', coreCandidates.map((x) => x.keyword))
       }
 
-      // simple(간편건강보험) 상품군: SearchAd 유효 후보가 2개 미만이면 규칙 기반 핵심키워드만 사용 (정식상품명은 본문용, 검색형 요약어만 노출)
-      const SIMPLE_RULE_BASED_KEYWORDS = [
-        '간편건강보험',
-        '유병자보험',
-        '해약환급금미지급형',
-        '간편건강보험 보험료',
-        shortPersonaForKeyword ? `${shortPersonaForKeyword} 간편건강보험` : '간편건강보험 가입'
-      ].slice(0, 5)
+      // simple(간편건강보험) 상품군: SearchAd 유효 후보가 2개 미만이면 규칙 기반 핵심키워드만 사용
+      // 치매(brain) 축 설계서에서는 '해약환급금미지급형' 대신 치매 키워드 사용 (내부어 제거)
+      const rawKeyCoverages = designSheetAnalysis?.keyCoverages as Array<{ category?: string; normalizedName?: string }> | undefined
+      const hasBrainCoverage = Array.isArray(rawKeyCoverages) && rawKeyCoverages.some(
+        (k) => k.category === 'brain' || (k.normalizedName || '').includes('치매')
+      )
+      const SIMPLE_RULE_BASED_KEYWORDS = (productGroup === 'simple' && hasBrainCoverage)
+        ? [
+            '간편건강보험',
+            '유병자보험',
+            '치매보험',
+            '치매 장기요양보험',
+            shortPersonaForKeyword ? `${shortPersonaForKeyword} 간편건강보험` : '치매 치료비 보험'
+          ].slice(0, 5)
+        : [
+            '간편건강보험',
+            '유병자보험',
+            '간편건강보험 보험료',
+            shortPersonaForKeyword ? `${shortPersonaForKeyword} 간편건강보험` : '간편건강보험 가입'
+          ].slice(0, 5)
 
       const TEMPLATE_BY_GROUP: Record<ProductGroup, string[]> = {
         cancer: ['암보험', '암보험 보험료', '암보험 보장내용', '암보험 비교', '암보험 가입'],
@@ -1272,21 +1583,7 @@ export async function POST(request: NextRequest) {
       const selected: typeof sortedCore = []
       const used = new Set<string>()
 
-      // 설계서 모드: concern 키워드를 최우선으로 삽입
-      if (isDesignSheetMode && topicConcern) {
-        const concernKws = [topicConcern]
-        if (topicConcernSearch && topicConcernSearch !== topicConcern) {
-          concernKws.push(topicConcernSearch)
-        }
-        for (const ckw of concernKws) {
-          if (selected.length >= oursLimit) break
-          const norm = ckw.replace(/\s+/g, '').trim()
-          if (used.has(norm)) continue
-          selected.push({ keyword: ckw, volume: 0, score: 999, buckets: ['concern_priority'] })
-          used.add(norm)
-        }
-        console.log('[Q&A 생성] 설계서 concern 키워드 우선 삽입:', concernKws.filter(k => used.has(k.replace(/\s+/g, '').trim())))
-      }
+      // 설계서 모드: 내부 concern이 아니라 upstream 고객형 고민 후보 활용 (단, SearchAd 키워드 풀에는 넣지 않음)
 
       for (const x of sortedCore) {
         if (selected.length >= oursLimit) break
@@ -1311,8 +1608,11 @@ export async function POST(request: NextRequest) {
         const baseTemplate = TEMPLATE_BY_GROUP[productGroup]
 
         // 상품 구조 키워드 추출 (display에 포함된 보장 구조어)
+        // simple + 치매 축에서는 해약환급금미지급형 노출 안 함 (치매 키워드로 대체)
         const structuralKeywords: string[] = []
-        if (/해약환급금미지급형|해약환급금/.test(displayProductName)) structuralKeywords.push('해약환급금미지급형')
+        if (!(productGroup === 'simple' && hasBrainCoverage) && /해약환급금미지급형|해약환급금/.test(displayProductName)) {
+          structuralKeywords.push('해약환급금미지급형')
+        }
         if (/간편심사/.test(displayProductName)) structuralKeywords.push('간편심사 보험')
         if (/무해약/.test(displayProductName)) structuralKeywords.push('무해약환급금')
 
@@ -1446,6 +1746,7 @@ export async function POST(request: NextRequest) {
       }
       // displayKeywords: SearchAd(searchKeywordsWithVolume) 기준 5칸만. promptKeywords 재사용 금지
       const volByKw = new Map(searchKeywordsWithVolume.map((x) => [x.keyword.trim(), x.volume]))
+
       const safePersonaLabel = (): string => {
         const raw = designSheetAnalysis?.personaBucket || shortPersonaForKeyword || ''
         const t = raw.trim()
@@ -1454,14 +1755,160 @@ export async function POST(request: NextRequest) {
         return t
       }
       const personaLabel = safePersonaLabel()
-      displayKeywords = [
-        { keyword: marketHeadKeyword.keyword, volume: marketHeadKeyword.volume, role: 'market_head' },
-        { keyword: cleanProductCore || shortKeywordName, volume: volByKw.get((cleanProductCore || shortKeywordName).trim()) ?? null, role: 'product_core' },
-        { keyword: topicConcernSearch || '', volume: topicConcernSearch ? (volByKw.get(topicConcernSearch.trim()) ?? null) : null, role: 'concern_search' },
-        { keyword: personaLabel ? `${personaLabel} ${groupKeyword}` : groupKeyword, volume: null, role: 'persona_longtail' },
-        { keyword: `${groupKeyword} 보험료`, volume: volByKw.get(`${groupKeyword} 보험료`.trim()) ?? null, role: 'intent_head' },
-      ]
-      console.log('[Q&A 생성] displayKeywords 5칸 / marketHeadKeyword:', { marketHeadKeyword, displayRoles: displayKeywords.map((d) => d.role) })
+
+      // 설계서 모드: analyze가 내려준 고객 고민 후보에서 1개 선택
+      let selectedCustomerConcern: string | null = null
+      if (isDesignSheetMode && Array.isArray(designSheetAnalysis?.customerConcernCandidates) && designSheetAnalysis.customerConcernCandidates.length > 0) {
+        selectedCustomerConcern = pickCustomerConcernCandidate(
+          designSheetAnalysis.customerConcernCandidates,
+          [] // 최근값 회피는 usage_logs 기반 후처리에서 확장
+        )
+      }
+
+      const rawMarketHead = designSheetAnalysis?.recommendedMarketHead || MARKET_HEAD_BY_GROUP[productGroup] || MARKET_HEAD_BY_GROUP.other
+      const marketHeadClean = sanitizeCustomerFacingKeyword(rawMarketHead) || MARKET_HEAD_BY_GROUP[productGroup] || MARKET_HEAD_BY_GROUP.other
+      marketHeadKeyword = { keyword: marketHeadClean, volume: marketHeadKeyword.volume, source: marketHeadKeyword.source }
+
+      const productCoreRaw = cleanProductCore || shortKeywordName
+      const productCoreKeyword = sanitizeCustomerFacingKeyword(productCoreRaw) || productCoreRaw
+
+      // concern은 항상 고객형 언어 기반 (analyze 후보 → fallback도 고객형 일반 고민만 사용)
+      const concernKeywordRaw = selectedCustomerConcern || ''
+      const concernKeyword = sanitizeCustomerFacingKeyword(concernKeywordRaw) || concernKeywordRaw
+
+      const personaLongtailLabel = personaLabel ? `${personaLabel} ${groupKeyword}` : groupKeyword
+      const personaKeyword = sanitizeCustomerFacingKeyword(personaLongtailLabel) || personaLongtailLabel
+
+      const intentHeadRaw = `${groupKeyword} 보험료`
+      const intentHeadKeyword = sanitizeCustomerFacingKeyword(intentHeadRaw) || intentHeadRaw
+
+      if (isDesignSheetMode && canonicalConcernContext) {
+        // 설계서 모드: canonicalConcernContext 기반 displayKeywords 5칸 고정
+        const concernSearchRaw = canonicalConcernContext.selectedConcernSearch || topicConcernSearch || concernKeyword
+        const concernSearchKeyword = sanitizeCustomerFacingKeyword(concernSearchRaw) || concernSearchRaw
+
+        const focusLabelRaw =
+          (canonicalConcernContext.coverageFocusLabels && canonicalConcernContext.coverageFocusLabels[0]) ||
+          (canonicalConcernContext.coverageSummaryForPrompt && canonicalConcernContext.coverageSummaryForPrompt[0]) ||
+          (designSheetAnalysis && (designSheetAnalysis as { designFocusLabel?: string }).designFocusLabel) ||
+          ''
+        let coverageFocusKeyword = sanitizeCustomerFacingKeyword(focusLabelRaw) || focusLabelRaw
+        if (!coverageFocusKeyword) coverageFocusKeyword = '보장 균형'
+
+        const personaLongtail = sanitizeCustomerFacingKeyword(personaLongtailLabel) || personaLongtailLabel
+
+        const marketHeadForDisplay =
+          !isDesignSheetForbiddenTerm(marketHeadClean) && !isInternalProductTerm(marketHeadClean)
+            ? (sanitizeCustomerFacingKeyword(marketHeadClean) || marketHeadClean)
+            : MARKET_HEAD_BY_GROUP[productGroup]
+
+        // 고객 고민 슬롯: 긴 문장은 키워드용 짧은 버전으로 축약
+        const customerConcernRaw =
+          canonicalConcernContext.selectedConcern ||
+          topicConcern ||
+          selectedCustomerConcern ||
+          concernKeyword ||
+          '보험 선택이 맞는지 고민'
+        const customerConcernShort = makeConcernKeywordShort(customerConcernRaw, concernSearchRaw)
+        const customerConcernKeyword =
+          sanitizeCustomerFacingKeyword(customerConcernShort || customerConcernRaw) ||
+          (customerConcernShort || customerConcernRaw)
+
+        displayKeywords = [
+          {
+            role: 'market_head',
+            keyword: marketHeadForDisplay,
+            volume: marketHeadKeyword.volume,
+          },
+          {
+            role: 'product_core',
+            keyword: sanitizeCustomerFacingKeyword(productCoreKeyword) || productCoreKeyword,
+            volume: volByKw.get((productCoreKeyword || '').trim()) ?? null,
+          },
+          {
+            role: 'customer_concern',
+            keyword: customerConcernKeyword,
+            volume: null,
+          },
+          {
+            role: 'persona_longtail',
+            keyword: personaLongtail,
+            volume: null,
+          },
+          {
+            // 설계서 모드에서는 coverage_focus를 intent_head 역할로 사용
+            role: 'intent_head',
+            keyword: coverageFocusKeyword,
+            volume: null,
+          },
+        ].filter(
+          (slot): slot is DisplaySlot =>
+            !!slot.keyword && !isInternalProductTerm(slot.keyword) && !isDesignSheetForbiddenTerm(slot.keyword)
+        )
+
+        console.log('[Q&A 생성] 설계서 모드 displayKeywords 최종:', displayKeywords)
+      } else {
+        const sanitizedDisplaySlots = [
+          {
+            role: 'market_head',
+            keyword: sanitizeCustomerFacingKeyword(marketHeadClean) || marketHeadClean,
+            volume: marketHeadKeyword.volume,
+          },
+          {
+            role: 'product_core',
+            keyword: sanitizeCustomerFacingKeyword(productCoreKeyword) || productCoreKeyword,
+            volume: volByKw.get((productCoreKeyword || '').trim()) ?? null,
+          },
+          {
+            role: 'customer_concern',
+            keyword: sanitizeCustomerFacingKeyword(concernKeyword) || concernKeyword,
+            volume: concernKeyword ? (volByKw.get(concernKeyword.trim()) ?? null) : null,
+          },
+          {
+            role: 'persona_longtail',
+            keyword: sanitizeCustomerFacingKeyword(personaKeyword) || personaKeyword,
+            volume: null,
+          },
+          {
+            role: 'intent_head',
+            keyword: sanitizeCustomerFacingKeyword(intentHeadKeyword) || intentHeadKeyword,
+            volume: volByKw.get(intentHeadKeyword.trim()) ?? null,
+          },
+        ].filter((slot): slot is DisplaySlot => !!slot.keyword && !isInternalProductTerm(slot.keyword))
+
+        // displayKeywords는 항상 5칸(role 5개) 유지 – 부족시 빈 슬롯을 그룹 키워드 기반으로 채움
+        const byRole: Partial<Record<DisplayRole, DisplaySlot>> = {}
+        for (const s of sanitizedDisplaySlots) {
+          if (!byRole[s.role]) byRole[s.role] = s
+        }
+        displayKeywords = [
+          byRole['market_head'] || { role: 'market_head', keyword: marketHeadClean, volume: marketHeadKeyword.volume },
+          byRole['product_core'] || {
+            role: 'product_core',
+            keyword: productCoreKeyword || groupKeyword,
+            volume: null,
+          },
+          byRole['customer_concern'] || {
+            role: 'customer_concern',
+            keyword: concernKeyword || '보험 선택이 맞는지 고민',
+            volume: null,
+          },
+          byRole['persona_longtail'] || {
+            role: 'persona_longtail',
+            keyword: personaKeyword || `${groupKeyword} 가입자`,
+            volume: null,
+          },
+          byRole['intent_head'] || {
+            role: 'intent_head',
+            keyword: intentHeadKeyword || `${groupKeyword} 보험료`,
+            volume: null,
+          },
+        ]
+        console.log('[Q&A 생성] displayKeywords 5칸 / marketHeadKeyword:', {
+          marketHeadKeyword,
+          displayRoles: displayKeywords.map((d) => d.role),
+        })
+      }
     } catch (keywordError) {
       console.warn('[Q&A 생성] Naver SearchAd 키워드 조회 중 오류:', keywordError)
       if (keywordCandidates.length > 0) {
@@ -1470,19 +1917,48 @@ export async function POST(request: NextRequest) {
         console.log('[Q&A 생성] [실패 대응 9절] SearchAd 예외 → Google 후보 폴백:', searchKeywords)
       }
       marketHeadKeyword = { keyword: cleanProductCore || '보험', volume: null, source: 'unavailable' }
+      const fallbackMarketHead = MARKET_HEAD_BY_GROUP.other
       const personaLabelFallback = (): string => {
         const raw = designSheetAnalysis?.personaBucket || ''
         if (!raw.trim()) return '연령/성별 미확인'
         if (/^[가-힣]{2,4}$/.test(raw.trim()) && !/\d+대/.test(raw) && !/남|여/.test(raw)) return '일반 가입자'
         return raw.trim()
       }
-      displayKeywords = [
-        { keyword: marketHeadKeyword.keyword, volume: null, role: 'market_head' },
-        { keyword: cleanProductCore || '', volume: null, role: 'product_core' },
-        { keyword: topicConcernSearch || '', volume: null, role: 'concern_search' },
-        { keyword: `${personaLabelFallback()} 보험`, volume: null, role: 'persona_longtail' },
-        { keyword: `${cleanProductCore || '보험'} 보험료`, volume: null, role: 'intent_head' },
-      ]
+      const personaLabel = personaLabelFallback()
+      const personaKeyword = sanitizeCustomerFacingKeyword(`${personaLabel} ${fallbackMarketHead}`) || `${personaLabel} ${fallbackMarketHead}`
+      const productCoreKeyword = sanitizeCustomerFacingKeyword(cleanProductCore || '') || (cleanProductCore || '')
+      const intentHeadKeyword = sanitizeCustomerFacingKeyword(`${fallbackMarketHead} 보험료`) || `${fallbackMarketHead} 보험료`
+      const concernKeyword = sanitizeCustomerFacingKeyword(topicConcernSearch || '') || (topicConcernSearch || '')
+
+      const fallbackSlots = [
+        {
+          role: 'market_head',
+          keyword: sanitizeCustomerFacingKeyword(fallbackMarketHead) || fallbackMarketHead,
+          volume: null,
+        },
+        {
+          role: 'product_core',
+          keyword: sanitizeCustomerFacingKeyword(productCoreKeyword || fallbackMarketHead) || (productCoreKeyword || fallbackMarketHead),
+          volume: null,
+        },
+        {
+          role: 'customer_concern',
+          keyword: sanitizeCustomerFacingKeyword(concernKeyword || '보험 선택이 맞는지 고민') || (concernKeyword || '보험 선택이 맞는지 고민'),
+          volume: null,
+        },
+        {
+          role: 'persona_longtail',
+          keyword: sanitizeCustomerFacingKeyword(personaKeyword) || personaKeyword,
+          volume: null,
+        },
+        {
+          role: 'intent_head',
+          keyword: sanitizeCustomerFacingKeyword(intentHeadKeyword) || intentHeadKeyword,
+          volume: null,
+        },
+      ].filter((slot) => slot.keyword && !isInternalProductTerm(slot.keyword)) as DisplaySlot[]
+
+      displayKeywords = fallbackSlots
     }
     
     // API 호출 헬퍼 함수 (재시도 및 폴백 로직 포함, 이미지 지원)
@@ -1575,8 +2051,17 @@ export async function POST(request: NextRequest) {
           }
           
           const response = await result.response
-          text = response.text().trim()
-          
+          if (!response) {
+            throw new Error(`${modelName}: 응답 객체가 없습니다`)
+          }
+          try {
+            const rawText = response.text()
+            text = typeof rawText === 'string' ? rawText.trim() : String(rawText ?? '').trim()
+          } catch (textError: any) {
+            console.warn(`[Q&A 생성] response.text() 실패 (${modelName}):`, textError?.message)
+            throw new Error(`모델 응답 추출 실패: ${textError?.message || 'unknown'}`)
+          }
+
           // 그라운딩 결과 확인
           const groundingMetadata = response.candidates?.[0]?.groundingMetadata as any
           if (groundingMetadata) {
@@ -1721,29 +2206,33 @@ export async function POST(request: NextRequest) {
         // ── 1) 통합 QA 생성 (제목 후보 + 질문 본문 + 답변) ──
         const sampledFamilies = sampleFamilies(6)
         const unifiedResult = generateUnifiedQAPrompt({
-          productName,
-          topicName: customerTopicName,
-          displayProductName,
-          targetPersona,
-          worryPoint,
-          sellingPoint,
-          answerTone: answerTone || 'friendly',
-          designSheetImage,
-          designSheetAnalysis,
+          productName: productName ?? '',
+          topicName: customerTopicName ?? '',
+          displayProductName: displayProductName ?? '',
+          targetPersona: targetPersona ?? '',
+          worryPoint: worryPoint ?? '',
+          sellingPoint: sellingPoint ?? '',
+          answerTone: answerTone || defaultAnswerTone,
+          designSheetImage: toUndefined(designSheetImage),
+          designSheetAnalysis: designSheetAnalysis != null ? designSheetAnalysis : (undefined as typeof designSheetAnalysis),
           searchResultsText,
           searchKeywords: searchKeywords?.length ? searchKeywords : undefined,
           cleanProductCore: cleanProductCore || '',
-          companyShort: designSheetAnalysis?.companyShort || '',
-          personaBucket: designSheetAnalysis?.personaBucket || '',
+          companyShort: designSheetAnalysis?.companyShort ?? '',
+          personaBucket: designSheetAnalysis?.personaBucket ?? '',
           topicConcern: topicConcern || '',
           topicConcernSearch: topicConcernSearch || '',
+          selectedConcern: toUndefined(selectedConcernForPrompt),
+          selectedConcernSearch: toUndefined(selectedConcernSearchForPrompt),
+          coverageSummaryForPrompt: toUndefined(coverageSummaryForPromptForPrompt),
+          coverageFocusLabels: toUndefined(coverageFocusLabelsForPrompt),
           titleFamilies: sampledFamilies.map(f => ({ id: f.id, name: f.name, guide: f.guide, example: f.example })),
         })
 
         selectedOpeningFamilyId = unifiedResult.openingFamilyId
         selectedOpeningFamilyName = unifiedResult.openingFamilyName
         selectedQuestionConceptId = unifiedResult.questionConceptId
-        selectedConcernVariant = unifiedResult.concernVariant
+        selectedConcernVariant = unifiedResult.concernVariant ?? undefined
         if (selectedConcernVariant) {
           console.log(`[Q&A 생성] [통합] concernVariant: "${selectedConcernVariant}"`)
         }
@@ -1760,21 +2249,30 @@ export async function POST(request: NextRequest) {
         if (!qaJsonMatch) throw new Error('통합 QA JSON 파싱 실패: JSON 블록을 찾을 수 없음')
 
         const qaJsonStr = (qaJsonMatch as RegExpMatchArray)[1] || (qaJsonMatch as RegExpMatchArray)[0]
-        const qaParsed = JSON.parse(qaJsonStr.trim())
-
-        if (!qaParsed.titleCandidates?.length || !qaParsed.questionBody || !qaParsed.answerBody) {
-          throw new Error('통합 QA JSON 필수 필드 누락')
+        let qaParsed: { titleCandidates?: string[]; questionBody?: string; answerBody?: string }
+        try {
+          qaParsed = JSON.parse(qaJsonStr.trim())
+        } catch (parseErr: any) {
+          console.error('[Q&A 생성] 통합 QA JSON 파싱 오류:', parseErr?.message, '앞 200자:', String(qaJsonStr).slice(0, 200))
+          throw new Error(`통합 QA JSON 파싱 실패: ${parseErr?.message || 'invalid JSON'}`)
         }
 
+        if (!qaParsed?.titleCandidates?.length || !qaParsed?.questionBody || !qaParsed?.answerBody) {
+          throw new Error('통합 QA JSON 필수 필드 누락 (titleCandidates, questionBody, answerBody)')
+        }
+        const titleCandidates = qaParsed.titleCandidates!
+        const questionBody = qaParsed.questionBody!
+        const answerBody = qaParsed.answerBody!
+
         // 제목 채점 + 선택
-        const scoredTitles = qaParsed.titleCandidates.map((t: string, i: number) => {
+        const scoredTitles = titleCandidates.map((t: string, i: number) => {
           const familyId = i < sampledFamilies.length ? sampledFamilies[i].id : 'unknown'
           const { score, reasons } = scoreTitleFamily({
             title: t,
             familyId,
             searchKeywords: searchKeywords || [],
             topicName: customerTopicName || '',
-            rawProductName: productName,
+            rawProductName: productName ?? '',
             cleanProductCore: cleanProductCore || undefined,
           })
           return { title: t, familyId, score, reasons }
@@ -1786,39 +2284,43 @@ export async function POST(request: NextRequest) {
         if (scoredTitles[0]?.score >= 0) {
           finalQuestionTitle = scoredTitles[0].title.trim().replace(/^["']|["']$/g, '').replace(/\s+/g, ' ')
         } else {
-          finalQuestionTitle = qaParsed.titleCandidates[0].trim()
+          finalQuestionTitle = (titleCandidates[0] ?? '').trim()
         }
 
-        let bodyText = qaParsed.questionBody.trim()
+        let bodyText = questionBody.trim()
         bodyText = bodyText.replace(/^(선배님들|옆집\s*언니들|언니들|형님들|오빠들|여러분)[!?\s]*\n*/i, '')
         finalQuestionContent = bodyText
 
-        answerContent = qaParsed.answerBody.trim()
+        answerContent = answerBody.trim()
 
-        console.log(`[Q&A 생성] [통합] Pro 1/2 완료: 제목="${finalQuestionTitle.substring(0, 40)}...", 본문=${finalQuestionContent.length}자, 답변=${answerContent.length}자`)
+        console.log(`[Q&A 생성] [통합] Pro 1/2 완료: 제목="${(finalQuestionTitle ?? '').substring(0, 40)}...", 본문=${(finalQuestionContent ?? '').length}자, 답변=${answerContent.length}자`)
 
         // ── 2) 댓글 스레드 배치 생성 (대화형 모드인 경우) ──
         if (conversationMode && conversationLength) {
           const validLengths = [4, 6, 8, 10]
-          const totalSteps = validLengths.includes(conversationLength) ? conversationLength : 6
-          const threadSteps = totalSteps - 2
+          const totalSteps: number = validLengths.includes(conversationLength ?? 0) ? (conversationLength ?? 6) : 6
+          const threadSteps: number = totalSteps - 2
 
           if (threadSteps > 0) {
             console.log(`[Q&A 생성] [통합] Pro 호출 2/2 시작 (댓글 스레드 ${threadSteps}개)`)
 
             const threadPrompt = generateThreadBatchPrompt({
-              productName,
-              topicName: customerTopicName,
-              displayProductName,
-              targetPersona,
-              worryPoint,
-              sellingPoint,
-              designSheetAnalysis,
-              questionTitle: finalQuestionTitle,
-              questionBody: finalQuestionContent,
+              productName: productName ?? '',
+              topicName: customerTopicName ?? '',
+              displayProductName: displayProductName ?? '',
+              targetPersona: targetPersona ?? '',
+              worryPoint: worryPoint ?? '',
+              sellingPoint: sellingPoint ?? '',
+              designSheetAnalysis: designSheetAnalysis != null ? designSheetAnalysis : (undefined as typeof designSheetAnalysis),
+              questionTitle: finalQuestionTitle ?? '',
+              questionBody: finalQuestionContent ?? '',
               answerBody: answerContent,
               threadSteps,
-            })
+              selectedConcern: toUndefined(selectedConcernForPrompt),
+              selectedConcernSearch: toUndefined(selectedConcernSearchForPrompt),
+coverageSummaryForPrompt: toUndefined(coverageSummaryForPromptForPrompt),
+            coverageFocusLabels: toUndefined(coverageFocusLabelsForPrompt),
+            } as any)
 
             const threadResult = await generateContentWithFallback(threadPrompt, null, false)
             await new Promise(resolve => setTimeout(resolve, 500))
@@ -1831,21 +2333,28 @@ export async function POST(request: NextRequest) {
             if (!threadJsonMatch) throw new Error('댓글 스레드 JSON 파싱 실패')
 
             const threadJsonStr = (threadJsonMatch as RegExpMatchArray)[1] || (threadJsonMatch as RegExpMatchArray)[0]
-            const threadParsed = JSON.parse(threadJsonStr.trim())
+            let threadParsed: { thread?: unknown[] }
+            try {
+              threadParsed = JSON.parse(threadJsonStr.trim())
+            } catch (parseErr: any) {
+              console.error('[Q&A 생성] 댓글 스레드 JSON 파싱 오류:', parseErr?.message, '앞 150자:', String(threadJsonStr).slice(0, 150))
+              throw new Error(`댓글 스레드 JSON 파싱 실패: ${parseErr?.message || 'invalid JSON'}`)
+            }
 
-            if (!threadParsed.thread?.length) throw new Error('댓글 스레드 배열이 비어있음')
+            if (!threadParsed?.thread?.length) throw new Error('댓글 스레드 배열이 비어있음')
+            const threadList = threadParsed.thread!
 
             // ConversationMessage 형태로 변환
-            const batchThread: ConversationMessage[] = threadParsed.thread.map((t: any) => ({
+            const batchThread: ConversationMessage[] = threadList.map((t: any) => ({
               role: t.role === 'agent' ? 'agent' as const : 'customer' as const,
               content: (t.content || '').trim().replace(/<ctrl\d+>/gi, '').replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]/g, ''),
               step: t.step || 0,
             }))
 
             // 후기성 문구 삽입 (설계서 모드에서도 review는 별도 생성)
-            const finalReviewCount = reviewCount !== undefined ? reviewCount : 0
+            const finalReviewCount: number = (reviewCount != null ? reviewCount : 0) as number
             const minConversationLengthForReview = 6
-            const allowReviewInsert = finalReviewCount > 0 && (conversationLength || 0) >= minConversationLengthForReview
+            const allowReviewInsert = finalReviewCount > 0 && (conversationLength ?? 0) >= minConversationLengthForReview
 
             if (allowReviewInsert) {
               console.log(`[Q&A 생성] [통합] 후기성 문구 ${finalReviewCount}개 생성 중...`)
@@ -1853,20 +2362,20 @@ export async function POST(request: NextRequest) {
               for (let i = 0; i < finalReviewCount; i++) {
                 const reviewPrompt = generateReviewMessagePrompt(
                   {
-                    productName,
-                    topicName: customerTopicName,
-                    displayProductName,
-                    targetPersona,
-                    worryPoint,
-                    sellingPoint,
-                    answerTone: answerTone || 'friendly',
-                    designSheetImage,
-                    designSheetAnalysis,
+                    productName: productName ?? '',
+                    topicName: customerTopicName ?? '',
+                    displayProductName: displayProductName ?? '',
+                    targetPersona: targetPersona ?? '',
+                    worryPoint: worryPoint ?? '',
+                    sellingPoint: sellingPoint ?? '',
+                    answerTone: answerTone || defaultAnswerTone,
+                    designSheetImage: toUndefined(designSheetImage),
+                    designSheetAnalysis: designSheetAnalysis != null ? designSheetAnalysis : (undefined as typeof designSheetAnalysis),
                     searchResultsText: searchResultsText || undefined,
                   },
-                  { productName: customerTopicName || productName }
+                  { productName: (customerTopicName ?? productName ?? '') || '' }
                 )
-                const reviewResult = await generateContentWithFallback(reviewPrompt, designSheetImage, true)
+                const reviewResult = await generateContentWithFallback(reviewPrompt, designSheetImage ?? undefined, true)
                 await new Promise(resolve => setTimeout(resolve, 500))
                 let reviewContent = reviewResult.text
                   .replace(/<ctrl\d+>/gi, '')
@@ -1929,20 +2438,24 @@ export async function POST(request: NextRequest) {
             targetPersona,
             worryPoint,
             sellingPoint,
-            answerTone: answerTone || 'friendly',
-            designSheetImage,
-            designSheetAnalysis,
+            answerTone: answerTone || defaultAnswerTone,
+            designSheetImage: toUndefined(designSheetImage),
+            designSheetAnalysis: designSheetAnalysis != null ? designSheetAnalysis : undefined,
             searchResultsText,
             searchKeywords: searchKeywords?.length ? searchKeywords : undefined,
             evidenceMap: designSheetAnalysis?.evidenceMap || undefined,
             conflictAxis: designSheetAnalysis?.conflictAxis || undefined,
+            selectedConcern: toUndefined(selectedConcernForPrompt),
+            selectedConcernSearch: toUndefined(selectedConcernSearchForPrompt),
+            coverageSummaryForPrompt: toUndefined(coverageSummaryForPromptForPrompt),
+              coverageFocusLabels: toUndefined(coverageFocusLabelsForPrompt),
           })
           const questionPrompt = questionPromptResult.prompt
           selectedOpeningFamilyId = questionPromptResult.openingFamilyId
           selectedOpeningFamilyName = questionPromptResult.openingFamilyName
           selectedTitlePatternId = questionPromptResult.titlePatternId
           selectedQuestionConceptId = questionPromptResult.questionConceptId
-          selectedConcernVariant = questionPromptResult.concernVariant
+          selectedConcernVariant = toUndefined(questionPromptResult.concernVariant)
           if (selectedConcernVariant) {
             console.log(`[Q&A 생성] [Step 1] concernVariant: "${selectedConcernVariant}"`)
           }
@@ -1991,8 +2504,13 @@ export async function POST(request: NextRequest) {
         const jsonMatch = questionText.match(/```json\s*([\s\S]*?)```/) || questionText.match(/\{[\s\S]*"title"[\s\S]*"body"[\s\S]*\}/)
         if (jsonMatch) {
           const jsonStr = jsonMatch[1] || jsonMatch[0]
-          const parsed = JSON.parse(jsonStr.trim())
-          if (parsed.title && parsed.body) {
+          let parsed: { title?: string; body?: string }
+          try {
+            parsed = JSON.parse(jsonStr.trim())
+          } catch {
+            parsed = {}
+          }
+          if (parsed?.title && parsed?.body) {
             finalQuestionTitle = parsed.title.trim()
               .replace(/^["']|["']$/g, '')
               .replace(/\s+/g, ' ')
@@ -2298,7 +2816,7 @@ export async function POST(request: NextRequest) {
         cleaned = cleaned.replace(/^(선배님들|옆집\s*언니들|언니들|형님들|오빠들|여러분|안녕하세요)[!?\s]*\n+/i, '')
         
         // 제목과 중복되는 첫 부분 제거
-        const titleTrimmed = finalQuestionTitle.trim()
+        const titleTrimmed = (finalQuestionTitle ?? '').trim()
         if (titleTrimmed && cleaned.startsWith(titleTrimmed)) {
           cleaned = cleaned.substring(titleTrimmed.length).trim()
           cleaned = cleaned.replace(/^[\s\n]+/, '').trim()
@@ -2627,6 +3145,9 @@ export async function POST(request: NextRequest) {
             }
           }
 
+          // Step 1 직후 본문 상한 적용 (프롬프트 300~500자 준수, 끊김 방지)
+          finalQuestionContent = capQuestionBodyLength(finalQuestionContent)
+
           console.log('Step 1 완료:', { questionTitle: finalQuestionTitle, questionContentLength: finalQuestionContent.length })
         } catch (step1Error: any) {
           console.error('[Q&A 생성] [Step 1] 질문 생성 중 오류 발생:', {
@@ -2695,17 +3216,21 @@ export async function POST(request: NextRequest) {
           targetPersona,
           worryPoint,
           sellingPoint,
-          answerTone: answerTone || 'friendly',
-          answerLength: answerLength || 'default',
-          designSheetImage,
-          designSheetAnalysis,
+          answerTone: answerTone || defaultAnswerTone,
+          answerLength: answerLengthForPrompt,
+          designSheetImage: toUndefined(designSheetImage),
+          designSheetAnalysis: designSheetAnalysis != null ? designSheetAnalysis : undefined,
           searchResultsText,
           searchKeywords: searchKeywords?.length ? searchKeywords : undefined,
           evidenceMap: designSheetAnalysis?.evidenceMap || undefined,
           conflictAxis: designSheetAnalysis?.conflictAxis || undefined,
+          selectedConcern: toUndefined(selectedConcernForPrompt),
+          selectedConcernSearch: toUndefined(selectedConcernSearchForPrompt),
+          coverageSummaryForPrompt: toUndefined(coverageSummaryForPromptForPrompt),
+          coverageFocusLabels: toUndefined(coverageFocusLabelsForPrompt),
         },
-        finalQuestionTitle,
-        finalQuestionContent
+        finalQuestionTitle ?? '',
+        finalQuestionContent ?? ''
       )
 
       // 프롬프트 길이 로깅 (할당량 초과 진단용)
@@ -2833,14 +3358,18 @@ export async function POST(request: NextRequest) {
               targetPersona,
               worryPoint,
               sellingPoint,
-              answerTone: answerTone || 'friendly',
-              answerLength: answerLength || 'default',
-              designSheetImage,
-              designSheetAnalysis,
+              answerTone: answerTone || defaultAnswerTone,
+              answerLength: answerLengthForPrompt,
+              designSheetImage: toUndefined(designSheetImage),
+              designSheetAnalysis: designSheetAnalysis != null ? designSheetAnalysis : undefined,
               searchResultsText,
               searchKeywords: searchKeywords?.length ? searchKeywords : undefined,
               evidenceMap: designSheetAnalysis?.evidenceMap || undefined,
               conflictAxis: designSheetAnalysis?.conflictAxis || undefined,
+              selectedConcern: toUndefined(selectedConcernForPrompt),
+              selectedConcernSearch: toUndefined(selectedConcernSearchForPrompt),
+              coverageSummaryForPrompt: toUndefined(coverageSummaryForPromptForPrompt),
+              coverageFocusLabels: toUndefined(coverageFocusLabelsForPrompt),
             },
             finalQuestionTitle,
             finalQuestionContent + `\n\n⚠️ 이전 답변이 ${answerContent.length}자로 너무 짧았습니다. 반드시 350자 이상, 공감→판단→체크포인트→행동유도 4블록을 빠짐없이 작성하세요.`
@@ -2924,12 +3453,16 @@ export async function POST(request: NextRequest) {
             targetPersona,
             worryPoint,
             sellingPoint,
-            answerTone: answerTone || 'friendly',
-            answerLength: answerLength || 'default',
-            designSheetImage,
-            designSheetAnalysis,
+            answerTone: answerTone || defaultAnswerTone,
+            answerLength: answerLengthForPrompt,
+            designSheetImage: toUndefined(designSheetImage),
+            designSheetAnalysis: designSheetAnalysis != null ? designSheetAnalysis : undefined,
             searchResultsText: searchResultsText || undefined,
-            conflictAxis: designSheetAnalysis?.conflictAxis || undefined,
+              conflictAxis: designSheetAnalysis?.conflictAxis || undefined,
+              selectedConcern: toUndefined(selectedConcernForPrompt),
+              selectedConcernSearch: toUndefined(selectedConcernSearchForPrompt),
+              coverageSummaryForPrompt: toUndefined(coverageSummaryForPromptForPrompt),
+              coverageFocusLabels: toUndefined(coverageFocusLabelsForPrompt),
           },
           {
             initialQuestion: {
@@ -2973,20 +3506,40 @@ export async function POST(request: NextRequest) {
           
           // 고객 댓글 개별 생성
           const customerPrompt = generateConversationThreadPrompt(
-            { productName, topicName: customerTopicName, displayProductName, targetPersona, worryPoint, sellingPoint, answerTone: answerTone || 'friendly', answerLength: answerLength || 'default', designSheetImage, designSheetAnalysis, searchResultsText: searchResultsText || undefined },
+            {
+              productName, topicName: customerTopicName, displayProductName, targetPersona,
+              worryPoint, sellingPoint, answerTone: answerTone || defaultAnswerTone, answerLength: answerLengthForPrompt,
+              designSheetImage: toUndefined(designSheetImage),
+              designSheetAnalysis: designSheetAnalysis != null ? designSheetAnalysis : undefined,
+              searchResultsText: searchResultsText || undefined,
+              selectedConcern: toUndefined(selectedConcernForPrompt),
+              selectedConcernSearch: toUndefined(selectedConcernSearchForPrompt),
+              coverageSummaryForPrompt: toUndefined(coverageSummaryForPromptForPrompt),
+              coverageFocusLabels: toUndefined(coverageFocusLabelsForPrompt),
+            },
             { initialQuestion: { title: finalQuestionTitle, content: finalQuestionContent }, firstAnswer: answerContent, conversationHistory: conversationHistory.slice(-4), totalSteps, currentStep: baseStep }
           )
-          const custResult = await generateContentWithFallback(customerPrompt, designSheetImage, true)
+          const custResult = await generateContentWithFallback(customerPrompt, designSheetImage ?? undefined, true)
           await new Promise(resolve => setTimeout(resolve, 1000))
           customerContent = custResult.text.replace(/<ctrl\d+>/gi, '').replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]/g, '').replace(/```[\s\S]*?```/g, '').replace(/\[생성된 댓글\]/g, '').trim()
           
           // 설계사 답글 개별 생성
           const tempHistory = [...conversationHistory, { role: 'customer' as const, content: customerContent, step: baseStep }]
           const agentPrompt = generateConversationThreadPrompt(
-            { productName, topicName: customerTopicName, displayProductName, targetPersona, worryPoint, sellingPoint, answerTone: answerTone || 'friendly', answerLength: answerLength || 'default', designSheetImage, designSheetAnalysis, searchResultsText: searchResultsText || undefined },
+            {
+              productName, topicName: customerTopicName, displayProductName, targetPersona,
+              worryPoint, sellingPoint, answerTone: answerTone || defaultAnswerTone, answerLength: answerLengthForPrompt,
+              designSheetImage: toUndefined(designSheetImage),
+              designSheetAnalysis: designSheetAnalysis != null ? designSheetAnalysis : undefined,
+              searchResultsText: searchResultsText || undefined,
+              selectedConcern: toUndefined(selectedConcernForPrompt),
+              selectedConcernSearch: toUndefined(selectedConcernSearchForPrompt),
+              coverageSummaryForPrompt: toUndefined(coverageSummaryForPromptForPrompt),
+              coverageFocusLabels: toUndefined(coverageFocusLabelsForPrompt),
+            },
             { initialQuestion: { title: finalQuestionTitle, content: finalQuestionContent }, firstAnswer: answerContent, conversationHistory: tempHistory.slice(-4), totalSteps, currentStep: baseStep + 1 }
           )
-          const agentResult = await generateContentWithFallback(agentPrompt, designSheetImage, false)
+          const agentResult = await generateContentWithFallback(agentPrompt, designSheetImage ?? undefined, false)
           await new Promise(resolve => setTimeout(resolve, 1000))
           agentContent = agentResult.text.replace(/<ctrl\d+>/gi, '').replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]/g, '').replace(/```[\s\S]*?```/g, '').replace(/\[답글 작성\]/g, '').trim()
         }
@@ -3040,9 +3593,9 @@ export async function POST(request: NextRequest) {
               targetPersona,
               worryPoint,
               sellingPoint,
-              answerTone: answerTone || 'friendly',
-              designSheetImage,
-              designSheetAnalysis,
+              answerTone: answerTone || defaultAnswerTone,
+              designSheetImage: toUndefined(designSheetImage),
+              designSheetAnalysis: designSheetAnalysis != null ? designSheetAnalysis : undefined,
               searchResultsText: searchResultsText || undefined
             },
             {
@@ -3148,6 +3701,12 @@ export async function POST(request: NextRequest) {
     // ============================================
     if (finalQuestionTitle) {
       finalQuestionTitle = cleanForTitle(finalQuestionTitle)
+      // 제목 40자 초과 시 문장 경계에서 자르기 (title_too_long 방지)
+      if (finalQuestionTitle.length > 40) {
+        const cut = finalQuestionTitle.slice(0, 40)
+        const lastSpace = cut.lastIndexOf(' ')
+        finalQuestionTitle = (lastSpace > 22 ? cut.slice(0, lastSpace) : cut).trim()
+      }
     }
     if (finalQuestionContent) {
       finalQuestionContent = cleanForBody(finalQuestionContent)
@@ -3156,11 +3715,14 @@ export async function POST(request: NextRequest) {
           dedupeRepeatedParagraphs(normalizeExclamationMarks(finalQuestionContent))
         )
       )
+      finalQuestionContent = capQuestionBodyLength(finalQuestionContent)
     }
     if (answerContent) {
       answerContent = cleanForBody(answerContent)
     }
     if (conversationThread.length > 0) {
+      const THREAD_MSG_MAX = 400
+      const LAST_AGENT_FALLBACK = '도움이 되셨으면 좋겠어요.'
       conversationThread = conversationThread.map((msg, idx) => {
         let content = cleanForBody(msg.content)
         if (msg.role === 'agent') {
@@ -3170,8 +3732,14 @@ export async function POST(request: NextRequest) {
         if (isLastAgent) {
           content = normalizeFinalAgentEnding(content)
         }
+        content = capThreadMessageLength(content, THREAD_MSG_MAX)
         return { ...msg, content }
       })
+      // 마지막 agent 댓글이 정제 후 비어 있으면 fallback으로 채움 (operational_final_agent_ending_missing 방지)
+      const lastIdx = conversationThread.length - 1
+      if (lastIdx >= 0 && conversationThread[lastIdx].role === 'agent' && !conversationThread[lastIdx].content?.trim()) {
+        conversationThread[lastIdx] = { ...conversationThread[lastIdx], content: LAST_AGENT_FALLBACK }
+      }
     }
     console.log('[Q&A 생성] 필드별 정제 완료 (제목→강, 본문/답변/댓글→약+역할누수제거, 로그→없음)')
 
@@ -3218,17 +3786,23 @@ export async function POST(request: NextRequest) {
             attempted: true, field: 'answer', beforeScore: answerGate.score, afterScore: answerGate.score, improved: false,
           }
           try {
-            const retryPrompt = generateAnswerPrompt(
+          const retryPrompt = generateAnswerPrompt(
               {
                 productName, topicName: customerTopicName, displayProductName, targetPersona,
-                worryPoint, sellingPoint, answerTone: answerTone || 'friendly', answerLength: answerLength || 'default',
-                designSheetImage, designSheetAnalysis, searchResultsText,
+                worryPoint, sellingPoint, answerTone: answerTone || defaultAnswerTone, answerLength: answerLengthForPrompt,
+                designSheetImage: toUndefined(designSheetImage),
+                designSheetAnalysis: designSheetAnalysis != null ? designSheetAnalysis : undefined,
+                searchResultsText,
                 searchKeywords: searchKeywords?.length ? searchKeywords : undefined,
                 evidenceMap: designSheetAnalysis?.evidenceMap || undefined,
                 conflictAxis: designSheetAnalysis?.conflictAxis || undefined,
+                selectedConcern: toUndefined(selectedConcernForPrompt),
+                selectedConcernSearch: toUndefined(selectedConcernSearchForPrompt),
+                coverageSummaryForPrompt: toUndefined(coverageSummaryForPromptForPrompt),
+                coverageFocusLabels: toUndefined(coverageFocusLabelsForPrompt),
               },
-              finalQuestionTitle,
-              finalQuestionContent + `\n\n⚠️ 이전 답변이 품질 게이트를 통과하지 못했습니다 (${answerGate.score}점). 문제: ${answerGate.failures.join(', ')}. 반드시 판단 한 줄을 포함하고, 공감→판단→체크포인트→행동유도 4블록을 빠짐없이 작성하세요.`
+              finalQuestionTitle ?? '',
+            finalQuestionContent + `\n\n⚠️ 이전 답변이 품질 게이트를 통과하지 못했습니다 (${answerGate.score}점). 문제: ${answerGate.failures.join(', ')}. 반드시 판단 한 줄을 포함하고, 공감→판단→체크포인트→행동유도 4블록을 빠짐없이 작성하세요.\n\n⚠️ 특히 설계서 모드에서는, 설계서에서 실제로 중요한 보장·특약을 거의 언급하지 않은 답변은 실패로 간주합니다. 이번 답변에서는 설계서에서 중요한 보장 2~3개를 이름을 살짝 풀어서 언급하고, 그 보장이 왜 중요한지 구체적으로 설명하세요. 일반적인 보험 상식 나열은 피하고, 설계서에 있는 보장만 근거로 사용하세요.`
             )
             const retryResult = await generateContentWithFallback(retryPrompt, designSheetImage, false)
             await new Promise(resolve => setTimeout(resolve, 1000))
@@ -3300,15 +3874,16 @@ export async function POST(request: NextRequest) {
     }
 
     // ── 키워드 건강 게이트 ──
-    const keywordHealthOptions: { displayKeywords?: typeof displayKeywords; marketHeadKeyword?: typeof marketHeadKeyword } = {}
-    if (displayKeywords.length >= 5) keywordHealthOptions.displayKeywords = displayKeywords
+    const keywordHealthOptions: { displayKeywords?: DisplayKeywordSlot[]; marketHeadKeyword?: typeof marketHeadKeyword; designSheetMode?: boolean } = {}
+    if (displayKeywords.length >= 5) keywordHealthOptions.displayKeywords = displayKeywords as DisplayKeywordSlot[]
     if (marketHeadKeyword.keyword?.trim()) keywordHealthOptions.marketHeadKeyword = marketHeadKeyword
+    if (isDesignSheetMode) keywordHealthOptions.designSheetMode = true
     const keywordHealthGate = gateKeywordHealth(
       searchKeywords,
       finalQuestionTitle || '',
       finalQuestionContent || '',
       searchKeywordsWithVolume.length > 0 ? searchKeywordsWithVolume : undefined,
-      topicConcern || undefined,
+      topicConcernShort || topicConcern || undefined,
       Object.keys(keywordHealthOptions).length > 0 ? keywordHealthOptions : undefined
     )
     gateResults.push(keywordHealthGate)
@@ -3379,6 +3954,58 @@ export async function POST(request: NextRequest) {
     console.log(`[Q&A 생성] 첫 문장 저장 완료 (저장소 크기: ${recentFirstSentencesStore.length})`)
 
     // 사용량 로그 (실패해도 응답은 진행) — 문서 13·14절: 버전·KPI 메타. thread/finalAgentEnding 항상 실제값 저장
+    const internalConcern = designSheetAnalysis?.internalConcern || topicConcern || null
+    const customerConcernCandidates: string[] | undefined =
+      Array.isArray(designSheetAnalysis?.customerConcernCandidates) &&
+      designSheetAnalysis.customerConcernCandidates.length > 0
+        ? designSheetAnalysis.customerConcernCandidates
+        : undefined
+
+    const keywordRoleValidation = {
+      hasFiveSlots: displayKeywords.length === 5,
+      hasMarketHead: !!displayKeywords.find(d => d.role === 'market_head' && d.keyword?.trim()),
+      hasProductCore: !!displayKeywords.find(d => d.role === 'product_core' && d.keyword?.trim()),
+      hasCustomerConcern: !!displayKeywords.find(d => d.role === 'customer_concern' && d.keyword?.trim()),
+      hasPersonaLongtail: !!displayKeywords.find(d => d.role === 'persona_longtail' && d.keyword?.trim()),
+      hasIntentHead: !!displayKeywords.find(d => d.role === 'intent_head' && d.keyword?.trim()),
+    }
+
+    const allCustomerFacingKeywords: string[] = [
+      ...(displayKeywords || []).map(d => d.keyword),
+      ...(marketHeadKeyword.keyword ? [marketHeadKeyword.keyword] : []),
+      ...(searchKeywords || []),
+    ].filter(Boolean) as string[]
+
+    const internalKeywordLeakDetected =
+      allCustomerFacingKeywords.length > 0 && allCustomerFacingKeywords.some(k => isInternalProductTerm(k))
+
+    let promptKeywordsForLogging: string[] | undefined
+    if (displayKeywords.length >= 5) {
+      const findByRole = (role: DisplayRole) => displayKeywords.find(d => d.role === role)?.keyword
+      if (isDesignSheetMode && canonicalConcernContext) {
+        // 설계서 모드: customer_concern → product_core → persona_longtail → intent_head → market_head
+        promptKeywordsForLogging = [
+          findByRole('customer_concern'),
+          findByRole('product_core'),
+          findByRole('persona_longtail'),
+          findByRole('intent_head'),
+          findByRole('market_head'),
+        ].filter((k): k is string => !!k && !isInternalProductTerm(k) && !isDesignSheetForbiddenTerm(k))
+        console.log('[Q&A 생성] 설계서 모드 promptKeywords 최종:', promptKeywordsForLogging)
+      } else {
+        // 기존 구조: market_head → product_core → customer_concern → persona_longtail → intent_head
+        promptKeywordsForLogging = [
+          findByRole('market_head'),
+          findByRole('product_core'),
+          findByRole('customer_concern'),
+          findByRole('persona_longtail'),
+          findByRole('intent_head'),
+        ].filter((k): k is string => !!k && !isInternalProductTerm(k))
+      }
+    } else if (searchKeywords && searchKeywords.length > 0) {
+      promptKeywordsForLogging = searchKeywords.filter(k => !isInternalProductTerm(k))
+    }
+
     const usageLogMeta = {
       productName,
       conversationMode,
@@ -3400,6 +4027,11 @@ export async function POST(request: NextRequest) {
       personaBucket: isDesignSheetMode ? (designSheetAnalysis?.personaBucket || undefined) : undefined,
       displayProductName: displayProductName || undefined,
       isDesignSheetMode,
+      internalConcern: internalConcern || undefined,
+      customerConcernCandidates,
+      selectedCustomerConcern: selectedConcernVariant || undefined,
+      keywordRoleValidation,
+      internalKeywordLeakDetected,
       openingFamilyId: selectedOpeningFamilyId,
       titlePatternId: selectedTitlePatternId,
       questionConceptId: selectedQuestionConceptId,
@@ -3408,6 +4040,8 @@ export async function POST(request: NextRequest) {
         breakdown: overallQuality.breakdown,
         allPassed: overallQuality.allPassed,
         criticalFailures: overallQuality.criticalFailures.length > 0 ? overallQuality.criticalFailures : undefined,
+        qualityWarning: overallQuality.criticalFailures.length > 0,
+        qualitySuggestRegenerate: overallQuality.totalScore < 70 || overallQuality.criticalFailures.length > 0,
       },
       failureTags: failureTags.length > 0 ? failureTags : undefined,
       regenHistory: regenHistoryEntries.length > 0 ? regenHistoryEntries : undefined,
@@ -3417,7 +4051,7 @@ export async function POST(request: NextRequest) {
       finalAgentEnding: finalAgentEndingStrict ?? undefined,
       thread: conversationThread,
       selectedConcernVariant: selectedConcernVariant || undefined,
-      promptKeywords: searchKeywords && searchKeywords.length > 0 ? searchKeywords : undefined,
+      promptKeywords: promptKeywordsForLogging,
       displayKeywords: displayKeywords.length >= 5 ? displayKeywords : undefined,
       marketHeadKeyword: marketHeadKeyword.keyword ? marketHeadKeyword : undefined,
       selectedFamilies: {
@@ -3432,6 +4066,15 @@ export async function POST(request: NextRequest) {
         answerFactsCount: designSheetAnalysis.evidenceMap.answerFacts?.length || 0,
         forbiddenPatternsCount: designSheetAnalysis.evidenceMap.forbiddenPatterns?.length || 0,
       } : undefined,
+      ...(isDesignSheetMode && canonicalConcernContext
+        ? {
+            selectedConcernSource: canonicalConcernContext.selectedConcernSource || undefined,
+            selectedConcernReason: canonicalConcernContext.selectedConcernReason || undefined,
+            selectedConcernSearch: canonicalConcernContext.selectedConcernSearch || undefined,
+            coverageSummaryForPrompt: canonicalConcernContext.coverageSummaryForPrompt?.length ? canonicalConcernContext.coverageSummaryForPrompt : undefined,
+            coverageFocusLabels: canonicalConcernContext.coverageFocusLabels?.length ? canonicalConcernContext.coverageFocusLabels : undefined,
+          }
+        : {}),
     }
 
     Promise.resolve(
@@ -3454,25 +4097,57 @@ export async function POST(request: NextRequest) {
       .catch((err) => console.error('[Q&A 생성] usage_logs insert 예외:', err))
 
     // answer는 항상 설계사 첫 답변 반환 (대화형 스레드와 별개)
-    const finalAnswerContent = answerContent
-    
+    // 최종 노출 전, 고객이 쓰지 않을 표현/코드/태그를 한 번 더 정제
+    const scrubVisibleText = (text: string | null | undefined): string | undefined => {
+      if (!text) return text || undefined
+      let t = text
+      // 대괄호 태그 제거: [간편], [갱신형], [무배당] 등
+      t = t.replace(/\[[^\]]*]/g, '')
+      // 로마 숫자 코드 제거 (영문/한글)
+      t = t.replace(/\s+(I{1,3}|IV|VI{0,3})(?=[\s,.]|[가-힣]|$)/g, '')
+      t = t.replace(/\s+(Ⅰ|Ⅱ|Ⅲ|Ⅳ|Ⅴ)(?=[\s,.]|[가-힣]|$)/g, '')
+      // 해약환급금/환급 관련 구조어를 생활어로 치환
+      t = scrubNoRefundStructureTerm(t)
+      // 내부 제품어 제거
+      t = sanitizeCustomerFacingKeyword(t) || t
+      return t.trim()
+    }
+
+    finalQuestionTitle = scrubVisibleText(finalQuestionTitle) || finalQuestionTitle
+    finalQuestionContent = scrubVisibleText(finalQuestionContent) || finalQuestionContent
+    const finalAnswerContent = scrubVisibleText(answerContent) || answerContent
+    const finalConversation = Array.isArray(conversationThread)
+      ? conversationThread.map((msg) => ({
+          ...msg,
+          content: scrubVisibleText(msg.content) || msg.content,
+        }))
+      : conversationThread
+
+    // 방어: 클라이언트가 받는 필드는 절대 undefined가 되지 않도록 기본값 적용
+    const safeTitle = typeof finalQuestionTitle === 'string' ? finalQuestionTitle : ''
+    const safeContent = typeof finalQuestionContent === 'string' ? finalQuestionContent : ''
+    const safeAnswerContent = typeof finalAnswerContent === 'string' ? finalAnswerContent : ''
+    const safeConversation = Array.isArray(finalConversation) ? finalConversation : []
+
     return NextResponse.json({
       success: true,
       question: {
-        title: finalQuestionTitle,
-        content: finalQuestionContent,
+        title: safeTitle,
+        content: safeContent,
         generatedAt: new Date().toISOString()
       },
       answer: {
-        content: finalAnswerContent,
+        content: safeAnswerContent,
         generatedAt: new Date().toISOString()
       },
-      conversation: conversationThread,
+      conversation: safeConversation,
       qualityGate: {
-        totalScore: overallQuality.totalScore,
-        breakdown: overallQuality.breakdown,
-        allPassed: overallQuality.allPassed,
-        criticalFailures: overallQuality.criticalFailures.length > 0 ? overallQuality.criticalFailures : undefined,
+        totalScore: overallQuality?.totalScore ?? 0,
+        breakdown: overallQuality?.breakdown ?? {},
+        allPassed: overallQuality?.allPassed ?? false,
+        criticalFailures: (overallQuality?.criticalFailures?.length ?? 0) > 0 ? (overallQuality?.criticalFailures ?? []) : undefined,
+        qualityWarning: (overallQuality?.criticalFailures?.length ?? 0) > 0,
+        qualitySuggestRegenerate: (overallQuality?.totalScore ?? 0) < 70 || (overallQuality?.criticalFailures?.length ?? 0) > 0,
       },
       usage: {
         promptTokens: totalUsage.promptTokens,
@@ -3493,11 +4168,11 @@ export async function POST(request: NextRequest) {
         targetPersona,
         worryPoint,
         sellingPoint,
-        answerTone: answerTone || 'friendly',
+        answerTone: answerTone || defaultAnswerTone,
         conversationMode: conversationMode || false,
         conversationLength: conversationLength || 0,
         searchKeywords: searchKeywords && searchKeywords.length > 0 ? searchKeywords : undefined,
-        promptKeywords: searchKeywords && searchKeywords.length > 0 ? searchKeywords : undefined,
+        promptKeywords: promptKeywordsForLogging,
         displayKeywords: displayKeywords.length >= 5 ? displayKeywords : undefined,
         marketHeadKeyword: marketHeadKeyword.keyword ? marketHeadKeyword : undefined,
         promptVersion: QA_PROMPT_VERSION,
@@ -3511,6 +4186,15 @@ export async function POST(request: NextRequest) {
         finalAgentEnding: finalAgentEndingStrict ?? undefined,
         questionFirstSentence: questionFirstSentenceStrict || undefined,
         answerFirstSentence: answerFirstSentenceStrict || undefined,
+        ...(isDesignSheetMode && canonicalConcernContext
+          ? {
+              selectedConcernSource: canonicalConcernContext.selectedConcernSource || undefined,
+              selectedConcernReason: canonicalConcernContext.selectedConcernReason || undefined,
+              selectedConcernSearch: canonicalConcernContext.selectedConcernSearch || undefined,
+              coverageSummaryForPrompt: canonicalConcernContext.coverageSummaryForPrompt?.length ? canonicalConcernContext.coverageSummaryForPrompt : undefined,
+              coverageFocusLabels: canonicalConcernContext.coverageFocusLabels?.length ? canonicalConcernContext.coverageFocusLabels : undefined,
+            }
+          : {}),
       }
     })
   } catch (error: any) {

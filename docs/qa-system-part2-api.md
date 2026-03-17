@@ -80,44 +80,40 @@ POST /api/analyze-design-sheet
   │
   ├─ 상품명 정규화: normalizeExtractedProductName (중복단어·무배당·코드 제거)
   │
-  ├─ 2단계: Google CSE 검색 (4 쿼리)
-  │   └─ "{상품명} 후기/특약/장점/가입" × 3건씩, 120ms 간격
-  │   └─ 중복 URL 제거 → formatSearchResultsForPrompt
-  │
-  ├─ 3단계: Pro 모델 최종 분석
+  ├─ 3단계: Pro 모델 최종 분석 (검색 없이 1단계 결과만 주입)
   │   └─ gemini-2.5-pro → gemini-2.5-flash → gemini-2.0-flash (폴백)
-  │   └─ 1단계 결과 + 검색 결과 주입
   │   └─ JSON 파싱: productName, targetPersona, worryPoint, sellingPoint, premium, coverages, specialClauses
-  │   └─ GPT 거부 감지 → 1단계 데이터 + 검색 키워드 기반 자동 생성
+  │   └─ GPT 거부 감지 시 1단계 데이터 기반 자동 생성
   │
-  ├─ 상품명 교정: correctAndLog (검색 결과 + alias + fuzzy)
+  ├─ 상품명 교정: correctAndLog (alias + fuzzy)
+  │
+  ├─ 축 기반 검색 (축 확정 시에만, 1~2회)
+  │   └─ 쿼리1: {companyShort} {topicConcernSearch 또는 topicConcern}, 결과 없으면 쿼리2: {companyShort} {첫 keyCoverage}
+  │   └─ 결과 없으면 포기. 수집분 → searchSummary
   │
   ├─ 상품명 구조화: convertToCustomerTopicName
-  │   └─ topicCore, topicConcern, topicConcernSearch, displayProductName, companyShort
   │
   ├─ personaBucket 추출: extractPersonaBucket
   │
   ├─ coverages/specialClauses 정제 (로마숫자 제거, 중복 제거)
   │
-  ├─ Evidence Map 구축
-  │   ├─ questionFacts: 보험료, 걱정포인트, 주요보장, 핵심고민
-  │   ├─ answerFacts: 보험료, 장점, 보장 카테고리, 특약, concern 구조
-  │   └─ forbiddenPatterns: 무배당, (주), 로마숫자, 내부코드, 설계사표현
+  ├─ keyCoverages 구축: buildKeyCoverages(merged) — merged = [...cleanCoverages, ...cleanSpecialClauses.slice(0,15)]
+  │   └─ normalizeCoverageNameForCustomer, inferCoverageCategory(치매/뇌 등 brain 강화), 우선순위 정렬 후 최대 5개
   │
-  ├─ Conflict Axis 구축: buildConflictAxis(topicConcern, topicConcernSearch)
+  ├─ designFocusLabel: axisCounts·axisWeight로 mainAxis 산출 → designFocusLabelMap (예: cancer→'암 보장 중심', brain→'치매 보장 중심')
   │
-  └─ 응답:
-      {
-        success: true,
-        data: {
-          productName, rawProductName, topicCore, topicConcern, topicConcernSearch,
-          displayProductName, companyShort, personaBucket, targetPersona,
-          worryPoint, sellingPoint, premium, coverages, specialClauses,
-          nameCorrection, analysisSource, searchSummary, searchKeywordHints,
-          evidenceMap, conflictAxis
-        },
-        usage: { customSearchCount, customSearchCost }
-      }
+  ├─ Concern 후보 생성·선택
+  │   ├─ buildCoverageConcernCandidates (injury_only는 상해≥2 + 질병축 거의 없을 때만)
+  │   ├─ buildBalanceConcernCandidates, buildStructureConcernFallbacks
+  │   ├─ chooseBestConcernCandidate: keyCoverages로 mainAxis 추론, mainAxis와 어긋나는 후보 페널티
+  │   └─ topicConcern/topicConcernSearch/worryPoint/sellingPoint 설정
+  │
+  ├─ scrubNoRefundStructureTerm: topicConcern, topicConcernSearch에만 적용. worryPoint/sellingPoint는 3단계 프롬프트에서 해지·환급 구조 문구 포함 금지로 처음부터 뽑지 않음 (후처리 없음)
+  │
+  ├─ Evidence Map / Conflict Axis / 고객형 고민 후보군 구축
+  │   └─ forbiddenPatterns에 '중간에 해지하면 돌려받는 돈이 거의 없는', '해지하면 돌려받는 돈이 없는 구조', '중도에 해지하면 돌려받는 돈' 추가
+  │
+  └─ 응답 data에 keyCoverages, keyCoveragesCount, designFocusLabel, selectedConcernSource, selectedConcernReason, concernCandidatesCount 포함
 ```
 
 ### 핵심 로직 상세
@@ -150,6 +146,7 @@ if (specialClauses.length > 0) answerFacts.push(`특약: ${specialClauses.slice(
 // forbiddenPatterns (절대 금지)
 '무배당', '(주)', 'Ⅰ', 'Ⅱ', 'Ⅲ', 'II', 'III'
 // + 내부 코드 패턴, '설계사 전문 상담', '약관을 참고하세요' 등
+// + 설계서 공통: '중간에 해지하면 돌려받는 돈이 거의 없는', '해지하면 돌려받는 돈이 없는 구조', '중도에 해지하면 돌려받는 돈'
 ```
 
 ---
@@ -170,6 +167,13 @@ POST /api/generate-qa
   │
   ├─ Canonical Payload 확정
   │   └─ 설계서 모드: 분석 결과가 폼값보다 우선
+  │
+  ├─ canonicalConcernContext 구성 (설계서 모드)
+  │   └─ designSheetAnalysis.keyCoverages → rawKeyCoverages (name = normalizedName || customerLabel || rawName) → coverageSummaryForPrompt, coverageFocusLabels
+  │   └─ **프론트가 designSheetAnalysis에 keyCoverages·designFocusLabel을 포함해 전달해야** 위 값이 채워짐. 비어 있으면 coverage_focus는 designFocusLabel → 없으면 "보장 균형"으로 fallback
+  │   └─ selectedConcern, selectedConcernSearch, selectedConcernSource, selectedConcernReason, keyCoverages, coverageSummaryForPrompt, coverageFocusLabels
+  │   └─ generateQuestionPrompt / generateAnswerPrompt(메인·재생성·품질게이트) / generateConversationThreadPrompt /
+  │       generateCommentPairPrompt / generateUnifiedQAPrompt / generateThreadBatchPrompt 호출 시 위 4필드(selectedConcern, selectedConcernSearch, coverageSummaryForPrompt, coverageFocusLabels) 전달
   │
   ├─ 상품명 구조화 (재정규화 금지)
   │   └─ preStructured: 분석 topicCore 그대로 사용
@@ -773,5 +777,5 @@ export function correctAndLog(
 
 ---
 
-*전체 소스 코드 약 4,245줄 (product-name-correction 356 + analyze-design-sheet 723 + generate-qa 3,166) 기준*
-*최종 업데이트: 2026-03-14*
+*전체 소스 코드 약 4,245줄 (product-name-correction 356 + analyze-design-sheet 723+ + generate-qa 3,166) 기준*
+*최종 업데이트: 2026-03-17 (scrub 범위·해지/환급 금지·keyCoverages/designFocusLabel 전달·forbiddenPatterns)*

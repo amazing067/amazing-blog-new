@@ -7,6 +7,7 @@ import Link from 'next/link'
 import MembershipStatusBanner from './MembershipStatusBanner'
 import { createClient } from '@/lib/supabase/client'
 import type { BlogPost } from '@/types/blog.types'
+import type { DesignSheetAnalysis } from '@/types/qa'
 import { TEMPLATE_TOPICS } from '@/lib/template-topics'
 import { addWarningToHTML } from '@/lib/insurance-warnings'
 import { getRoleLabel, ROLES } from '@/lib/constants/roles'
@@ -3922,32 +3923,7 @@ function QAGenerator({
     designSheetImage: string | null
     designSheetImageUrl?: string | null // 원본 이미지 URL (다운로드용)
     designSheetImageTitle?: string | null // 이미지 제목 (다운로드용)
-    designSheetAnalysis?: {
-      premium?: string
-      coverages?: string[]
-      specialClauses?: string[]
-      rawProductName?: string
-      topicCore?: string
-      topicConcern?: string
-      topicConcernSearch?: string
-      displayProductName?: string
-      companyShort?: string
-      personaBucket?: string
-      searchSummary?: string
-      searchKeywordHints?: string[]
-      evidenceMap?: {
-        questionFacts: string[]
-        answerFacts: string[]
-        forbiddenPatterns: string[]
-      }
-      conflictAxis?: {
-        keyword: string
-        keywordNatural: string
-        proCondition: string
-        conCondition: string
-        summary: string
-      } | null
-    } | null
+    designSheetAnalysis?: DesignSheetAnalysis | null
   }>({
     productName: '',
     targetPersona: '',
@@ -3997,6 +3973,8 @@ function QAGenerator({
   // const [selectedPDF, setSelectedPDF] = useState<string>('')
   const [isGeneratingQuestionFromProduct, setIsGeneratingQuestionFromProduct] = useState(false)
   const [progress, setProgress] = useState(0)
+  const [progressStepLabel, setProgressStepLabel] = useState('') // Q&A 생성 단계 라벨 (준비 중, 질문 생성 중 등)
+  const qaProgressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const [generatedQuestion, setGeneratedQuestion] = useState<{ title: string; content: string } | null>(null)
   const [qaSearchKeywords, setQaSearchKeywords] = useState<string[]>([])
   const [generatedAnswer, setGeneratedAnswer] = useState<string | null>(null)
@@ -4746,6 +4724,8 @@ function QAGenerator({
           displayProductName: String(data.data?.displayProductName || ''),
           companyShort: String(apiCompanyShort || ''),
           personaBucket: String(data.data?.personaBucket || ''),
+          worryPoint: String(apiWorryPoint || ''),
+          sellingPoint: String(apiSellingPoint || ''),
           searchSummary: String(data.data?.searchSummary || ''),
           searchKeywordHints: Array.isArray(data.data?.searchKeywordHints) ? data.data.searchKeywordHints as string[] : [],
           evidenceMap: data.data?.evidenceMap && typeof data.data.evidenceMap === 'object' ? {
@@ -4760,6 +4740,8 @@ function QAGenerator({
             conCondition: string
             summary: string
           } : null,
+          keyCoverages: Array.isArray(data.data?.keyCoverages) ? (data.data.keyCoverages as Array<{ rawName?: string; normalizedName?: string; customerLabel?: string; category?: string }>) : undefined,
+          designFocusLabel: typeof data.data?.designFocusLabel === 'string' ? data.data.designFocusLabel : undefined,
         }
       }))
       
@@ -5105,6 +5087,16 @@ function QAGenerator({
 
   // 제거됨: Q&A 3개 세트 기능 제거로 인해 handleGenerateQAByNumber 함수 제거
 
+  // Q&A 생성 단계 정의 (API 과정과 동일한 순서)
+  const QA_GENERATE_STEPS = [
+    { p: 0, label: '준비 중' },
+    { p: 10, label: '검색·컨텍스트 구성 중' },
+    { p: 28, label: '질문 생성 중' },
+    { p: 52, label: '답변 생성 중' },
+    { p: 78, label: '대화 스레드 생성 중' },
+    { p: 95, label: '품질 검증 중' },
+  ]
+
   // 단일 Q&A 생성 (3개 세트 기능 제거)
   const handleGenerateQA = async () => {
     if (!qaFormData.productName || !qaFormData.worryPoint || !qaFormData.sellingPoint) {
@@ -5114,6 +5106,7 @@ function QAGenerator({
 
     setIsGenerating(true)
     setProgress(0)
+    setProgressStepLabel(QA_GENERATE_STEPS[0].label)
     setGeneratedQuestion(null)
     setGeneratedAnswer(null)
     setConversationThread([])
@@ -5131,10 +5124,17 @@ function QAGenerator({
       return
     }
 
-    try {
-      setProgress(30)
-      setCurrentStep('question')
+    // 단계별 진행률 타이머 (0→95% 구간을 과정에 맞게 표시)
+    if (qaProgressIntervalRef.current) clearInterval(qaProgressIntervalRef.current)
+    let stepIndex = 0
+    qaProgressIntervalRef.current = setInterval(() => {
+      stepIndex = Math.min(stepIndex + 1, QA_GENERATE_STEPS.length - 1)
+      const step = QA_GENERATE_STEPS[stepIndex]
+      setProgress(step.p)
+      setProgressStepLabel(step.label)
+    }, 2500)
 
+    try {
       const response = await fetch('/api/generate-qa', {
         method: 'POST',
         headers: {
@@ -5206,7 +5206,12 @@ function QAGenerator({
         setQaSearchKeywords([])
       }
 
+      if (qaProgressIntervalRef.current) {
+        clearInterval(qaProgressIntervalRef.current)
+        qaProgressIntervalRef.current = null
+      }
       setProgress(100)
+      setProgressStepLabel('완료')
       setCurrentStep('complete')
       
       // 저장된 Q&A 목록에 추가 (하위 호환성: 배열 형태로 저장)
@@ -5220,7 +5225,7 @@ function QAGenerator({
         tokenUsage: data.tokenUsage || undefined
       }]
       
-      // Q&A 자동 저장 (localStorage + 서버)
+      // Q&A 자동 저장 (localStorage + 서버) — 품질 게이트 정책: 저장은 항상 허용, 미달 시 경고만
       try {
         await saveQASet(qaResult)
         console.log('Q&A 자동 저장 완료')
@@ -5228,7 +5233,8 @@ function QAGenerator({
         console.error('Q&A 자동 저장 오류:', saveError)
         // 저장 실패해도 생성은 완료되었으므로 계속 진행
       }
-      
+
+      // 품질 경고 안내는 사용자에게 노출하지 않음 (저장 완료만 알림)
       alert('Q&A 생성이 완료되었습니다!')
     } catch (error: any) {
       console.error('Q&A 생성 오류:', error)
@@ -5240,7 +5246,13 @@ function QAGenerator({
       })
       alert('Q&A 생성 중 오류가 발생했습니다: ' + errorMessage)
     } finally {
+      if (qaProgressIntervalRef.current) {
+        clearInterval(qaProgressIntervalRef.current)
+        qaProgressIntervalRef.current = null
+      }
       setIsGenerating(false)
+      setProgress(0)
+      setProgressStepLabel('')
     }
   }
 
@@ -5316,14 +5328,19 @@ function QAGenerator({
     
     setIsGenerating(true)
     setProgress(0)
+    setProgressStepLabel('질문 재생성 중...')
     // 타겟고객 검증
     const trimmedTargetPersona = qaFormData.targetPersona?.trim() || ''
     if (!trimmedTargetPersona) {
       alert('타겟 고객을 입력해주세요')
+      setIsGenerating(false)
+      setProgressStepLabel('')
       return
     }
     if (trimmedTargetPersona.length < 3) {
       alert('타겟 고객을 더 구체적으로 입력해주세요 (최소 3자 이상)')
+      setIsGenerating(false)
+      setProgressStepLabel('')
       return
     }
 
@@ -5381,6 +5398,7 @@ function QAGenerator({
     } finally {
       setIsGenerating(false)
       setProgress(0)
+      setProgressStepLabel('')
     }
   }
 
@@ -5389,6 +5407,7 @@ function QAGenerator({
     
     setIsGenerating(true)
     setProgress(50)
+    setProgressStepLabel('답변 재생성 중...')
     // ⚠️ 테스트용: 실제 운영 시 제거 필요
     setTokenUsage(null)
     setCurrentStep('answer')
@@ -5397,10 +5416,14 @@ function QAGenerator({
     const trimmedTargetPersona = qaFormData.targetPersona?.trim() || ''
     if (!trimmedTargetPersona) {
       alert('타겟 고객을 입력해주세요')
+      setIsGenerating(false)
+      setProgressStepLabel('')
       return
     }
     if (trimmedTargetPersona.length < 3) {
       alert('타겟 고객을 더 구체적으로 입력해주세요 (최소 3자 이상)')
+      setIsGenerating(false)
+      setProgressStepLabel('')
       return
     }
 
@@ -5450,6 +5473,7 @@ function QAGenerator({
     } finally {
       setIsGenerating(false)
       setProgress(0)
+      setProgressStepLabel('')
     }
   }
 
@@ -5704,7 +5728,7 @@ function QAGenerator({
                 name="productName"
                 value={qaFormData.productName}
                 onChange={handleQAChange}
-                disabled={isGeneratingQuestionFromProduct}
+                disabled={isGeneratingQuestionFromProduct || isGenerating}
                 className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 disabled:opacity-50 disabled:cursor-not-allowed"
                 placeholder="예: KB손해보험 금쪽같은자녀보험 Plus"
               />
@@ -5737,7 +5761,7 @@ function QAGenerator({
                 name="targetPersona"
                 value={qaFormData.targetPersona}
                 onChange={handleQAChange}
-                disabled={isGeneratingQuestionFromProduct}
+                disabled={isGeneratingQuestionFromProduct || isGenerating}
                 className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 disabled:opacity-50 disabled:cursor-not-allowed"
                 placeholder="예: 30대 직장인 남성"
               />
@@ -5806,7 +5830,7 @@ function QAGenerator({
                   } ${isGeneratingQuestionFromProduct ? 'opacity-50 cursor-not-allowed' : ''}`}
                   rows={3}
                   placeholder="예: 보험료가 적당한지, 보장 범위가 충분한지 궁금합니다"
-                  disabled={isGeneratingField.field === 'worryPoint' || isGeneratingQuestionFromProduct}
+                  disabled={isGeneratingField.field === 'worryPoint' || isGeneratingQuestionFromProduct || isGenerating}
                 />
                 {isGeneratingField.field === 'worryPoint' && (
                   <div className="absolute inset-0 bg-blue-50/50 dark:bg-blue-900/30 rounded-lg flex items-center justify-center backdrop-blur-sm">
@@ -5994,7 +6018,7 @@ function QAGenerator({
                   } ${isGeneratingQuestionFromProduct ? 'opacity-50 cursor-not-allowed' : ''}`}
                   rows={3}
                   placeholder="예: 보장 범위가 넓고, 보험료 대비 합리적이며, 특약 구성이 탄탄함"
-                  disabled={isGeneratingField.field === 'sellingPoint' || isGeneratingSellingPoint || isGeneratingQuestionFromProduct}
+                  disabled={isGeneratingField.field === 'sellingPoint' || isGeneratingSellingPoint || isGeneratingQuestionFromProduct || isGenerating}
                 />
                 {(isGeneratingField.field === 'sellingPoint' || isGeneratingSellingPoint) && (
                   <div className="absolute inset-0 bg-purple-50/50 dark:bg-purple-900/30 rounded-lg flex items-center justify-center backdrop-blur-sm">
@@ -6330,7 +6354,7 @@ function QAGenerator({
               {isGenerating ? (
                 <>
                   <Clock className="w-4 h-4 animate-spin" />
-                  생성 중... ({progress}%)
+                  {progressStepLabel} ({progress}%)
                 </>
               ) : isAnalyzing ? (
                 <>
@@ -6362,6 +6386,21 @@ function QAGenerator({
               )}
             </button>
         </div>
+        {/* Q&A 생성 중 진행률 바 (과정 기반 0~100%) */}
+        {isGenerating && progressStepLabel && (
+          <div className="mt-3 space-y-1.5">
+            <div className="flex items-center justify-between text-xs font-medium text-gray-600 dark:text-gray-400">
+              <span>{progressStepLabel}</span>
+              <span>{progress}%</span>
+            </div>
+            <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2 overflow-hidden">
+              <div
+                className="bg-gradient-to-r from-purple-500 to-purple-600 h-full rounded-full transition-all duration-500 ease-out"
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+          </div>
+        )}
       </div>
 
       {/* 로딩 오버레이 (정말 귀찮다 버튼 클릭 시) */}
@@ -6497,14 +6536,21 @@ function QAGenerator({
                   <div className="flex gap-2">
                     <button
                       onClick={handleRegenerateQuestion}
-                      disabled={isGeneratingQuestionFromProduct}
-                      className="px-3 py-1.5 bg-gray-600 text-white text-xs rounded-md hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      disabled={isGeneratingQuestionFromProduct || (isGenerating && currentStep === 'question')}
+                      className="px-3 py-1.5 bg-gray-600 text-white text-xs rounded-md hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
                     >
-                      🔄 재생성
+                      {(isGenerating && currentStep === 'question') ? (
+                        <>
+                          <Clock className="w-3.5 h-3.5 animate-spin flex-shrink-0" />
+                          재생성 중...
+                        </>
+                      ) : (
+                        <>🔄 재생성</>
+                      )}
                     </button>
                     <button
                       onClick={handleCopyQuestion}
-                      disabled={isGeneratingQuestionFromProduct}
+                      disabled={isGeneratingQuestionFromProduct || (isGenerating && currentStep === 'question')}
                       className="px-3 py-1.5 bg-blue-600 text-white text-xs rounded-md hover:bg-blue-700 transition-colors flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       <Copy className="w-3 h-3" />
@@ -6677,14 +6723,21 @@ function QAGenerator({
                   <div className="flex gap-2">
                     <button
                       onClick={handleRegenerateAnswer}
-                      disabled={!generatedQuestion}
-                      className="px-3 py-1.5 bg-gray-600 text-white text-xs rounded-md hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      disabled={!generatedQuestion || (isGenerating && currentStep === 'answer')}
+                      className="px-3 py-1.5 bg-gray-600 text-white text-xs rounded-md hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
                     >
-                      🔄 재생성
+                      {(isGenerating && currentStep === 'answer') ? (
+                        <>
+                          <Clock className="w-3.5 h-3.5 animate-spin flex-shrink-0" />
+                          재생성 중...
+                        </>
+                      ) : (
+                        <>🔄 재생성</>
+                      )}
                     </button>
                     <button
                       onClick={handleCopyAnswer}
-                      disabled={!generatedAnswer}
+                      disabled={!generatedAnswer || (isGenerating && currentStep === 'answer')}
                       className="px-3 py-1.5 bg-indigo-600 text-white text-xs rounded-md hover:bg-indigo-700 transition-colors flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
                       title="답변만 복사"
                     >

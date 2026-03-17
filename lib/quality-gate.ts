@@ -46,6 +46,7 @@ export type FailureTag =
   | 'human_self_intro' | 'human_excessive_cta' | 'human_first_sentence_repeat' | 'human_formal_tone' | 'human_role_leakage'
   | 'evidence_outside_facts' | 'evidence_forbidden_pattern'
   | 'keyword_missing' | 'keyword_overweight' | 'keyword_zero_volume' | 'keyword_no_title'
+  | 'internal_keyword_leak' | 'internal_concern_lock' | 'market_head_missing' | 'market_head_not_big_keyword' | 'customer_concern_missing'
   | 'operational_regen_no_improvement' | 'operational_family_repeat' | 'operational_first_sentence_repeat' | 'operational_no_analysis'
   | 'operational_final_agent_ending_missing' | 'thread_empty'
   | 'uncategorized_warning'
@@ -165,6 +166,9 @@ export function gateQuestionBody(
     /보험료 부담이 크/,
     /보험 가입을 고려/,
     /적절한 보장을 선택/,
+    /참고하시기 바랍니다/,
+    /안내드립니다/,
+    /확인하시면 됩니다/,
   ]
   for (const pat of formalPatterns) {
     if (pat.test(firstSentence)) {
@@ -319,7 +323,7 @@ export function gateAnswer(
   }
 
   // 정리문체 금지
-  const formalWords = ['정리해드리면', '핵심은', '따라서', '검토해보세요', '고려하시면']
+  const formalWords = ['정리해드리면', '핵심은', '따라서', '검토해보세요', '고려하시면', '참고하시기 바랍니다', '안내드립니다']
   for (const word of formalWords) {
     if (answer.includes(word)) {
       failures.push(`정리문체 표현 사용: "${word}"`)
@@ -338,6 +342,8 @@ export function gateAnswer(
     /경제적 부담을 대비/,
     /예기치 못한 경제적/,
     /보장받으실 수 있습니다/,
+    /참고하시기 바랍니다/,
+    /확인하시면 됩니다/,
   ]
   for (const pat of docStylePatterns) {
     if (pat.test(answer)) {
@@ -348,14 +354,11 @@ export function gateAnswer(
   }
 
   // 역할 누수 감점
+  // 역할 누수: 자작글 톤을 깨는 자기소개/호칭만 감점. 연락·문의·비교설계 등 CTA는 영업 목적상 감점하지 않음.
   const roleLeakagePatterns = [
     { pat: /\d{1,2}년\s*(이상\s*)?경력/, penalty: 20, desc: '경력 자기소개' },
     { pat: /전문가님/, penalty: 15, desc: '전문가님 호칭' },
     { pat: /설계사입니다/, penalty: 15, desc: '설계사 자기소개' },
-    { pat: /비교\s*설계\s*(받아|한번|해보)/, penalty: 10, desc: '비교설계 유도' },
-    { pat: /상담\s*(요청|문의|받아)/, penalty: 10, desc: '상담 유도' },
-    { pat: /연락\s*주세요/, penalty: 10, desc: '연락 유도' },
-    { pat: /문의\s*주세요/, penalty: 10, desc: '문의 유도' },
   ]
   const first120 = answer.substring(0, 120)
   for (const { pat, penalty, desc } of roleLeakagePatterns) {
@@ -430,18 +433,7 @@ export function gateThread(
     }
   }
 
-  // 마지막 agent 댓글 영업성 감점
-  const lastAgent = messages.filter(m => m.role === 'agent').pop()
-  if (lastAgent) {
-    const salesPatterns = [/비교\s*설계/, /상담\s*받아/, /문의\s*주/, /연락\s*주/, /설계사\s*(만나|찾아)/, /설계\s*(다시|받아)/]
-    for (const pat of salesPatterns) {
-      if (pat.test(lastAgent.content)) {
-        failures.push(`마지막 agent 댓글 영업성: "${lastAgent.content.match(pat)?.[0]}"`)
-        score -= 10
-        break
-      }
-    }
-  }
+  // 마지막 agent 댓글: 연락·문의·비교설계 등 CTA는 카페 Q&A 유입·전환 목적이므로 영업성으로 감점하지 않음.
 
   return { passed: failures.length === 0, field: 'thread', failures, score: Math.max(0, score) }
 }
@@ -464,15 +456,12 @@ export function gateHumanLikeness(
     score -= 25
   }
 
-  // 2. 전체적으로 CTA가 과도한지
+  // 2. CTA: 유입·전환이 목적이므로 과도한 경우(6회 이상)만 감점. 2~5회는 허용.
   const allText = `${answer} ${thread.map(m => m.content).join(' ')}`
   const ctaCount = (allText.match(/연락|문의|상담|쪽지|비교\s*설계|오픈카톡/g) || []).length
-  if (ctaCount >= 4) {
+  if (ctaCount >= 6) {
     failures.push(`CTA 과다 (${ctaCount}회)`)
-    score -= 15
-  } else if (ctaCount >= 2) {
-    failures.push(`CTA 다소 많음 (${ctaCount}회)`)
-    score -= 5
+    score -= 10
   }
 
   // 3. 정리문체 밀도
@@ -586,7 +575,11 @@ export function gateEvidenceConsistency(
 }
 
 // ── 키워드 건강 게이트 ──
-export type DisplayKeywordSlot = { keyword: string; volume: number | null; role: 'market_head' | 'product_core' | 'concern_search' | 'persona_longtail' | 'intent_head' }
+export type DisplayKeywordSlot = {
+  keyword: string
+  volume: number | null
+  role: 'market_head' | 'product_core' | 'concern_search' | 'customer_concern' | 'persona_longtail' | 'intent_head'
+}
 
 export function gateKeywordHealth(
   searchKeywords: string[] | undefined,
@@ -597,6 +590,8 @@ export function gateKeywordHealth(
   options?: {
     displayKeywords?: DisplayKeywordSlot[]
     marketHeadKeyword?: { keyword: string; volume: number | null; source?: string } | null
+    /** 설계서 모드: 검색량 미확인만 있을 때 감점 완화(경고만, 통과 처리) */
+    designSheetMode?: boolean
   }
 ): GateResult {
   const failures: string[] = []
@@ -633,35 +628,108 @@ export function gateKeywordHealth(
     if (!concernInKeywords) {
       failures.push(`concern 키워드("${topicConcern}") 미포함`)
       score -= 10
+    } else {
+      // concern 표현이 제목+본문에서 과도하게 반복되는 경우 약한 감점 (고정 잠김 위험)
+      const combined = `${title} ${body}`
+      const normConcern = topicConcern.replace(/\s+/g, '')
+      const occur = (combined.match(new RegExp(normConcern, 'g')) || []).length
+      if (occur >= 3) {
+        failures.push(`concern 표현 과다 반복 (${occur}회 이상)`)
+        score -= 5
+      }
     }
   }
 
   // displayKeywords 5칸 구조 + marketHeadKeyword 표시용 건전성 (options 있을 때만)
   if (options?.displayKeywords) {
     const displayKeywords = options.displayKeywords
-    const roles = ['market_head', 'product_core', 'concern_search', 'persona_longtail', 'intent_head']
-    const hasFiveSlots = roles.every(r => displayKeywords.some(d => d.role === r))
-    if (!hasFiveSlots || displayKeywords.length !== 5) {
-      failures.push('displayKeywords 5칸 구조 아님')
+    const hasMarketHead = displayKeywords.some(d => d.role === 'market_head' && d.keyword?.trim())
+    const hasProductCore = displayKeywords.some(d => d.role === 'product_core' && d.keyword?.trim())
+    const hasCustomerConcern =
+      displayKeywords.some(d => d.role === 'customer_concern' && d.keyword?.trim()) ||
+      displayKeywords.some(d => d.role === 'concern_search' && d.keyword?.trim())
+    const hasPersonaLongtail = displayKeywords.some(d => d.role === 'persona_longtail' && d.keyword?.trim())
+    const hasIntentHead = displayKeywords.some(d => d.role === 'intent_head' && d.keyword?.trim())
+
+    const hasFiveSlots = displayKeywords.length === 5 && hasMarketHead && hasProductCore && hasCustomerConcern && hasPersonaLongtail && hasIntentHead
+
+    if (!hasFiveSlots) {
+      failures.push('displayKeywords 5칸 역할 구조 미완성')
+      score -= 15
+    }
+
+    // 고객형 키워드 계층에서 내부 구조어 유출 감지
+    const internalPatterns = [
+      /해약환급금미지급형/,
+      /세만기형/,
+      /\d+년납/,
+      /\d+종/,
+      /\b\d+N\d+\b/,
+      /I{1,3}\b/,
+      /[ⅠⅡⅢ]/,
+      /\(\d{3,4}\)/,
+    ]
+    const customerFacingSlots = displayKeywords.filter(d =>
+      (d.role === 'market_head' || d.role === 'product_core' || d.role === 'customer_concern' || d.role === 'concern_search') &&
+      d.keyword?.trim()
+    )
+    const hasInternalInDisplay = customerFacingSlots.some(slot =>
+      internalPatterns.some(p => p.test(slot.keyword))
+    )
+    if (hasInternalInDisplay) {
+      failures.push('displayKeywords에 내부 구조어 포함')
+      score -= 20
+    }
+
+    // customer_concern 역할 비거나 내부어인 경우
+    const concernSlots = displayKeywords.filter(d => d.role === 'customer_concern')
+    const concernEmptyOrInternal = concernSlots.length === 0 ||
+      concernSlots.every(s => {
+        const kw = (s.keyword || '').trim()
+        if (!kw) return true
+        return internalPatterns.some(p => p.test(kw))
+      })
+    if (concernEmptyOrInternal) {
+      failures.push('customer_concern 슬롯 비어있거나 내부어 포함')
       score -= 10
     }
-    if (!displayKeywords.find(d => d.role === 'concern_search')?.keyword?.trim()) { score -= 5 }
-    if (!displayKeywords.find(d => d.role === 'product_core')?.keyword?.trim()) { score -= 5 }
-    if (!displayKeywords.find(d => d.role === 'intent_head')?.keyword?.trim()) { score -= 5 }
   }
+
   if (options && 'marketHeadKeyword' in options) {
     const m = options.marketHeadKeyword
     if (!m || !m.keyword?.trim()) {
       failures.push('marketHeadKeyword 없음')
-      score -= 10
-    } else if (m.volume == null || m.volume === 0) {
-      if (m.source === 'unavailable') {
-        failures.push('marketHeadKeyword 검색량 미확인 (unavailable)')
-        score -= 8
-      } else {
-        failures.push('marketHeadKeyword 검색량 0 또는 fallback')
-        score -= 10
+      score -= 15
+    } else {
+      const bigHeads = ['건강보험', '암보험', '실손보험', '간편보험', '운전자보험', '종신보험', '보험']
+      if (!bigHeads.includes(m.keyword.trim())) {
+        failures.push(`marketHeadKeyword가 big market 키워드 아님: "${m.keyword}"`)
+        score -= 15
       }
+      if (m.volume == null || m.volume === 0) {
+        if (m.source === 'unavailable') {
+          failures.push('marketHeadKeyword 검색량 미확인 (unavailable)')
+          score -= 5
+        } else {
+          failures.push('marketHeadKeyword 검색량 0 또는 fallback')
+          score -= 8
+        }
+      }
+    }
+  }
+
+  // 설계서 모드: 검색량 미확인만 있을 때는 경고만 하고 통과 처리 (keyword_zero_volume 감점 완화)
+  const volumeOnlyFailures = [
+    '모든 키워드 검색량 0 또는 미확인',
+    'marketHeadKeyword 검색량 미확인 (unavailable)',
+    'marketHeadKeyword 검색량 0 또는 fallback',
+  ]
+  if (options?.designSheetMode && failures.length > 0) {
+    const onlyVolume = failures.every(f => volumeOnlyFailures.some(v => f.includes(v) || v.includes(f)))
+    if (onlyVolume) {
+      score = 95
+      failures.length = 0
+      return { passed: true, field: 'keywordHealth', failures, score }
     }
   }
 
@@ -723,7 +791,7 @@ function warningToTag(failure: string): FailureTag | null {
   if (failure.includes('역할 누수')) return 'answer_role_leakage'
   if (failure.includes('제목 너무 짧')) return 'title_too_short'
   if (failure.includes('제목 너무 김')) return 'title_too_long'
-  if (failure.includes('블로그형')) return 'title_blog_style'
+  if (failure.includes('블로그형') || failure.includes('질문형이 아님') || failure.includes('마침표로 끝남')) return 'title_blog_style'
   if (failure.includes('모든 키워드 검색량 0 또는 미확인')) return 'keyword_zero_volume'
   if (failure.includes('제목에 키워드 미포함')) return 'keyword_missing'
   if (failure.includes('답변 첫 문장') && failure.includes('유사도')) return 'human_first_sentence_repeat'
@@ -743,7 +811,12 @@ function warningToTag(failure: string): FailureTag | null {
   if (failure.includes('제목 키워드 과밀')) return 'keyword_overweight'
   if (failure.includes('displayKeywords 5칸 구조 아님') || failure.includes('marketHeadKeyword 없음')) return 'keyword_zero_volume'
   if (failure.includes('marketHeadKeyword 검색량')) return 'keyword_zero_volume'
-  if (failure.includes('제목에 내부 표기')) return 'title_internal_code'
+  if (failure.includes('displayKeywords에 내부 구조어 포함')) return 'internal_keyword_leak'
+  if (failure.includes('displayKeywords 5칸 역할 구조 미완성')) return 'customer_concern_missing'
+  if (failure.includes('marketHeadKeyword 없음')) return 'market_head_missing'
+  if (failure.includes('marketHeadKeyword가 big market 키워드 아님')) return 'market_head_not_big_keyword'
+  if (failure.includes('concern 표현 과다 반복')) return 'internal_concern_lock'
+  if (failure.includes('제목에 내부 표기') || failure.includes('제목에 금지 패턴')) return 'title_internal_code'
   if (failure.includes('답변 너무 짧')) return 'answer_too_short'
   if (failure.includes('답변 너무 김')) return 'answer_too_long'
   if (failure.includes('판단문')) return 'answer_no_judgment'

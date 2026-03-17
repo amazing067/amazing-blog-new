@@ -40,11 +40,11 @@ function Card({
 }) {
   const badgeClass =
     badge === '정상'
-      ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
+      ? 'bg-emerald-100 text-emerald-800 border border-emerald-400 dark:bg-emerald-900/60 dark:text-emerald-200 dark:border-emerald-600'
       : badge === '주의'
-        ? 'bg-amber-500/20 text-amber-400 border border-amber-500/40'
+        ? 'bg-amber-100 text-amber-800 border border-amber-400 dark:bg-amber-900/60 dark:text-amber-200 dark:border-amber-600'
         : badge === '위험'
-          ? 'bg-red-500/20 text-red-400 border border-red-500/40'
+          ? 'bg-red-100 text-red-800 border border-red-400 dark:bg-red-900/60 dark:text-red-200 dark:border-red-600'
           : ''
   return (
     <div

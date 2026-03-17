@@ -12,25 +12,25 @@ const GATE_LABELS: Record<string, string> = {
 }
 
 const GATE_DESCRIPTIONS: Record<string, string> = {
-  title: '제목이 질문처럼 자연스럽고 클릭할 만한지',
-  questionBody: '사람이 쓴 카페 글처럼 자연스럽고 문단이 나뉘는지',
-  answer: '광고 냄새 없이 판단을 도와주는 답글인지',
-  thread: '대화가 이어지는 느낌이 있는지',
-  humanLikeness: '기계적이지 않고 사람처럼 말하는지',
-  evidenceConsistency: '설계서 밖 사실을 함부로 단정하지 않았는지',
-  keywordHealth: '검색 키워드가 실제로 살아 있는지',
-  operationalRisk: '누락, 반복, 재생성 실패 같은 운영 문제가 없는지',
+  title: '모든 글 제목이 카페 질문처럼 자연스럽게 보이는지',
+  questionBody: '전체 질문 본문이 설명서 말투가 아닌지',
+  answer: '답변들이 광고문이 아니라 판단을 돕는지',
+  thread: '대부분의 댓글 대화가 자연스럽게 이어지는지',
+  humanLikeness: '전체 톤이 사람 말투에 가깝게 유지되는지',
+  evidenceConsistency: '설계서에 없는 내용을 막 지어내지 않는지',
+  keywordHealth: '검색 키워드가 실제 검색에 도움이 되는지',
+  operationalRisk: '운영 흐름이 끊기지 않고 잘 기록되는지',
 }
 
 const GATE_LOW_MEANING: Record<string, string> = {
-  title: '낮으면 광고형/블로그형 제목이 많다는 뜻',
-  questionBody: '낮으면 문단 없음, 설명서 말투, 느낌표 남발 가능성',
-  answer: '낮으면 상담 스크립트·광고체 답변이 많다는 뜻',
-  thread: '낮으면 댓글 흐름이 끊기거나 영업성 마무리 가능성',
-  humanLikeness: '낮으면 기계적이거나 역할 누수 가능성',
-  evidenceConsistency: '낮으면 설계서 밖 사실을 만들어냈을 가능성',
-  keywordHealth: '낮으면 검색량 0·미반영 키워드가 많다는 뜻',
-  operationalRisk: '낮으면 댓글 대화/마무리 문장 누락, 재생성 실패 등',
+  title: '낮으면 광고 느낌 나는 제목이 자주 나온다는 뜻이에요.',
+  questionBody: '낮으면 설명서 같은 글이나 문단이 없는 글이 많다는 뜻이에요.',
+  answer: '낮으면 상담 대본처럼 느껴지는 답변이 많다는 뜻이에요.',
+  thread: '낮으면 댓글 대화가 중간에 끊기거나 영업 멘트로 끝나는 경우가 많다는 뜻이에요.',
+  humanLikeness: '낮으면 말투가 딱딱하거나, 사람이 아닌 느낌이 난다는 뜻이에요.',
+  evidenceConsistency: '낮으면 약관·설계서에 없는 말을 지어냈을 위험이 있다는 뜻이에요.',
+  keywordHealth: '낮으면 검색량 0이거나, 쓸모없는 키워드가 많이 쓰인다는 뜻이에요.',
+  operationalRisk: '낮으면 댓글·마무리 문장 누락이나 재생성 실패가 자주 생긴다는 뜻이에요.',
 }
 
 function statusFromScore(score: number): '정상' | '주의' | '위험' {
@@ -53,10 +53,10 @@ function GateCard({
   const status = statusFromScore(score)
   const badgeClass =
     status === '정상'
-      ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
+      ? 'bg-emerald-100 text-emerald-800 border border-emerald-400 dark:bg-emerald-900/60 dark:text-emerald-200 dark:border-emerald-600'
       : status === '주의'
-        ? 'bg-amber-500/20 text-amber-400 border border-amber-500/40'
-        : 'bg-red-500/20 text-red-400 border border-red-500/40'
+        ? 'bg-amber-100 text-amber-800 border border-amber-400 dark:bg-amber-900/60 dark:text-amber-200 dark:border-amber-600'
+        : 'bg-red-100 text-red-800 border border-red-400 dark:bg-red-900/60 dark:text-red-200 dark:border-red-600'
 
   return (
     <div className="rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-4 shadow-sm">
@@ -88,17 +88,17 @@ export default function QualityBreakdownPanel({ sectionAverages }: { sectionAver
   if (entries.length === 0) {
     return (
       <div className="rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-6">
-        <h2 className="text-lg font-bold text-gray-800 dark:text-slate-100 mb-4">품질 Breakdown (전체 사용자 기준)</h2>
-        <p className="text-sm text-gray-500 dark:text-slate-400">아직 품질 게이트 데이터가 없습니다. 새 생성 이후 집계됩니다.</p>
+        <h2 className="text-lg font-bold text-gray-800 dark:text-slate-100 mb-4">품질 Breakdown (전체 운영 기준)</h2>
+        <p className="text-sm text-gray-500 dark:text-slate-300">아직 품질 게이트 데이터가 없습니다. 새 생성 이후 자동으로 모입니다.</p>
       </div>
     )
   }
 
   return (
     <div className="rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-6">
-      <h2 className="text-lg font-bold text-gray-800 dark:text-slate-100 mb-2">품질 Breakdown (전체 사용자 8개 게이트 평균)</h2>
-      <p className="text-sm text-gray-500 dark:text-slate-400 mb-4">
-        클릭을 부르는 자연스러운 질문 제목 · 실제 사람이 쓴 글처럼 문단 · 판단을 도와주는 답변 · 이어지는 댓글 대화 · 인간미 · 근거 일관성 · 키워드 건강 · 운영 리스크를 봅니다.
+      <h2 className="text-lg font-bold text-gray-800 dark:text-slate-100 mb-2">품질 Breakdown (전체 운영 8개 게이트 평균)</h2>
+      <p className="text-sm text-gray-500 dark:text-slate-300 mb-4">
+        최근 {entries.length > 0 ? '모든 사용자 생성물' : '전체 생성물'}을 기준으로, 제목·질문·답변·댓글·인간미·근거·키워드·운영 리스크까지 한눈에 봅니다.
       </p>
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
         {entries.map((e) => (
