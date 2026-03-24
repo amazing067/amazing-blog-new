@@ -60,7 +60,8 @@ export const convertToCustomerTopicName = (rawProductName: string): TopicStructu
   displayCore = displayCore.replace(/\(\s*\d[\d.]*\s*\)/g, '')
   displayCore = displayCore.replace(/\(([^)]*)\)/g, (_match, inner: string) => {
     if (/^\s*[\d.]+\s*$/.test(inner)) return ''
-    if (/해약환급금|미지급|무해약|특정\d|질병제외|간편심사|3-2-5/.test(inner)) return ` ${inner.trim()}`
+    if (/미지급|무해약|특정\d|질병제외|간편심사|3-2-5/.test(inner)) return ` ${inner.trim()}`
+    if (/해약환급금/.test(inner)) return ' 환급구조'
     return ''
   })
   displayCore = displayCore.replace(/\s+(I{2,3}|IV|VI{0,3})(?=[\s,.]|[가-힣]|$)/g, '')
@@ -91,8 +92,7 @@ export const convertToCustomerTopicName = (rawProductName: string): TopicStructu
 
   // ── topicConcern 2층: raw(내부 구조어) + search(고객 생활형 검색어) ──
   const CONCERN_PATTERNS: Array<{ test: RegExp; concern: string; search: string; extract?: RegExp }> = [
-    { test: /해약환급금미지급형|해약환급금/, concern: '해약환급금미지급형', search: '환급금 없는 보험' },
-    { test: /무해약/, concern: '무해약환급금', search: '해지해도 돈 못 받는 보험' },
+    { test: /해약환급금미지급형|해약환급금|무해약/, concern: '환급구조', search: '환급금 없는 보험' },
     { test: /간편심사/, concern: '간편심사', search: '병력 있어도 가입 가능한 보험' },
     { test: /유병자/, concern: '유병자', search: '아파도 들 수 있는 보험' },
     { test: /고지의무/, concern: '고지의무', search: '병원 기록 있으면 보험 가입' },

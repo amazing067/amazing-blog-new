@@ -49,6 +49,7 @@ type CanonicalConcernContext = {
 
 const DESIGN_SHEET_FORBIDDEN_KEYWORD_PATTERNS: RegExp[] = [
   /해약환급금미지급형/,
+  /해약환급금/,
   /무해지/,
   /무배당/,
   /20년납/,
@@ -348,7 +349,7 @@ const cleanForTitle = (text: string): string => {
 }
 
 // 본문 설명용: 약한 정제 (버전 코드·(주)·무배당만 제거, 핵심 구조어는 보존)
-// 해약환급금미지급형, 3-2-5, 특정4대질병제외 같은 보장 의미어는 유지
+// 단, 해약환급금/미지급형 계열 내부 용어는 고객 노출 전에 생활어로 치환됨
 const cleanForBody = (text: string): string => {
   if (!text) return ''
   let c = text
@@ -1366,7 +1367,9 @@ export async function POST(request: NextRequest) {
       if (/건강보험|건강/.test(nameLower) && !/간편|유병/.test(nameLower)) {
         extraHints.push('건강보험', '건강보험 보험료', '건강보험 비교')
       }
-      if (/해약환급금/.test(nameLower)) extraHints.push('해약환급금미지급형', '해약환급금 없는 보험')
+      if (/해약환급금|무해약|미지급형/.test(nameLower)) {
+        extraHints.push('환급금 없는 보험', '중도해지 환급 적은 보험', '보험료 낮은 대신 환급 적은 보험')
+      }
       // 카테고리 미매칭이어도 상품명만으로는 1~2개만 나오므로, 기본 hint 하나 추가
       if (extraHints.length === 0) extraHints.push('보험')
       // 롱테일 핵심키워드 수급: 타깃(50대 남자 등) + 상품명 힌트. 직업·직급은 제거, 연령대+성별만 유지
@@ -1396,7 +1399,9 @@ export async function POST(request: NextRequest) {
       if (/치아|치아보험/.test(nameLower)) relevanceTerms.push('치아')
       if (/간편|유병/.test(nameLower)) relevanceTerms.push('간편', '유병자')
       if (/건강보험|건강/.test(nameLower) && !/간편|유병/.test(nameLower)) relevanceTerms.push('건강보험', '건강')
-      if (/해약환급금/.test(nameLower)) relevanceTerms.push('해약환급금')
+      if (/해약환급금|무해약|미지급형/.test(nameLower)) {
+        relevanceTerms.push('환급금', '중도해지', '보험료')
+      }
       const isRelevant = (kw: string) => relevanceTerms.some((t) => kw.includes(t))
 
       /** 현재 상품군이 아닌 다른 상품군 키워드 포함 시 탈락 (감점이 아닌 컷오프) */
@@ -1602,19 +1607,18 @@ export async function POST(request: NextRequest) {
       // 우리 주제 키워드가 3개 미만이면 3계층 템플릿으로 채움
       // 1계층: 상품 키워드 (하나더퍼스트 건강보험)
       // 2계층: 페르소나+상품군 (50대 여성 건강보험)
-      // 3계층: 구조 키워드 (해약환급금미지급형)
+      // 3계층: 구조 키워드 (고객 생활어만 사용)
       if (rankedWithVolume.length < oursLimit) {
         const existingSet = new Set(rankedWithVolume.map((x) => x.keyword.trim()))
         const baseTemplate = TEMPLATE_BY_GROUP[productGroup]
 
         // 상품 구조 키워드 추출 (display에 포함된 보장 구조어)
-        // simple + 치매 축에서는 해약환급금미지급형 노출 안 함 (치매 키워드로 대체)
+        // 해약환급금/미지급형 계열 구조어는 사용자 노출 금지
         const structuralKeywords: string[] = []
-        if (!(productGroup === 'simple' && hasBrainCoverage) && /해약환급금미지급형|해약환급금/.test(displayProductName)) {
-          structuralKeywords.push('해약환급금미지급형')
-        }
         if (/간편심사/.test(displayProductName)) structuralKeywords.push('간편심사 보험')
-        if (/무해약/.test(displayProductName)) structuralKeywords.push('무해약환급금')
+        if (/무해약|해약환급금|미지급형/.test(displayProductName)) {
+          structuralKeywords.push('환급금 없는 보험', '중도해지 환급 적은 보험')
+        }
 
         const tieredTemplate = [
           shortKeywordName,
