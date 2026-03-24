@@ -26,7 +26,7 @@ export interface KeyCoverage {
   customerLabel: string
 }
 
-type ConcernSource = 'coverage' | 'balance' | 'special' | 'structure_fallback'
+type ConcernSource = 'ai_suggested' | 'coverage' | 'balance' | 'special' | 'structure_fallback'
 
 interface ConcernCandidate {
   source: ConcernSource
@@ -200,7 +200,7 @@ function buildCoverageConcernCandidates(keyCoverages: KeyCoverage[]): ConcernCan
       source: 'coverage',
       key: 'cancer_only_focus',
       concern: '암 쪽 보장은 보이는데 다른 큰 질환 대비는 부족한 건 아닌지 걱정',
-      concernSearch: '암만 강하고 다른 질환은 약한 보험',
+      concernSearch: '암만 넣었는데 다른 질환은 괜찮은지',
       score: 85,
       reason: '암 category 비중이 높고 뇌·심장 축이 거의 없음',
     })
@@ -224,7 +224,7 @@ function buildCoverageConcernCandidates(keyCoverages: KeyCoverage[]): ConcernCan
       source: 'coverage',
       key: 'death_heavy',
       concern: '사망 보장은 큰데 실제 치료비 보장은 부족한 건 아닌지 걱정',
-      concernSearch: '사망보장만 크고 치료비가 부족한 보험',
+      concernSearch: '사망만 크고 치료비는 부족한지',
       score: 80,
       reason: '사망 category만 강하고 치료 관련 담보는 약함',
     })
@@ -242,7 +242,7 @@ function buildCoverageConcernCandidates(keyCoverages: KeyCoverage[]): ConcernCan
       source: 'coverage',
       key: 'injury_only',
       concern: '상해 쪽 보장은 있는데 질병 대비가 부족한 건 아닌지 걱정',
-      concernSearch: '상해보장만 있고 질병보장 부족한 보험',
+      concernSearch: '상해만 질병은 부족한지',
       score: 77,
       reason: '상해 category는 있으나 질병 관련 담보가 거의 없음',
     })
@@ -254,7 +254,7 @@ function buildCoverageConcernCandidates(keyCoverages: KeyCoverage[]): ConcernCan
       source: 'coverage',
       key: 'cancer_surgery_combo',
       concern: '암 치료비 중심 구성이라 다른 위험에 대한 대비는 어떤지 한 번 더 보고 싶은 상태',
-      concernSearch: '암 치료비 중심 보험 균형',
+      concernSearch: '암 치료비만 많이 넣었는데 괜찮은지',
       score: 82,
       reason: '암·수술 category 조합이 두드러짐',
     })
@@ -300,7 +300,7 @@ function buildBalanceConcernCandidates(
       source: 'balance',
       key: 'low_premium_narrow_cover',
       concern: '보험료는 낮지만 정작 필요한 보장이 빠진 건 아닌지 고민',
-      concernSearch: '보험료는 싼데 보장이 부족한 보험',
+      concernSearch: '보험료만 싼데 보장은 괜찮은지',
       score: 70,
       reason: '보장 종류가 적고 보험료 정보가 있는 구성',
     })
@@ -312,7 +312,7 @@ function buildBalanceConcernCandidates(
       source: 'balance',
       key: 'cancer_only_balance',
       concern: '암 쪽에만 치우친 구성이라 전체 균형이 맞는지 걱정',
-      concernSearch: '암만 강한 보험 균형',
+      concernSearch: '암 쪽만 두꺼운 보험 괜찮은지',
       score: 75,
       reason: '암 category 단일 중심 구성',
     })
@@ -325,7 +325,7 @@ function buildBalanceConcernCandidates(
       source: 'balance',
       key: 'other_heavy',
       concern: '핵심 질환 대비는 충분한지 한 번 더 따져보고 싶은 구성',
-      concernSearch: '핵심 질환 보장이 약한 보험',
+      concernSearch: '필요한 질환은 다 들어갔는지',
       score: hasSpecial ? 72 : 68,
       reason: 'other category 비중이 높고 주요 질환 축이 약함',
     })
@@ -393,67 +393,33 @@ function buildConcernSearchLabel(concern: string): string {
   return label
 }
 
-/**
- * AI·룰 기반으로 나온 concern / concernSearch 최종 정합성 검증 (추가 API 호출 없음).
- * 실패 시 concern 본문에서 buildConcernSearchLabel로 검색 라벨 재생성.
- */
-function validateAndRepairConcernPair(
-  concern: string,
-  concernSearch: string
-): { topicConcern: string; topicConcernSearch: string; repaired: boolean; repairNotes: string[] } {
-  const repairNotes: string[] = []
-  const c = (concern || '').trim()
-  let s = (concernSearch || '').trim()
-  if (!c) {
-    return { topicConcern: c, topicConcernSearch: s, repaired: false, repairNotes }
-  }
-  if (!s) {
-    repairNotes.push('concernSearch 비어 있음')
-    return {
-      topicConcern: c,
-      topicConcernSearch: buildConcernSearchLabel(c),
-      repaired: true,
-      repairNotes,
-    }
-  }
+/** concernSearch가 비었을 때만 concern에서 라벨 생성 (사후 교정 최소화) */
+function ensureConcernSearchFallback(concern: string, concernSearch: string): string {
+  const s = (concernSearch || '').trim().replace(/\s+/g, ' ')
+  if (s.length >= 6) return s
+  return buildConcernSearchLabel(concern)
+}
 
-  let repaired = false
-  const markRebuild = (reason: string) => {
-    s = buildConcernSearchLabel(c)
-    repaired = true
-    repairNotes.push(reason)
+/** 3단계 JSON의 topicConcern / topicConcernSearch — 이미지 기반, 룰 후보와 경쟁 */
+function buildAiConcernCandidateFromAnalysis(analysisData: {
+  topicConcern?: string
+  topicConcernSearch?: string
+}): ConcernCandidate | null {
+  const concern = (analysisData.topicConcern || '').trim()
+  const search = (analysisData.topicConcernSearch || '').trim()
+  if (concern.length < 8 || search.length < 6) return null
+  if (concern.length > 220) return null
+  const internal = /해약환급금미지급형|무배당\s*해지|중간에\s*해지하면\s*돌려받/
+  if (internal.test(concern) || internal.test(search)) return null
+  if (/\bII\b|Ⅱ|Ⅲ|\(\d{4}\)/.test(concern) || /\bII\b|Ⅱ|Ⅲ/.test(search)) return null
+  return {
+    source: 'ai_suggested',
+    key: 'gemini_topic_axis',
+    concern,
+    concernSearch: search,
+    score: 92,
+    reason: '3단계 이미지 분석 JSON의 topicConcern/topicConcernSearch',
   }
-
-  if (s.length < 6) {
-    markRebuild('concernSearch 너무 짧음')
-  } else if (s.length > 32) {
-    s = buildConcernSearchLabel(s)
-    repaired = true
-    repairNotes.push('concernSearch 길이 상한 정리')
-  }
-
-  const words = s.split(/\s+/).filter((w) => w.length >= 2)
-  if (words.length >= 2) {
-    const hit = words.filter((w) => {
-      if (w.length < 2) return false
-      return c.includes(w) || c.includes(w.slice(0, Math.min(4, w.length)))
-    })
-    if (hit.length / words.length < 0.34) {
-      markRebuild('concern과 concernSearch 단어 정합성 부족')
-    }
-  }
-
-  const sNorm = s.replace(/\s+/g, ' ')
-  if (/\s균형$/.test(sNorm) && !/(맞는지|고민|걱정|괜찮|될지|어떤지|인지)/.test(sNorm)) {
-    markRebuild('검색어 끝이 균형만 단독(구어체/질문형 아님)')
-  }
-
-  if (/^(암만|뇌만|심장만)\s+강한\s+보험\s+균형$/.test(sNorm)) {
-    markRebuild('SEO형 키워드 나열 패턴')
-  }
-
-  s = s.replace(/\s+/g, ' ').trim()
-  return { topicConcern: c, topicConcernSearch: s, repaired, repairNotes }
 }
 
 // 해약환급금미지급형 등 구조어는 축·설명에서 완전히 제거 (노출 금지 — 질문/답변에 나오지 않도록)
@@ -504,7 +470,7 @@ function buildWorryPointFromConcern(candidate: ConcernCandidate, fallbackWorryPo
 
   // 보장/균형 축(coverage·balance)일 때: 해지/환급 문구는 넣지 않음 (어떤 설계서든 핵심 포인트가 아님)
   const refundLike = /해지|환급|돌려받|미지급/
-  if (candidate.source === 'coverage' || candidate.source === 'balance') {
+  if (candidate.source === 'coverage' || candidate.source === 'balance' || candidate.source === 'ai_suggested') {
     const sentences = detail.split(/[.!?]\s+/).filter(Boolean)
     const nonRefundPart = sentences.filter(s => !refundLike.test(s)).slice(0, 4).join('. ').trim().slice(0, 500)
     if (nonRefundPart.length > 20) return `${axis} ${nonRefundPart}`
@@ -533,8 +499,8 @@ function buildSellingPointFromConcern(candidate: ConcernCandidate, fallbackSelli
   if (candidate.key === 'dementia_focus') {
     return '치매 진단 기준(CDR)·장기요양 등급·갱신 조건을 설계서에서 꼭 확인해보시면 좋고, 경증부터 중증까지 단계별 보장이 있어 치매 전 단계 대비에 적합한 구성이에요'
   }
-  // coverage 선택 시: 3단계 AI sellingPoint가 구체적이면 그대로 사용
-  if (candidate.source === 'coverage') {
+  // coverage·이미지 축 AI 선택 시: 3단계 AI sellingPoint가 구체적이면 그대로 사용
+  if (candidate.source === 'coverage' || candidate.source === 'ai_suggested') {
     const fallback = (fallbackSellingPoint || '').trim()
     if (fallback.length >= 80 && /암|특약|유병|진단|치료|보장|뇌|심장|간편/.test(fallback)) {
       return fallback
@@ -559,6 +525,7 @@ function buildSellingPointFromConcern(candidate: ConcernCandidate, fallbackSelli
 }
 
 function chooseBestConcernCandidate(
+  aiSuggestedCandidates: ConcernCandidate[],
   coverageCandidates: ConcernCandidate[],
   balanceCandidates: ConcernCandidate[],
   structureFallbacks: ConcernCandidate[],
@@ -568,6 +535,7 @@ function chooseBestConcernCandidate(
   specialClauses: string[]
 ): { selected: ConcernCandidate | null; all: ConcernCandidate[] } {
   const all: ConcernCandidate[] = [
+    ...aiSuggestedCandidates,
     ...coverageCandidates,
     ...balanceCandidates,
     ...specialCandidates,
@@ -576,6 +544,7 @@ function chooseBestConcernCandidate(
   if (all.length === 0) return { selected: null, all: [] }
 
   const sourcePriority: Record<ConcernSource, number> = {
+    ai_suggested: 4,
     coverage: 3,
     balance: 2,
     special: 1,
@@ -623,6 +592,7 @@ function chooseBestConcernCandidate(
 
   const scored = all.map(c => {
     let extra = 0
+    if (c.source === 'ai_suggested') extra += 4
     if (c.source === 'coverage' && categoryDiversity >= 2) extra += 3
     if (c.source === 'balance' && hasPremium) extra += 2
     if (c.source === 'special' && hasSpecial) extra += 2
@@ -994,6 +964,8 @@ ${searchResultsText ? `4단계: 검색 결과 활용
 {
   "productName": "보험사명 + 보험상품명 (1단계에서 추출한 정보를 기반으로, 이미지에서 정확히 확인)",
   "targetPersona": "나이대 + 성별 + 직업 (1단계에서 추출한 정보를 기반으로, 이미지에서 정확히 확인)",
+  "topicConcern": "이 설계서 담보/특약을 본 가입자가 카페에 글 남길 때 쓸 만한 핵심 고민 1문장(35~80자). 해지·환급·해약환급금·미지급형·내부코드(4165 등) 언급 금지.",
+  "topicConcernSearch": "네이버/구글 검색창에 실제로 칠 법한 짧은 표현(8~22자). topicConcern과 같은 축이어야 함. 구어체·질문형 권장(예: '…괜찮은지', '…고민'). 금지: 키워드만 나열, '균형'만 단독으로 붙이기, '암만 강한 보험 균형' 같은 SEO 조각.",
   "worryPoint": "이 보험을 고려하는 고객의 실제 고민 (검색 결과를 반드시 참고하여 구체적으로 작성. 예: '보험료 부담', '보장 범위 충분성', '특약 구성' 등). 단, 해지·환급 구조(해약환급금, 중간 해지 시 돌려받는 돈, 해약환급금이 없는 대신 등)에 대한 문장은 절대 포함하지 마세요.",
   "sellingPoint": "이 보험의 주요 장점 2-3개를 구체적으로 작성 (검색 결과를 반드시 참고하여 정확하게 작성. 예: '저렴한 보험료', '넓은 보장 범위', '특약 선택의 자유도' 등). 단, 해지·환급 구조(해약환급금, 중간 해지 시 돌려받는 돈, 해약환급금이 없는 대신 등)에 대한 문장은 절대 포함하지 마세요.",
   "premium": "월보험료 또는 연보험료 (1단계에서 추출한 정보를 기반으로, 예: '월 3만원', '연 36만원')",
@@ -1003,6 +975,7 @@ ${searchResultsText ? `4단계: 검색 결과 활용
 
 ⚠️ **중요**: 
 - productName, targetPersona, premium, coverages, specialClauses는 1단계에서 이미 추출한 정보를 우선 사용하되, 이미지를 다시 확인하여 정확성을 검증하세요.
+- topicConcern·topicConcernSearch는 이미지의 담보 구성을 기준으로 작성하세요. 검색·SEO용 키워드 나열이 아니라, 실제 검색자가 입력할 법한 자연스러운 한국어로 쓰세요.
 - worryPoint와 sellingPoint는 반드시 검색 결과를 참고하여 구체적이고 현실적으로 작성하세요. 일반적인 문구가 아닌, 이 상품에 특화된 내용을 작성하세요.
 - **worryPoint와 sellingPoint에는 다음 내용을 절대 포함하지 마세요**: 해약환급금, 환급금, 중간에 해지하면 돌려받는 돈, 해지하면 돌려받는 돈이 없는 구조, 해약환급금이 없는 대신, 해지 시 환급 등 해지·환급 구조에 대한 설명. (고객이 이 축으로 질문하지 않으므로 출력하지 마세요.)
 - worryPoint와 sellingPoint는 문장이 끝까지 완결되도록 작성하세요 (중간에 끊기지 않도록).
@@ -1010,6 +983,7 @@ ${searchResultsText ? `4단계: 검색 결과 활용
 **[최종 확인]**
 - productName: 이미지에 실제로 보이는 보험사명과 상품명인가?
 - 보험 종류: 이미지에 명시된 보험 종류와 일치하는가?
+- topicConcern·topicConcernSearch: 담보 구성과 맞고, 검색창에 칠 법한 자연스러운 한국어인가?
 - worryPoint: 검색 결과를 참고하여 실제 고객 고민을 반영했는가?
 - sellingPoint: 검색 결과를 참고하여 현실적인 장점을 정리했는가?
 - 모든 정보는 이미지에서 직접 읽은 내용을 우선하고, 검색 결과는 보완적으로 활용하세요.`
@@ -1137,6 +1111,13 @@ ${searchResultsText ? `4단계: 검색 결과 활용
                            analysisText.match(/targetPersona["\s]*:\s*"([^"]+)"/i) ||
                            analysisText.match(/타겟["\s]*[:：]\s*([^\n"]+)/)
         
+        const topicConcernMatch =
+          analysisText.match(/"topicConcern"\s*:\s*"([^"]+)"/) ||
+          analysisText.match(/topicConcern["\s]*:\s*"([^"]+)"/i)
+        const topicConcernSearchMatch =
+          analysisText.match(/"topicConcernSearch"\s*:\s*"([^"]+)"/) ||
+          analysisText.match(/topicConcernSearch["\s]*:\s*"([^"]+)"/i)
+
         const worryMatch = analysisText.match(/"worryPoint"\s*:\s*"([^"]+)"/) || 
                           analysisText.match(/worryPoint["\s]*:\s*"([^"]+)"/i)
         
@@ -1157,6 +1138,8 @@ ${searchResultsText ? `4단계: 검색 결과 활용
         analysisData = {
           productName: productMatch?.[1]?.trim() || basicData.productName || '보험 상품',
           targetPersona: targetMatch?.[1]?.trim() || basicData.targetPersona || '30대 직장인',
+          topicConcern: topicConcernMatch?.[1]?.trim() || undefined,
+          topicConcernSearch: topicConcernSearchMatch?.[1]?.trim() || undefined,
           worryPoint: worryMatch?.[1]?.trim() || (searchResultsText ? `${extractedProductName}에 대한 고객의 주요 고민점` : '보험료와 보장 범위가 적절한지 궁금합니다'),
           sellingPoint: sellingMatch?.[1]?.trim() || (searchResultsText ? `${extractedProductName}의 주요 장점` : '보장 범위가 넓고 합리적인 보험료입니다'),
           premium: premiumMatch?.[1]?.trim() || basicData.premium || '',
@@ -1308,6 +1291,12 @@ ${searchResultsText ? `4단계: 검색 결과 활용
       names: keyCoverages.map(k => k.normalizedName),
     })
 
+    const aiConcernFromAnalysis = buildAiConcernCandidateFromAnalysis(analysisData)
+    const aiSuggestedCandidates = aiConcernFromAnalysis ? [aiConcernFromAnalysis] : []
+    if (aiConcernFromAnalysis) {
+      console.log('[설계서 분석] concern 후보(AI 이미지 축):', aiConcernFromAnalysis.concern, '|', aiConcernFromAnalysis.concernSearch)
+    }
+
     const coverageConcernCandidates = buildCoverageConcernCandidates(keyCoverages)
     const balanceConcernCandidates = buildBalanceConcernCandidates(keyCoverages, premium, cleanSpecialClauses)
     const structureFallbackCandidates = buildStructureConcernFallbacks(topicData.topicConcern || '', topicData.topicConcernSearch || '')
@@ -1318,6 +1307,7 @@ ${searchResultsText ? `4단계: 검색 결과 활용
     console.log('[설계서 분석] concern 후보(structure fallback):', structureFallbackCandidates)
 
     const { selected: selectedConcernCandidate, all: allConcernCandidates } = chooseBestConcernCandidate(
+      aiSuggestedCandidates,
       coverageConcernCandidates,
       balanceConcernCandidates,
       structureFallbackCandidates,
@@ -1362,13 +1352,7 @@ ${searchResultsText ? `4단계: 검색 결과 활용
     // 축(topicConcern/topicConcernSearch)에서만 구조어 제거. worryPoint/sellingPoint는 3단계 프롬프트에서 처음부터 뽑지 않도록 지시했으므로 후처리 없음
     topicConcern = scrubNoRefundStructureTerm(topicConcern)
     topicConcernSearch = scrubNoRefundStructureTerm(topicConcernSearch)
-
-    const concernValidated = validateAndRepairConcernPair(topicConcern, topicConcernSearch)
-    topicConcern = concernValidated.topicConcern
-    topicConcernSearch = concernValidated.topicConcernSearch
-    if (concernValidated.repaired && concernValidated.repairNotes.length > 0) {
-      console.log('[설계서 분석] concern 검증 보정:', concernValidated.repairNotes.join(' | '))
-    }
+    topicConcernSearch = ensureConcernSearchFallback(topicConcern, topicConcernSearch)
 
     // Evidence Map: 선택된 축(최종 topicConcern/worryPoint/sellingPoint) 기준으로 구성 — 질문/답변 생성이 핵심고민과 일치하도록
     if (premium) questionFacts.push(`월 보험료 ${premium}`)
