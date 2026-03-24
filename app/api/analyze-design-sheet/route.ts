@@ -393,6 +393,69 @@ function buildConcernSearchLabel(concern: string): string {
   return label
 }
 
+/**
+ * AI·룰 기반으로 나온 concern / concernSearch 최종 정합성 검증 (추가 API 호출 없음).
+ * 실패 시 concern 본문에서 buildConcernSearchLabel로 검색 라벨 재생성.
+ */
+function validateAndRepairConcernPair(
+  concern: string,
+  concernSearch: string
+): { topicConcern: string; topicConcernSearch: string; repaired: boolean; repairNotes: string[] } {
+  const repairNotes: string[] = []
+  const c = (concern || '').trim()
+  let s = (concernSearch || '').trim()
+  if (!c) {
+    return { topicConcern: c, topicConcernSearch: s, repaired: false, repairNotes }
+  }
+  if (!s) {
+    repairNotes.push('concernSearch 비어 있음')
+    return {
+      topicConcern: c,
+      topicConcernSearch: buildConcernSearchLabel(c),
+      repaired: true,
+      repairNotes,
+    }
+  }
+
+  let repaired = false
+  const markRebuild = (reason: string) => {
+    s = buildConcernSearchLabel(c)
+    repaired = true
+    repairNotes.push(reason)
+  }
+
+  if (s.length < 6) {
+    markRebuild('concernSearch 너무 짧음')
+  } else if (s.length > 32) {
+    s = buildConcernSearchLabel(s)
+    repaired = true
+    repairNotes.push('concernSearch 길이 상한 정리')
+  }
+
+  const words = s.split(/\s+/).filter((w) => w.length >= 2)
+  if (words.length >= 2) {
+    const hit = words.filter((w) => {
+      if (w.length < 2) return false
+      return c.includes(w) || c.includes(w.slice(0, Math.min(4, w.length)))
+    })
+    if (hit.length / words.length < 0.34) {
+      markRebuild('concern과 concernSearch 단어 정합성 부족')
+    }
+  }
+
+  const sNorm = s.replace(/\s+/g, ' ')
+  if (/\s균형$/.test(sNorm) && !/(맞는지|고민|걱정|괜찮|될지|어떤지|인지)/.test(sNorm)) {
+    markRebuild('검색어 끝이 균형만 단독(구어체/질문형 아님)')
+  }
+
+  if (/^(암만|뇌만|심장만)\s+강한\s+보험\s+균형$/.test(sNorm)) {
+    markRebuild('SEO형 키워드 나열 패턴')
+  }
+
+  s = s.replace(/\s+/g, ' ').trim()
+  return { topicConcern: c, topicConcernSearch: s, repaired, repairNotes }
+}
+
 // 해약환급금미지급형 등 구조어는 축·설명에서 완전히 제거 (노출 금지 — 질문/답변에 나오지 않도록)
 // 치환이 아니라 해당 구절을 제거하여, 전문가 답변에 "중간에 해지하면 돌려받는 돈이 거의 없는…" 문구가 나오지 않게 함
 function scrubNoRefundStructureTerm(text: string): string {
@@ -1299,6 +1362,13 @@ ${searchResultsText ? `4단계: 검색 결과 활용
     // 축(topicConcern/topicConcernSearch)에서만 구조어 제거. worryPoint/sellingPoint는 3단계 프롬프트에서 처음부터 뽑지 않도록 지시했으므로 후처리 없음
     topicConcern = scrubNoRefundStructureTerm(topicConcern)
     topicConcernSearch = scrubNoRefundStructureTerm(topicConcernSearch)
+
+    const concernValidated = validateAndRepairConcernPair(topicConcern, topicConcernSearch)
+    topicConcern = concernValidated.topicConcern
+    topicConcernSearch = concernValidated.topicConcernSearch
+    if (concernValidated.repaired && concernValidated.repairNotes.length > 0) {
+      console.log('[설계서 분석] concern 검증 보정:', concernValidated.repairNotes.join(' | '))
+    }
 
     // Evidence Map: 선택된 축(최종 topicConcern/worryPoint/sellingPoint) 기준으로 구성 — 질문/답변 생성이 핵심고민과 일치하도록
     if (premium) questionFacts.push(`월 보험료 ${premium}`)
