@@ -47,6 +47,11 @@ type CanonicalConcernContext = {
   coverageFocusLabels: string[]
 }
 
+type RecentQAFingerprint = {
+  title: string
+  bodyFirst: string
+}
+
 const DESIGN_SHEET_FORBIDDEN_KEYWORD_PATTERNS: RegExp[] = [
   /해약환급금미지급형/,
   /해약환급금/,
@@ -156,6 +161,57 @@ function buildCoverageFocusLabels(keyCoverages: KeyCoverageForPrompt[] | undefin
 /** null을 undefined로만 통일 (프롬프트 타입이 undefined만 허용할 때 사용) */
 function toUndefined<T>(v: T | null | undefined): T | undefined {
   return v == null ? undefined : v
+}
+
+function normalizeForDupCheck(text: string | null | undefined): string {
+  if (!text) return ''
+  return text
+    .toLowerCase()
+    .replace(/[\r\n]+/g, ' ')
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function tokenizeForDupCheck(text: string): Set<string> {
+  const norm = normalizeForDupCheck(text)
+  if (!norm) return new Set()
+  const tokens = norm
+    .split(' ')
+    .map((t) => t.trim())
+    .filter((t) => t.length >= 2)
+  return new Set(tokens)
+}
+
+function jaccardSimilarity(a: string, b: string): number {
+  const aSet = tokenizeForDupCheck(a)
+  const bSet = tokenizeForDupCheck(b)
+  if (aSet.size === 0 || bSet.size === 0) return 0
+  let intersection = 0
+  for (const t of aSet) if (bSet.has(t)) intersection++
+  const union = new Set([...aSet, ...bSet]).size
+  return union > 0 ? intersection / union : 0
+}
+
+function firstSentence(text: string | null | undefined): string {
+  const src = (text || '').trim()
+  if (!src) return ''
+  const line = src.split(/\n+/).find((l) => l.trim().length > 0) || src
+  const parts = line.split(/[?!。！？]/).map((p) => p.trim()).filter(Boolean)
+  return (parts[0] || line).trim().slice(0, 90)
+}
+
+function duplicateScoreAgainstRecent(currentTitle: string, currentBody: string, recent: RecentQAFingerprint[]): number {
+  if (!recent.length) return 0
+  let maxScore = 0
+  const curFirst = firstSentence(currentBody)
+  for (const item of recent) {
+    const titleSim = jaccardSimilarity(currentTitle, item.title)
+    const firstSim = jaccardSimilarity(curFirst, item.bodyFirst)
+    const score = Math.max(titleSim * 0.75 + firstSim * 0.25, titleSim)
+    if (score > maxScore) maxScore = score
+  }
+  return maxScore
 }
 
 /** 문서 14절: 프롬프트·운영 명세 버전 (변경 시 문서 버전 표 업데이트) */
@@ -2985,17 +3041,17 @@ coverageSummaryForPrompt: toUndefined(coverageSummaryForPromptForPrompt),
           try {
             console.log('[Q&A 생성] [Step 1.5] Title Family 시스템 시작...')
 
-            // 최근 제목 fingerprint: 최근 20개 제목을 가져와 유사도 비교용으로 사용
+            // 최근 Q&A fingerprint: 제목 + 본문 첫 문장 (중복 방지용)
             let recentTitles: string[] = []
             try {
               const { data: recentQA } = await supabase
                 .from('qa_sets')
-                .select('title')
+                .select('title, data')
                 .eq('user_id', user.id)
                 .order('created_at', { ascending: false })
                 .limit(20)
               if (recentQA && recentQA.length > 0) {
-                recentTitles = recentQA.map((r: any) => r.title).filter(Boolean)
+                recentTitles = recentQA.map((r: any) => r?.title).filter(Boolean)
                 console.log(`[Q&A 생성] [Step 1.5] 최근 제목 ${recentTitles.length}개 로드 (중복 방지용)`)
               }
             } catch (dbErr) {
@@ -3151,6 +3207,71 @@ coverageSummaryForPrompt: toUndefined(coverageSummaryForPromptForPrompt),
 
           // Step 1 직후 본문 상한 적용 (프롬프트 300~500자 준수, 끊김 방지)
           finalQuestionContent = capQuestionBodyLength(finalQuestionContent)
+
+          // 최근 결과와 중복 방지: 제목/첫문장 유사도가 높으면 질문 1회 재생성
+          try {
+            let recentQAFingerprints: RecentQAFingerprint[] = []
+            const { data: recentQAForDup } = await supabase
+              .from('qa_sets')
+              .select('title, data')
+              .eq('user_id', user.id)
+              .order('created_at', { ascending: false })
+              .limit(15)
+            if (recentQAForDup && recentQAForDup.length > 0) {
+              recentQAFingerprints = recentQAForDup
+                .map((r: any) => {
+                  const title = typeof r?.title === 'string' ? r.title : ''
+                  const bodyRaw =
+                    r?.data?.question?.content ||
+                    r?.data?.questionContent ||
+                    r?.data?.question_body ||
+                    r?.data?.content ||
+                    ''
+                  return { title, bodyFirst: firstSentence(typeof bodyRaw === 'string' ? bodyRaw : '') }
+                })
+                .filter((x: RecentQAFingerprint) => x.title || x.bodyFirst)
+            }
+
+            const dupScore = duplicateScoreAgainstRecent(finalQuestionTitle || '', finalQuestionContent || '', recentQAFingerprints)
+            console.log(`[Q&A 생성] [Step 1] 최근 중복 점수: ${dupScore.toFixed(3)}`)
+
+            if (dupScore >= 0.72) {
+              console.log('[Q&A 생성] [Step 1] 최근 결과와 유사도가 높아 질문 1회 재생성 시도')
+              const dedupePrompt = `${questionPrompt}\n\n[중복 방지 추가 규칙]\n- 최근 작성 글과 제목/첫 문장이 비슷하면 실패입니다.\n- 이번 출력은 제목 첫 10자와 본문 첫 문장이 기존과 다르게 시작하세요.\n- 의미는 유지하되 표현 순서와 문장 시작을 바꿔 작성하세요.`
+              const retryQuestionResult = await generateContentWithFallback(dedupePrompt, designSheetImage, true)
+              await new Promise(resolve => setTimeout(resolve, 800))
+              if (retryQuestionResult?.text) {
+                const retryText = retryQuestionResult.text.trim()
+                const retryJson = retryText.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim()
+                let retryTitle = finalQuestionTitle
+                let retryBody = finalQuestionContent
+                try {
+                  const parsedRetry = JSON.parse(retryJson)
+                  if (parsedRetry?.title && parsedRetry?.body) {
+                    retryTitle = cleanForTitle(String(parsedRetry.title)).replace(/\./g, '').trim()
+                    retryBody = formatQuestionContent(String(parsedRetry.body)).replace(/\./g, '').replace(/\s+/g, ' ').trim()
+                  }
+                } catch {
+                  const lines = retryText.split('\n').map(l => l.trim()).filter(Boolean)
+                  if (lines.length >= 2) {
+                    retryTitle = cleanForTitle(lines[0]).replace(/\./g, '').trim()
+                    retryBody = formatQuestionContent(lines.slice(1).join('\n')).replace(/\./g, '').replace(/\s+/g, ' ').trim()
+                  }
+                }
+                retryBody = capQuestionBodyLength(normalizeExclamationMarks(autoSplitQuestionParagraphs(retryBody)))
+                const retryDupScore = duplicateScoreAgainstRecent(retryTitle || '', retryBody || '', recentQAFingerprints)
+                if (retryDupScore < dupScore) {
+                  console.log(`[Q&A 생성] [Step 1] 중복 개선 적용: ${dupScore.toFixed(3)} -> ${retryDupScore.toFixed(3)}`)
+                  finalQuestionTitle = retryTitle
+                  finalQuestionContent = retryBody
+                } else {
+                  console.log(`[Q&A 생성] [Step 1] 재생성 중복 개선 없음: ${retryDupScore.toFixed(3)}, 기존 유지`)
+                }
+              }
+            }
+          } catch (dupErr) {
+            console.warn('[Q&A 생성] [Step 1] 중복 방지 검사 실패(무시):', dupErr)
+          }
 
           console.log('Step 1 완료:', { questionTitle: finalQuestionTitle, questionContentLength: finalQuestionContent.length })
         } catch (step1Error: any) {
