@@ -669,7 +669,7 @@ export async function POST(request: NextRequest) {
     
     // Fallback 로직: Gemini만 사용
     // 1단계: gemini-2.5-flash → gemini-2.5-pro
-    // 3단계: gemini-2.5-pro → gemini-2.5-flash → gemini-2.0-flash
+    // 3단계: gemini-3.1-pro-preview → gemini-2.5-pro → gemini-2.5-flash → gemini-2.0-flash
     const generateContentWithFallback = async (
       prompt: string,
       base64Data: string,
@@ -678,13 +678,14 @@ export async function POST(request: NextRequest) {
     ): Promise<{ text: string; provider: 'gemini' }> => {
       // stage에 따라 모델 순서 결정
       // basic (1단계): gemini-2.5-flash → gemini-2.5-pro
-      // final (3단계): gemini-2.5-pro → gemini-2.5-flash → gemini-2.0-flash
+      // final (3단계): gemini-3.1-pro-preview → gemini-2.5-pro → gemini-2.5-flash → gemini-2.0-flash
       const models = stage === 'basic'
         ? [
             { provider: 'gemini' as const, model: 'gemini-2.5-flash' },
             { provider: 'gemini' as const, model: 'gemini-2.5-pro' }
           ]
         : [
+            { provider: 'gemini' as const, model: 'gemini-3.1-pro-preview' },
             { provider: 'gemini' as const, model: 'gemini-2.5-pro' },
             { provider: 'gemini' as const, model: 'gemini-2.5-flash' },
             { provider: 'gemini' as const, model: 'gemini-2.0-flash' }
@@ -692,7 +693,7 @@ export async function POST(request: NextRequest) {
       
       const modelOrder = stage === 'basic'
         ? 'Gemini-2.5-Flash → Gemini-2.5-Pro'
-        : 'Gemini-2.5-Pro → Gemini-2.5-Flash → Gemini-2.0-Flash'
+        : 'Gemini-3.1-Pro-Preview → Gemini-2.5-Pro → Gemini-2.5-Flash → Gemini-2.0-Flash'
       console.log(`[설계서 분석] 🔄 Gemini 폴백 순서 시작 (${stage}): ${modelOrder}`)
       
       for (let attempt = 0; attempt < models.length; attempt++) {
@@ -961,7 +962,7 @@ ${searchResultsText ? `4단계: 검색 결과 활용
     await new Promise(resolve => setTimeout(resolve, 2000)) // 2초 대기
     
     // 이미지와 프롬프트를 함께 전송 (그라운딩 활성화, fallback 포함)
-    // 3단계: gemini-2.5-pro → gemini-2.5-flash → gemini-2.0-flash 순서 사용
+    // 3단계: gemini-3.1-pro-preview → gemini-2.5-pro → gemini-2.5-flash → gemini-2.0-flash 순서 사용
     const finalResult = await generateContentWithFallback(prompt, base64Data, mimeType, 'final')
     console.log(`[설계서 분석] 3단계 완료 - 사용된 제공자: ${finalResult.provider.toUpperCase()}`)
     let analysisText = finalResult.text

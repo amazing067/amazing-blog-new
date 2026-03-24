@@ -592,6 +592,8 @@ export function gateKeywordHealth(
     marketHeadKeyword?: { keyword: string; volume: number | null; source?: string } | null
     /** 설계서 모드: 검색량 미확인만 있을 때 감점 완화(경고만, 통과 처리) */
     designSheetMode?: boolean
+    /** concern 일치 판정용 후보(전체 topicConcernSearch + 짧은 표시문 등). 있으면 하나라도 키워드와 맞으면 통과 */
+    concernMatchCandidates?: string[]
   }
 ): GateResult {
   const failures: string[] = []
@@ -621,21 +623,34 @@ export function gateKeywordHealth(
     }
   }
 
-  if (topicConcern && topicConcern.length > 0) {
-    const concernInKeywords = searchKeywords.some(kw =>
-      kw.includes(topicConcern) || topicConcern.includes(kw)
+  const concernCandidates: string[] = []
+  if (options?.concernMatchCandidates?.length) {
+    for (const c of options.concernMatchCandidates) {
+      const t = (c || '').trim()
+      if (t) concernCandidates.push(t)
+    }
+  }
+  if (concernCandidates.length === 0 && topicConcern?.trim()) {
+    concernCandidates.push(topicConcern.trim())
+  }
+
+  if (concernCandidates.length > 0) {
+    const concernInKeywords = concernCandidates.some((c) =>
+      searchKeywords.some((kw) => kw.includes(c) || c.includes(kw))
     )
     if (!concernInKeywords) {
-      failures.push(`concern 키워드("${topicConcern}") 미포함`)
+      failures.push(`concern 키워드("${concernCandidates[0]}") 미포함`)
       score -= 10
     } else {
-      // concern 표현이 제목+본문에서 과도하게 반복되는 경우 약한 감점 (고정 잠김 위험)
+      const primaryConcern = concernCandidates.reduce((a, b) => (b.length > a.length ? b : a), concernCandidates[0])
       const combined = `${title} ${body}`
-      const normConcern = topicConcern.replace(/\s+/g, '')
-      const occur = (combined.match(new RegExp(normConcern, 'g')) || []).length
-      if (occur >= 3) {
-        failures.push(`concern 표현 과다 반복 (${occur}회 이상)`)
-        score -= 5
+      const normConcern = primaryConcern.replace(/\s+/g, '')
+      if (normConcern.length > 0) {
+        const occur = (combined.match(new RegExp(normConcern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')) || []).length
+        if (occur >= 3) {
+          failures.push(`concern 표현 과다 반복 (${occur}회 이상)`)
+          score -= 5
+        }
       }
     }
   }

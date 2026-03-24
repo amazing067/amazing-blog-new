@@ -203,7 +203,8 @@ POST /api/generate-qa
   │   ├─ generateQuestionPrompt → Flash 호출
   │   ├─ JSON 파싱 → 텍스트 파싱 fallback
   │   ├─ vocative-only 첫 줄 제거
-  │   └─ formatQuestionContent (문단 3개 보장, 문장 중간 줄바꿈 수정)
+  │   ├─ formatQuestionContent (문단 3개 보장, 문장 중간 줄바꿈 수정)
+  │   └─ 최근 Q&A 중복 점수 계산(제목+첫문장) → 임계치 이상 시 질문 1회 재생성
   │
   ├─ Step 1.5: 제목 후보 (Pro)
   │   ├─ sampleFamilies(6) → buildTitlePrompt
@@ -305,8 +306,23 @@ const scoreKeyword = (kw, volume) => {
 ```typescript
 // cleanForTitle (강): 모든 괄호·버전·로마숫자·(주)·무배당 제거
 // cleanForBody (약): (주)·무배당·버전코드 괄호만 제거, 핵심 구조어 보존
-//   해약환급금미지급형, 간편심사, 특정4대질병제외, 고액치료비, 표적항암 → 보존
+//   단, 해약환급금/미지급형 계열은 고객 노출 전 scrubNoRefundStructureTerm으로 생활어 치환
 // cleanForKeyword = cleanForTitle (같은 강도)
+```
+
+#### Step 1 최근 결과 중복 방지
+
+```typescript
+const dupScore = duplicateScoreAgainstRecent(finalQuestionTitle, finalQuestionContent, recentQAFingerprints)
+if (dupScore >= 0.72) {
+  // 추가 규칙을 붙여 질문 1회 재생성
+  const retry = await generateContentWithFallback(dedupePrompt, designSheetImage, true)
+  // 재생성 결과가 더 덜 유사할 때만 교체
+  if (retryDupScore < dupScore) {
+    finalQuestionTitle = retryTitle
+    finalQuestionContent = retryBody
+  }
+}
 ```
 
 #### enforceAnswerLength

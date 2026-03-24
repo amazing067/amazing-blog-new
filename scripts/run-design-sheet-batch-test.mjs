@@ -1,6 +1,8 @@
 /**
- * 설계서 PNG 배치 테스트 (6개 이미지 × 5회 = 30회)
- * - Q&A 생성 코드 수정 없음, 기존 API만 호출
+ * 설계서 PNG 배치 테스트 (기본: 이미지 최대 6개 × RUNS_PER_IMAGE)
+ * - generate-qa에 conversationMode 기본 활성화 → 스레드 품질(threadScore)까지 측정
+ *   끄려면 BATCH_CONVERSATION=0
+ * - CONVERSATION_LENGTH 기본 6 (운영과 맞춤)
  * - 인증: generate-qa는 쿠키 필요. 브라우저 로그인 후 Application > Cookies 에서
  *   sb- 로 시작하는 쿠키 전체를 복사해 AUTH_COOKIE 환경변수로 설정하세요.
  *   없으면 analyze만 성공하고 generate는 401로 실패 처리됩니다.
@@ -16,7 +18,9 @@ const BASE_URL = process.env.BASE_URL || 'http://localhost:3000'
 const AUTH_COOKIE = process.env.AUTH_COOKIE || ''
 const INPUT_DIR = path.resolve(process.cwd(), 'test-images')
 const OUTPUT_DIR = path.resolve(process.cwd(), 'test-results')
-const RUNS_PER_IMAGE = 5
+const RUNS_PER_IMAGE = Number(process.env.RUNS_PER_IMAGE || 5)
+const BATCH_CONVERSATION = process.env.BATCH_CONVERSATION !== '0'
+const CONVERSATION_LENGTH = Number(process.env.CONVERSATION_LENGTH || 6)
 
 // 이미지 목록 (PNG만, 파일명 오름차순)
 function getImageList() {
@@ -196,6 +200,9 @@ async function main() {
             designSheetImage: base64,
             designSheetAnalysis: analyzeData,
             generateStep: 'all',
+            ...(BATCH_CONVERSATION
+              ? { conversationMode: true, conversationLength: CONVERSATION_LENGTH }
+              : {}),
           }
           const headers = { 'Content-Type': 'application/json' }
           if (AUTH_COOKIE) headers['Cookie'] = AUTH_COOKIE
@@ -217,6 +224,27 @@ async function main() {
             log.log('generate 실패:', errorMessage)
             fs.writeFileSync(path.join(runDir, 'generate.json'), JSON.stringify({ error: errorMessage, status: genRes.status }, null, 2), 'utf8')
             fs.writeFileSync(path.join(runDir, 'quality.json'), JSON.stringify({ error: errorMessage }, null, 2), 'utf8')
+            allRuns.push({
+              runId,
+              imageId: img.imageId,
+              originalFileName: img.originalFileName,
+              success: false,
+              totalScore: null,
+              breakdown: {},
+              latencyMs,
+              totalTokens: null,
+              totalCost: null,
+              questionTitle: null,
+              concernVariant: null,
+              openingFamilyId: null,
+              titlePatternId: null,
+              questionConceptId: null,
+              marketHeadKeyword: null,
+              failureTags: [],
+              qualityWarnings: [],
+              regenHistory: null,
+              errorMessage,
+            })
           } else {
             generateOk = true
             generateData = genJson
@@ -582,8 +610,10 @@ async function main() {
   fs.writeFileSync(path.join(OUTPUT_DIR, 'summary', 'per-image-summary.csv'), '\uFEFF' + perImageHeader + '\n' + perImageRows.join('\n'), 'utf8')
 
   // 최종 5줄 출력
+  const plannedRuns = images.length * RUNS_PER_IMAGE
+  const completedRuns = allRuns.length
   console.log('\n========== 배치 테스트 완료 ==========')
-  console.log('1. 총 30회 중 성공:', successRuns.length, '회 / 실패:', failedRuns.length, '회')
+  console.log(`1. 계획 ${plannedRuns}회 / 완료 ${completedRuns}회 — 성공: ${successRuns.length}회 / 실패: ${failedRuns.length}회`)
   console.log('2. 결과 폴더 경로:', OUTPUT_DIR)
   console.log('3. overall-summary.md 생성 여부: 예')
   console.log('4. 평균 총점:', overallSummary.avgTotalScore)

@@ -249,6 +249,7 @@ type CostRates = {
   'gemini-2.0-flash': CostRate
   'gemini-2.5-flash': CostRate
   'gemini-2.5-pro': CostRate
+  'gemini-3.1-pro-preview': CostRate
 }
 
 const getCostRates = (): CostRates => {
@@ -269,6 +270,10 @@ const getCostRates = (): CostRates => {
     'gemini-2.5-pro': {
       prompt: toNumber(process.env.GEMINI_PRO_2_5_INPUT_COST_PER_1M, 1.25),
       completion: toNumber(process.env.GEMINI_PRO_2_5_OUTPUT_COST_PER_1M, 10.00)
+    },
+    'gemini-3.1-pro-preview': {
+      prompt: toNumber(process.env.GEMINI_PRO_3_1_PREVIEW_INPUT_COST_PER_1M),
+      completion: toNumber(process.env.GEMINI_PRO_3_1_PREVIEW_OUTPUT_COST_PER_1M)
     }
   }
 }
@@ -618,6 +623,17 @@ function makeConcernKeywordShort(topicConcern?: string, topicConcernSearch?: str
   const cutIndex = base.search(/구성|고민|걱정|부담|위험|리스크/)
   const raw = (cutIndex > 0 ? base.slice(0, cutIndex) : base.slice(0, 18)).trim()
   return raw.replace(/[.,!?~]+$/g, '').trim()
+}
+
+/** 문단 구분(\n\n)은 유지하고, 각 문단 내부만 연속 공백·줄바꿈을 한 칸 공백으로 정리 */
+function collapseWhitespacePreserveParagraphs(text: string): string {
+  if (!text || typeof text !== 'string') return ''
+  return text
+    .split(/\n\s*\n/)
+    .map((block) => block.replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+    .join('\n\n')
+    .trim()
 }
 
 /** 댓글 길이 상한(400자) 적용 — 문장 경계에서 자름 (thread_too_long 방지) */
@@ -2037,20 +2053,30 @@ export async function POST(request: NextRequest) {
     const generateContentWithFallback = async (
       prompt: string, 
       imageBase64?: string | null,
-      useFlash: boolean = false // true: Flash 우선, false: Pro 우선
+      useFlash: boolean = false, // true: Flash 우선, false: Pro 우선
+      preferredProModel: '2.5' | '3.1' = '2.5'
     ): Promise<{ text: string; usage?: TokenUsage; provider?: 'gemini' }> => {
       // useFlash에 따라 모델 순서 결정
-      // true: 2.5 Flash 우선 → 2.0 Flash 폴백, false: 2.5 Pro 우선 → 2.5 Flash → 2.0 Flash 폴백
+      // true: 2.5 Flash 우선 → 2.0 Flash 폴백
+      // false + preferredProModel='2.5': 2.5 Pro 우선 → 2.5 Flash → 2.0 Flash 폴백
+      // false + preferredProModel='3.1': 3.1 Pro 우선 → 2.5 Pro → 2.5 Flash → 2.0 Flash 폴백
       const models = useFlash
         ? [
             { provider: 'gemini' as const, model: 'gemini-2.5-flash' },
             { provider: 'gemini' as const, model: 'gemini-2.0-flash' }
           ]
-        : [
-            { provider: 'gemini' as const, model: 'gemini-2.5-pro' },
-            { provider: 'gemini' as const, model: 'gemini-2.5-flash' },
-            { provider: 'gemini' as const, model: 'gemini-2.0-flash' }
-          ]
+        : preferredProModel === '3.1'
+          ? [
+              { provider: 'gemini' as const, model: 'gemini-3.1-pro-preview' },
+              { provider: 'gemini' as const, model: 'gemini-2.5-pro' },
+              { provider: 'gemini' as const, model: 'gemini-2.5-flash' },
+              { provider: 'gemini' as const, model: 'gemini-2.0-flash' }
+            ]
+          : [
+              { provider: 'gemini' as const, model: 'gemini-2.5-pro' },
+              { provider: 'gemini' as const, model: 'gemini-2.5-flash' },
+              { provider: 'gemini' as const, model: 'gemini-2.0-flash' }
+            ]
       
       // 이미지가 있으면 MIME 타입 감지
       let mimeType = 'image/png'
@@ -2072,7 +2098,9 @@ export async function POST(request: NextRequest) {
       // Gemini 폴백 순서로 시도
       const modelOrder = useFlash 
         ? 'Gemini-2.5-Flash → Gemini-2.0-Flash' 
-        : 'Gemini-2.5-Pro → Gemini-2.5-Flash → Gemini-2.0-Flash'
+        : preferredProModel === '3.1'
+          ? 'Gemini-3.1-Pro-Preview → Gemini-2.5-Pro → Gemini-2.5-Flash → Gemini-2.0-Flash'
+          : 'Gemini-2.5-Pro → Gemini-2.5-Flash → Gemini-2.0-Flash'
       console.log(`[Q&A 생성] 🔄 Gemini 폴백 순서 시작: ${modelOrder}`)
       
       for (let attempt = 0; attempt < models.length; attempt++) {
@@ -3020,10 +3048,9 @@ coverageSummaryForPrompt: toUndefined(coverageSummaryForPromptForPrompt),
               .trim()
           }
           
-          finalQuestionContent = finalQuestionContent
-            .replace(/\./g, '') // 마침표만 제거 (쉼표는 유지)
-            .replace(/\s+/g, ' ') // 연속된 공백을 하나로
-            .trim()
+          finalQuestionContent = collapseWhitespacePreserveParagraphs(
+            finalQuestionContent.replace(/\./g, '') // 마침표만 제거 (쉼표는 유지)
+          )
           
           console.log('[Q&A 생성] [Step 1] 포맷팅 후 제목 길이:', finalQuestionTitle?.length || 0)
           console.log('[Q&A 생성] [Step 1] 포맷팅 후 본문 길이:', finalQuestionContent?.length || 0)
@@ -3035,7 +3062,7 @@ coverageSummaryForPrompt: toUndefined(coverageSummaryForPromptForPrompt),
           finalQuestionContent = autoSplitQuestionParagraphs(finalQuestionContent)
 
           // ============================================
-          // Step 1.5: 제목 전용 Gemini 2.5 Pro AI 완성기
+          // Step 1.5: 제목 후보 생성 (Flash + 로컬 채점)
           // 3개 후보 생성 → 코드 점수화 → 1개 선택
           // ============================================
           try {
@@ -3083,7 +3110,7 @@ coverageSummaryForPrompt: toUndefined(coverageSummaryForPromptForPrompt),
 
             let aiTitleSelected = false
             try {
-              const titleResult = await generateContentWithFallback(titlePrompt, null, false)
+              const titleResult = await generateContentWithFallback(titlePrompt, null, true)
               await new Promise(resolve => setTimeout(resolve, 1000))
 
               if (titleResult && titleResult.text) {
@@ -3115,7 +3142,25 @@ coverageSummaryForPrompt: toUndefined(coverageSummaryForPromptForPrompt),
                     console.log('[Q&A 생성] [Step 1.5] AI 제목 후보 (family 채점):')
                     scoredTitles.forEach(s => console.log(`  [${s.familyId}] ${s.title} → ${s.score}점 (${s.reasons.join(', ')})`))
 
-                    const bestTitle = scoredTitles[0]
+                    const kwList = (searchKeywords || []).filter((k): k is string => !!k && k.trim().length > 0)
+                    const titleHasPromptKw = (t: string) => kwList.some((kw) => t.includes(kw))
+
+                    let bestTitle = scoredTitles[0]
+                    if (bestTitle && kwList.length > 0 && !titleHasPromptKw(bestTitle.title)) {
+                      const alt = scoredTitles.find(
+                        (s) =>
+                          titleHasPromptKw(s.title) &&
+                          s.title.length >= 10 &&
+                          s.title.length <= 50
+                      )
+                      if (alt) {
+                        console.log(
+                          `[Q&A 생성] [Step 1.5] 1위 제목에 프롬프트 키워드 없음 → 키워드 포함 후보 채택: "${alt.title}" (${alt.familyId}, ${alt.score}점, 1위는 ${bestTitle.score}점)`
+                        )
+                        bestTitle = alt
+                      }
+                    }
+
                     if (bestTitle && bestTitle.title.length >= 10 && bestTitle.title.length <= 50) {
                       finalQuestionTitle = bestTitle.title
                       aiTitleSelected = true
@@ -3363,8 +3408,8 @@ coverageSummaryForPrompt: toUndefined(coverageSummaryForPromptForPrompt),
       const answerEstimatedTokens = Math.ceil(answerPromptLength / 4)
       console.log(`[Q&A 생성] [Step 2] 답변 생성 프롬프트 길이: ${answerPromptLength} 문자 (약 ${answerEstimatedTokens} 토큰)`)
 
-      // 하이브리드: 답변 생성은 Pro 사용 (품질 유지)
-      const answerResult = await generateContentWithFallback(answerPrompt, designSheetImage, false)
+      // 하이브리드: 답변 생성은 3.1 Pro 우선 (품질 유지)
+      const answerResult = await generateContentWithFallback(answerPrompt, designSheetImage, false, '3.1')
       // RPM 150 제한 대응: 답변 생성 후 1초 지연
       await new Promise(resolve => setTimeout(resolve, 1000))
       answerContent = answerResult.text
@@ -3499,7 +3544,7 @@ coverageSummaryForPrompt: toUndefined(coverageSummaryForPromptForPrompt),
             finalQuestionTitle,
             finalQuestionContent + `\n\n⚠️ 이전 답변이 ${answerContent.length}자로 너무 짧았습니다. 반드시 350자 이상, 공감→판단→체크포인트→행동유도 4블록을 빠짐없이 작성하세요.`
           )
-          const retryResult = await generateContentWithFallback(retryPrompt, designSheetImage, false)
+          const retryResult = await generateContentWithFallback(retryPrompt, designSheetImage, false, '3.1')
           await new Promise(resolve => setTimeout(resolve, 1000))
           let retryAnswer = retryResult.text
             .replace(/<ctrl\d+>/gi, '')
@@ -3603,7 +3648,7 @@ coverageSummaryForPrompt: toUndefined(coverageSummaryForPromptForPrompt),
         )
         
         // Pro 모델 사용 (쌍 단위로 품질 보장)
-        const pairResult = await generateContentWithFallback(pairPrompt, designSheetImage, false)
+        const pairResult = await generateContentWithFallback(pairPrompt, designSheetImage, true)
         await new Promise(resolve => setTimeout(resolve, 1500))
         
         let pairText = pairResult.text
@@ -3929,7 +3974,7 @@ coverageSummaryForPrompt: toUndefined(coverageSummaryForPromptForPrompt),
               finalQuestionTitle ?? '',
             finalQuestionContent + `\n\n⚠️ 이전 답변이 품질 게이트를 통과하지 못했습니다 (${answerGate.score}점). 문제: ${answerGate.failures.join(', ')}. 반드시 판단 한 줄을 포함하고, 공감→판단→체크포인트→행동유도 4블록을 빠짐없이 작성하세요.\n\n⚠️ 특히 설계서 모드에서는, 설계서에서 실제로 중요한 보장·특약을 거의 언급하지 않은 답변은 실패로 간주합니다. 이번 답변에서는 설계서에서 중요한 보장 2~3개를 이름을 살짝 풀어서 언급하고, 그 보장이 왜 중요한지 구체적으로 설명하세요. 일반적인 보험 상식 나열은 피하고, 설계서에 있는 보장만 근거로 사용하세요.`
             )
-            const retryResult = await generateContentWithFallback(retryPrompt, designSheetImage, false)
+            const retryResult = await generateContentWithFallback(retryPrompt, designSheetImage, false, '3.1')
             await new Promise(resolve => setTimeout(resolve, 1000))
             let retryAnswer = retryResult.text.replace(/<ctrl\d+>/gi, '').replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]/g, '').trim()
             retryAnswer = cleanForBody(retryAnswer)
@@ -3999,10 +4044,21 @@ coverageSummaryForPrompt: toUndefined(coverageSummaryForPromptForPrompt),
     }
 
     // ── 키워드 건강 게이트 ──
-    const keywordHealthOptions: { displayKeywords?: DisplayKeywordSlot[]; marketHeadKeyword?: typeof marketHeadKeyword; designSheetMode?: boolean } = {}
+    const keywordHealthOptions: {
+      displayKeywords?: DisplayKeywordSlot[]
+      marketHeadKeyword?: typeof marketHeadKeyword
+      designSheetMode?: boolean
+      concernMatchCandidates?: string[]
+    } = {}
     if (displayKeywords.length >= 5) keywordHealthOptions.displayKeywords = displayKeywords as DisplayKeywordSlot[]
     if (marketHeadKeyword.keyword?.trim()) keywordHealthOptions.marketHeadKeyword = marketHeadKeyword
-    if (isDesignSheetMode) keywordHealthOptions.designSheetMode = true
+    if (isDesignSheetMode) {
+      keywordHealthOptions.designSheetMode = true
+      const cands = [topicConcernSearch, topicConcern, topicConcernShort]
+        .map((s) => (typeof s === 'string' ? s.trim() : ''))
+        .filter(Boolean)
+      keywordHealthOptions.concernMatchCandidates = [...new Set(cands)]
+    }
     const keywordHealthGate = gateKeywordHealth(
       searchKeywords,
       finalQuestionTitle || '',
@@ -4231,6 +4287,8 @@ coverageSummaryForPrompt: toUndefined(coverageSummaryForPromptForPrompt),
       // 로마 숫자 코드 제거 (영문/한글)
       t = t.replace(/\s+(I{1,3}|IV|VI{0,3})(?=[\s,.]|[가-힣]|$)/g, '')
       t = t.replace(/\s+(Ⅰ|Ⅱ|Ⅲ|Ⅳ|Ⅴ)(?=[\s,.]|[가-힣]|$)/g, '')
+      // 문단 시작·구두점 뒤 등 공백 없이 붙은 II/III/유니코드 ⅡⅢ (고객 노출 방지)
+      t = t.replace(/(^|[\n\s,.(【\[])(I{2,3}|Ⅱ|Ⅲ)(?=$|[\s,.)\]】]|[가-힣])/g, '$1')
       // 해약환급금/환급 관련 구조어를 생활어로 치환
       t = scrubNoRefundStructureTerm(t)
       // 내부 제품어 제거

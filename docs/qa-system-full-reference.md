@@ -59,6 +59,7 @@
   ├─ Step 1: 질문 본문 생성 (Flash 모델)
   │   └─ generateQuestionPrompt (evidenceMap + conflictAxis + openingFamily + questionConcept)
   │   └─ JSON 파싱 → 텍스트 파싱 fallback → formatQuestionContent (문단 재배치)
+  │   └─ 최근 Q&A 중복 점수(제목+첫문장) 계산 → 임계치 이상이면 질문 1회 재생성
   │
   ├─ Step 1.5: 제목 후보 생성 (Pro 모델)
   │   └─ sampleFamilies(6) → buildTitlePrompt → generateContentWithFallback
@@ -368,7 +369,8 @@ for (let pairIdx = 0; pairIdx < totalPairs; pairIdx++) {
 
 ```typescript
 // 제목: cleanForTitle (괄호·버전·로마숫자·무배당 모두 제거)
-// 본문/답변/댓글: cleanForBody (버전코드·무배당만 제거, 해약환급금미지급형 등 보존)
+// 본문/답변/댓글: cleanForBody (버전코드·무배당만 제거)
+// 해약환급금/미지급형 계열은 최종 노출 전 scrubNoRefundStructureTerm으로 생활어 치환
 ```
 
 ### 3-12. Quality Gate 통합
@@ -844,7 +846,7 @@ Title Family별 1개씩 제목 생성 + concern 교차 사용 (내부 고민어 
 ```
 1. 회사명 추출 + 축약 (COMPANY_MAP)
 2. (주), 주식회사, 무배당 제거
-3. display 단계: 버전코드 괄호 제거, 핵심 구조어(해약환급금미지급형 등) 괄호만 벗기고 보존
+3. display 단계: 버전코드 괄호 제거, 핵심 구조어는 보존하되 해약환급금 계열은 `환급구조`로 일반화
 4. topic 단계: 모든 괄호·로마숫자·종수·코드 제거 → cleanProductCore
 5. concern 추출: CONCERN_PATTERNS 15개 매칭
 ```
@@ -853,8 +855,7 @@ Title Family별 1개씩 제목 생성 + concern 교차 사용 (내부 고민어 
 
 | 패턴 | concern | concernSearch |
 |---|---|---|
-| 해약환급금미지급형\|해약환급금 | 해약환급금미지급형 | 환급금 없는 보험 |
-| 무해약 | 무해약환급금 | 해지해도 돈 못 받는 보험 |
+| 해약환급금미지급형\|해약환급금\|무해약 | 환급구조 | 환급금 없는 보험 |
 | 간편심사 | 간편심사 | 병력 있어도 가입 가능한 보험 |
 | 유병자 | 유병자 | 아파도 들 수 있는 보험 |
 | 고지의무 | 고지의무 | 병원 기록 있으면 보험 가입 |
