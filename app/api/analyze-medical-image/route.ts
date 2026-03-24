@@ -576,6 +576,32 @@ export async function POST(request: NextRequest) {
   },
   "customerGuidance": {
     "summary": "한눈에 보는 요약 (3-5줄, 핵심 정보만)",
+    "onePageSummary": {
+      "title": "검사/치료 경과 1장 요약 제목",
+      "subtitle": "문서 성격을 설명하는 짧은 부제",
+      "problemOverview": [
+        "처음 발견된 문제 요약 1",
+        "처음 발견된 문제 요약 2"
+      ],
+      "timeline": [
+        {
+          "date": "YYYY년 M월 D일 또는 YYYY년 M월",
+          "label": "사건명/검사명/시술명",
+          "detail": "해당 시점에 확인된 내용(이미지 근거 기반, 추정 금지)"
+        }
+      ],
+      "currentStatus": [
+        "현재 상태 핵심 요약 1",
+        "현재 상태 핵심 요약 2"
+      ],
+      "finalSummary": "의료진 소견 흐름과 현재 상태를 3~5문장으로 정리한 최종 한 줄 요약",
+      "doctorOpinionVersion": "의사 소견서 톤 요약 (사실 기반, 의학적 표현 사용, 4~8문장)",
+      "patientGuideVersion": "환자 안내문 톤 요약 (쉽고 친절한 표현, 4~8문장)",
+      "confidenceNotes": [
+        "이미지에서 명확히 확인된 사실",
+        "판독이 불명확해 보수적으로 표현한 항목"
+      ]
+    },
     "explanation": "고객에게 설명할 내용 (매우 상세하고 친절하게, 전문 용어 설명 포함, 영문 용어는 한글로 번역하여 설명)",
     "insuranceExplanation": "보험 적용 상세 설명 (각 보험별로 구체적으로, 실손보험 세대별 차이 설명 포함)",
     "whyPatientShare": "본인부담금이 발생한 이유 설명 (왜 이 금액이 본인부담인지)",
@@ -645,6 +671,12 @@ export async function POST(request: NextRequest) {
   * 계산된 본인부담률과 실손보험 세대별 기준 비교하여 일치 여부 확인
   * 불일치 시 경고 표시 및 원인 분석
 - 고객 설명은 전문 용어를 피하고 쉽게 설명하되, 중요한 정보는 빠짐없이 포함 (영문 용어는 한글로 번역하여 설명)
+- **정확도 우선 1장 요약(onePageSummary) 작성 규칙**:
+  * onePageSummary는 반드시 채울 것 (빈 배열/빈 문자열 금지)
+  * timeline은 이미지에서 확인 가능한 사건만 시간순으로 작성 (날짜 불명확 시 대략 표기 + confidenceNotes에 명시)
+  * finalSummary는 과장 없이 사실 중심으로 3~5문장 작성
+  * doctorOpinionVersion(의사 소견서 톤)과 patientGuideVersion(환자 안내문 톤)을 모두 작성
+  * 의학적 확정 진단으로 단정하지 말고, 문서에서 확인된 표현 범위 내에서 서술
 - 모든 정보는 이미지에서 직접 읽은 내용만 사용 (추측하지 말 것, 영문 기록지도 정확히 인식)
 - 진료비 항목별로 급여/비급여 구분을 정확히 표시 (영문 기록지에서도 구분 가능)
 - 병리 보고서인 경우 모든 진단 내용을 상세히 추출 (영문 원문도 포함)
@@ -696,6 +728,17 @@ export async function POST(request: NextRequest) {
         pathologyInfo: {},
         insuranceAnalysis: {},
         customerGuidance: {
+          onePageSummary: {
+            title: '검사/치료 경과 1장 요약',
+            subtitle: '이미지 분석 오류로 요약 생성 실패',
+            problemOverview: [],
+            timeline: [],
+            currentStatus: [],
+            finalSummary: '이미지 분석 중 오류가 발생했습니다. 다시 시도해주세요.',
+            doctorOpinionVersion: '이미지 분석 오류로 의사 소견서 요약을 생성하지 못했습니다.',
+            patientGuideVersion: '이미지 분석 오류로 환자 안내문 요약을 생성하지 못했습니다.',
+            confidenceNotes: ['분석 실패로 정확한 판독 불가']
+          },
           explanation: '이미지 분석 중 오류가 발생했습니다. 다시 시도해주세요.',
           nextSteps: [],
           importantNotes: []

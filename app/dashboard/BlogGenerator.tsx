@@ -3510,40 +3510,34 @@ h2 {
 // 전문 이미지 분석기 컴포넌트
 function ImageAnalyzer({ profile }: { profile: Profile | null }) {
   const [selectedImage, setSelectedImage] = useState<string | null>(null)
+  const [selectedImages, setSelectedImages] = useState<string[]>([])
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [analysisResult, setAnalysisResult] = useState<any>(null)
+  const [analysisResults, setAnalysisResults] = useState<any[]>([])
+  const [activeResultIndex, setActiveResultIndex] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [isDragging, setIsDragging] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const MAX_IMAGE_COUNT = 12
 
   const handleImageSelect = () => {
     fileInputRef.current?.click()
   }
 
-  const processImageFile = async (file: File) => {
-    // 이미지 파일만 허용
-    if (!file.type.startsWith('image/')) {
-      alert('이미지 파일만 업로드 가능합니다.')
-      return
-    }
-
-    const reader = new FileReader()
-    reader.onloadend = async () => {
-      const base64String = reader.result as string
-      setSelectedImage(base64String)
-      setAnalysisResult(null)
-      setError(null)
-      
-      // 자동으로 분석 시작
-      await handleAnalyze(base64String)
-    }
-    reader.readAsDataURL(file)
+  const readFileAsBase64 = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onloadend = () => resolve(reader.result as string)
+      reader.onerror = () => reject(new Error('이미지 파일을 읽는 중 오류가 발생했습니다.'))
+      reader.readAsDataURL(file)
+    })
   }
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    await processImageFile(file)
+    const files = Array.from(e.target.files || [])
+    if (!files.length) return
+    await processImageFiles(files)
+    if (e.target) e.target.value = ''
   }
 
   // 드래그 앤 드롭 핸들러
@@ -3564,60 +3558,97 @@ function ImageAnalyzer({ profile }: { profile: Profile | null }) {
     e.stopPropagation()
     setIsDragging(false)
 
-    const files = e.dataTransfer.files
-    if (files && files.length > 0) {
-      const file = files[0]
-      await processImageFile(file)
+    const files = Array.from(e.dataTransfer.files || [])
+    if (!files.length) return
+    await processImageFiles(files)
+  }
+
+  const analyzeSingleImage = async (imageToAnalyze: string) => {
+    const response = await fetch('/api/analyze-medical-image', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ imageBase64: imageToAnalyze }),
+    })
+
+    const text = await response.text()
+    let data: { success?: boolean; data?: unknown; error?: string }
+    try {
+      data = JSON.parse(text)
+    } catch {
+      console.error('이미지 분석 응답 파싱 실패 (JSON 아님):', text?.slice(0, 80))
+      throw new Error(
+        response.status === 413 || text.includes('Request Entity') || text.includes('Payload')
+          ? '이미지 크기가 너무 큽니다. 더 작은 이미지로 시도해 주세요.'
+          : '서버 응답 형식 오류입니다. 잠시 후 다시 시도해 주세요.'
+      )
+    }
+
+    if (!response.ok) {
+      throw new Error(data.error || '이미지 분석 중 오류가 발생했습니다.')
+    }
+
+    if (data.success) {
+      return data.data
+    } else {
+      throw new Error('분석 결과를 받아오지 못했습니다.')
     }
   }
 
-  const handleAnalyze = async (imageBase64?: string) => {
-    const imageToAnalyze = imageBase64 || selectedImage
-    if (!imageToAnalyze) {
-      alert('이미지를 먼저 업로드해주세요.')
-      return
-    }
-
+  const analyzeBase64Images = async (base64Images: string[]) => {
     setIsAnalyzing(true)
     setError(null)
+    setAnalysisResult(null)
+    setAnalysisResults([])
 
     try {
-      const response = await fetch('/api/analyze-medical-image', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ imageBase64: imageToAnalyze }),
-      })
+      setSelectedImages(base64Images)
+      setSelectedImage(base64Images[0] || null)
 
-      const text = await response.text()
-      let data: { success?: boolean; data?: unknown; error?: string }
-      try {
-        data = JSON.parse(text)
-      } catch {
-        console.error('이미지 분석 응답 파싱 실패 (JSON 아님):', text?.slice(0, 80))
-        throw new Error(
-          response.status === 413 || text.includes('Request Entity') || text.includes('Payload')
-            ? '이미지 크기가 너무 큽니다. 더 작은 이미지로 시도해 주세요.'
-            : '서버 응답 형식 오류입니다. 잠시 후 다시 시도해 주세요.'
-        )
+      const results: any[] = []
+      for (const base64 of base64Images) {
+        const analyzed = await analyzeSingleImage(base64)
+        results.push(analyzed)
       }
 
-      if (!response.ok) {
-        throw new Error(data.error || '이미지 분석 중 오류가 발생했습니다.')
-      }
-
-      if (data.success) {
-        setAnalysisResult(data.data)
-      } else {
-        throw new Error('분석 결과를 받아오지 못했습니다.')
-      }
+      setAnalysisResults(results)
+      setActiveResultIndex(0)
+      setAnalysisResult(results[0] || null)
     } catch (error: any) {
       console.error('이미지 분석 오류:', error)
       setError(error.message || '이미지 분석 중 오류가 발생했습니다.')
     } finally {
       setIsAnalyzing(false)
     }
+  }
+
+  const processImageFiles = async (files: File[]) => {
+    const imageFiles = files.filter(file => file.type.startsWith('image/'))
+    if (!imageFiles.length) {
+      alert('이미지 파일만 업로드 가능합니다.')
+      return
+    }
+
+    const sliced = imageFiles.slice(0, MAX_IMAGE_COUNT)
+    if (imageFiles.length > MAX_IMAGE_COUNT) {
+      alert(`한 번에 최대 ${MAX_IMAGE_COUNT}장까지 분석할 수 있어요. 앞의 ${MAX_IMAGE_COUNT}장만 처리합니다.`)
+    }
+
+    const base64Images = await Promise.all(sliced.map(readFileAsBase64))
+    await analyzeBase64Images(base64Images)
+  }
+
+  const handleAnalyze = async (imageBase64?: string) => {
+    if (imageBase64) {
+      await analyzeBase64Images([imageBase64])
+      return
+    }
+    if (!selectedImages.length) {
+      alert('이미지를 먼저 업로드해주세요.')
+      return
+    }
+    await analyzeBase64Images(selectedImages)
   }
 
   const handleCopy = (text: string) => {
@@ -3653,11 +3684,12 @@ function ImageAnalyzer({ profile }: { profile: Profile | null }) {
             ref={fileInputRef}
             type="file"
             accept="image/*"
+            multiple
             onChange={handleImageUpload}
             className="hidden"
           />
           
-          {!selectedImage ? (
+          {!selectedImages.length ? (
             <div>
               <ImageIcon className={`w-16 h-16 mx-auto mb-4 transition-colors ${
                 isDragging ? 'text-blue-500' : 'text-gray-400'
@@ -3665,8 +3697,9 @@ function ImageAnalyzer({ profile }: { profile: Profile | null }) {
               <p className={`mb-2 transition-colors ${
                 isDragging ? 'text-blue-700 dark:text-blue-300 font-semibold' : 'text-gray-600 dark:text-gray-300'
               }`}>
-                {isDragging ? '📎 여기에 이미지를 놓아주세요' : '이미지를 드래그 앤 드롭하거나 선택하세요'}
+                {isDragging ? '📎 여기에 이미지를 놓아주세요' : '이미지를 드래그 앤 드롭하거나 선택하세요 (최대 12장)'}
               </p>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">권장 파일 크기: 이미지당 7MB 이하</p>
               <button
                 onClick={handleImageSelect}
                 className="px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-semibold rounded-lg hover:shadow-lg transition-all"
@@ -3677,10 +3710,30 @@ function ImageAnalyzer({ profile }: { profile: Profile | null }) {
           ) : (
             <div>
               <img
-                src={selectedImage}
+                src={selectedImages[activeResultIndex] || selectedImage || ''}
                 alt="업로드된 이미지"
                 className="max-w-full max-h-96 mx-auto mb-4 rounded-lg shadow-md"
               />
+              {selectedImages.length > 1 && (
+                <div className="mb-4 flex flex-wrap justify-center gap-2">
+                  {selectedImages.map((_, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => {
+                        setActiveResultIndex(idx)
+                        if (analysisResults[idx]) setAnalysisResult(analysisResults[idx])
+                      }}
+                      className={`px-3 py-1 rounded-full text-sm transition-colors ${
+                        activeResultIndex === idx
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-gray-200 dark:bg-slate-600 text-gray-700 dark:text-gray-200'
+                      }`}
+                    >
+                      {idx + 1}번 이미지
+                    </button>
+                  ))}
+                </div>
+              )}
               <div className="flex gap-3 justify-center">
                 <button
                   onClick={handleImageSelect}
@@ -3722,6 +3775,105 @@ function ImageAnalyzer({ profile }: { profile: Profile | null }) {
       {/* 분석 결과 */}
       {analysisResult && !isAnalyzing && (
         <div className="space-y-6">
+          {analysisResult.customerGuidance?.onePageSummary && (
+            <div className="bg-gradient-to-br from-slate-50 to-blue-50 dark:from-slate-800 dark:to-blue-900/20 border border-slate-200 dark:border-slate-700 rounded-lg p-6">
+              <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-1">
+                {analysisResult.customerGuidance.onePageSummary.title || '검사/치료 경과 1장 요약'}
+              </h3>
+              {analysisResult.customerGuidance.onePageSummary.subtitle && (
+                <p className="text-sm text-slate-600 dark:text-slate-300 mb-4">
+                  {analysisResult.customerGuidance.onePageSummary.subtitle}
+                </p>
+              )}
+
+              {Array.isArray(analysisResult.customerGuidance.onePageSummary.problemOverview) &&
+                analysisResult.customerGuidance.onePageSummary.problemOverview.length > 0 && (
+                <div className="mb-4">
+                  <p className="font-semibold text-slate-800 dark:text-slate-200 mb-2">처음 발견된 문제</p>
+                  <ul className="list-disc list-inside space-y-1 text-slate-700 dark:text-slate-300">
+                    {analysisResult.customerGuidance.onePageSummary.problemOverview.map((item: string, idx: number) => (
+                      <li key={idx}>{item}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {Array.isArray(analysisResult.customerGuidance.onePageSummary.timeline) &&
+                analysisResult.customerGuidance.onePageSummary.timeline.length > 0 && (
+                <div className="mb-4">
+                  <p className="font-semibold text-slate-800 dark:text-slate-200 mb-2">시간 순 정리</p>
+                  <div className="space-y-2">
+                    {analysisResult.customerGuidance.onePageSummary.timeline.map((row: any, idx: number) => (
+                      <div key={idx} className="bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-md p-3">
+                        <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+                          {row?.date || '-'} · {row?.label || '기록'}
+                        </p>
+                        <p className="text-sm text-slate-700 dark:text-slate-300 mt-1">{row?.detail || ''}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {Array.isArray(analysisResult.customerGuidance.onePageSummary.currentStatus) &&
+                analysisResult.customerGuidance.onePageSummary.currentStatus.length > 0 && (
+                <div className="mb-4">
+                  <p className="font-semibold text-slate-800 dark:text-slate-200 mb-2">현재 상태 핵심</p>
+                  <ul className="list-disc list-inside space-y-1 text-slate-700 dark:text-slate-300">
+                    {analysisResult.customerGuidance.onePageSummary.currentStatus.map((item: string, idx: number) => (
+                      <li key={idx}>{item}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {analysisResult.customerGuidance.onePageSummary.finalSummary && (
+                <div className="mb-3 bg-blue-900 text-blue-50 rounded-md p-3">
+                  <p className="text-sm font-semibold mb-1">최종 정리</p>
+                  <p className="text-sm leading-relaxed whitespace-pre-wrap">
+                    {analysisResult.customerGuidance.onePageSummary.finalSummary}
+                  </p>
+                </div>
+              )}
+
+              {analysisResult.customerGuidance.onePageSummary.doctorOpinionVersion && (
+                <div className="mb-3 bg-slate-100 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-md p-3">
+                  <p className="text-sm font-semibold mb-1 text-slate-800 dark:text-slate-100">의사 소견서 버전</p>
+                  <p className="text-sm leading-relaxed whitespace-pre-wrap text-slate-700 dark:text-slate-300">
+                    {analysisResult.customerGuidance.onePageSummary.doctorOpinionVersion}
+                  </p>
+                </div>
+              )}
+
+              {analysisResult.customerGuidance.onePageSummary.patientGuideVersion && (
+                <div className="mb-3 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-700 rounded-md p-3">
+                  <p className="text-sm font-semibold mb-1 text-emerald-800 dark:text-emerald-300">환자 안내문 버전</p>
+                  <p className="text-sm leading-relaxed whitespace-pre-wrap text-emerald-900 dark:text-emerald-200">
+                    {analysisResult.customerGuidance.onePageSummary.patientGuideVersion}
+                  </p>
+                </div>
+              )}
+
+              {Array.isArray(analysisResult.customerGuidance.onePageSummary.confidenceNotes) &&
+                analysisResult.customerGuidance.onePageSummary.confidenceNotes.length > 0 && (
+                <div>
+                  <p className="font-semibold text-slate-800 dark:text-slate-200 mb-2">정확도 메모</p>
+                  <ul className="list-disc list-inside space-y-1 text-slate-700 dark:text-slate-300">
+                    {analysisResult.customerGuidance.onePageSummary.confidenceNotes.map((note: string, idx: number) => (
+                      <li key={idx}>{note}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+          {analysisResults.length > 1 && (
+            <div className="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+              <p className="text-blue-700 dark:text-blue-300 font-semibold">
+                총 {analysisResults.length}장 분석 완료 (현재 {activeResultIndex + 1}번 결과 표시 중)
+              </p>
+            </div>
+          )}
           {/* 문서 정보 */}
           <div className="bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-900/30 dark:to-indigo-900/30 rounded-lg p-6">
             <h3 className="text-xl font-bold text-gray-800 dark:text-white mb-4 flex items-center gap-2">
