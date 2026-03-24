@@ -181,8 +181,12 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    // 활동 많은 순 정렬 (qa+blog 합계)
+    // 마지막 사용일 최신순 정렬 (동률이면 활동 건수 많은 순)
     reports.sort((a, b) => {
+      const timeA = a.lastActivity ? new Date(a.lastActivity).getTime() : 0
+      const timeB = b.lastActivity ? new Date(b.lastActivity).getTime() : 0
+      if (timeB !== timeA) return timeB - timeA
+
       const actA = a.stats.qaCount + a.stats.blogCount
       const actB = b.stats.qaCount + b.stats.blogCount
       return actB - actA

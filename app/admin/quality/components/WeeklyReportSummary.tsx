@@ -87,6 +87,9 @@ export default function WeeklyReportSummary() {
                 <span>경고 {r.stats.qualityWarningCount}건</span>
                 <span>토큰 {r.stats.totalTokens.toLocaleString()}</span>
               </div>
+              <div className="text-xs text-gray-500 dark:text-slate-400">
+                마지막 사용일: {r.lastActivity ? new Date(r.lastActivity).toLocaleString('ko-KR') : '-'}
+              </div>
               {r.good.length > 0 && (
                 <div className="space-y-1">
                   {r.good.map((g, i) => (

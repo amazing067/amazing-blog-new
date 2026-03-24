@@ -105,7 +105,9 @@ export default function SampleReviewPanel({ days }: { days: number }) {
                 onClick={() => loadDetail(s.id)}
               >
                 <span className="text-gray-500 dark:text-slate-400 w-24 shrink-0">{new Date(s.created_at).toLocaleDateString('ko-KR')}</span>
-                <span className="w-16 shrink-0 font-medium text-gray-900 dark:text-slate-100">{s.username}</span>
+                <span className="w-40 shrink-0 font-medium text-gray-900 dark:text-slate-100 truncate" title={`${s.username} (${s.full_name})`}>
+                  {s.username} <span className="text-gray-500 dark:text-slate-400 font-normal">({s.full_name})</span>
+                </span>
                 <span className="flex-1 truncate text-gray-800 dark:text-slate-100">{s.questionTitle || '-'}</span>
                 <span className={`w-12 text-right font-bold ${(s.totalScore ?? 0) >= 90 ? 'text-green-600 dark:text-green-400' : (s.totalScore ?? 0) >= 75 ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400'}`}>
                   {s.totalScore ?? '-'}
