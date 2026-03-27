@@ -3508,17 +3508,13 @@ coverageSummaryForPrompt: toUndefined(coverageSummaryForPromptForPrompt),
       // 6. 최종 정리 (앞뒤 공백 제거)
       answerContent = answerContent.trim()
       
-      // 7. 답변 길이: 500자 초과 시에만 450자로 soft cap (카페용 가독성, 89자처럼 과도하게 잘리지 않도록)
-      const ANSWER_SOFT_CAP = 450
-      if (answerContent.length > ANSWER_SOFT_CAP) {
-        answerContent = enforceAnswerLength(answerContent, ANSWER_SOFT_CAP)
-        console.log(`[Q&A 생성] [Step 2] 답변 길이 soft cap 적용: ${ANSWER_SOFT_CAP}자 이내 (원본 초과분 절단)`)
-      }
-
-      // 8. 300자 미만이면 자동 1회 재생성 (프롬프트만으로는 길이 하한 보장 불가)
-      const ANSWER_MIN_THRESHOLD = 300
-      if (answerContent.length < ANSWER_MIN_THRESHOLD) {
-        console.log(`[Q&A 생성] [Step 2] ⚠️ 답변 ${answerContent.length}자 < ${ANSWER_MIN_THRESHOLD}자 → 자동 재생성 시도`)
+      // 7. 답변 길이 제어: 후처리 절단보다 "생성 단계 길이 맞춤" 우선
+      const ANSWER_TARGET_MIN = 320
+      const ANSWER_TARGET_MAX = 420
+      const ANSWER_HARD_MAX = 520
+      const isOutOfTargetRange = answerContent.length < ANSWER_TARGET_MIN || answerContent.length > ANSWER_TARGET_MAX
+      if (isOutOfTargetRange) {
+        console.log(`[Q&A 생성] [Step 2] ⚠️ 답변 길이 ${answerContent.length}자 (권장 ${ANSWER_TARGET_MIN}~${ANSWER_TARGET_MAX}) → 자동 재생성 시도`)
         try {
           const retryPrompt = generateAnswerPrompt(
             {
@@ -3542,7 +3538,7 @@ coverageSummaryForPrompt: toUndefined(coverageSummaryForPromptForPrompt),
               coverageFocusLabels: toUndefined(coverageFocusLabelsForPrompt),
             },
             finalQuestionTitle,
-            finalQuestionContent + `\n\n⚠️ 이전 답변이 ${answerContent.length}자로 너무 짧았습니다. 반드시 350자 이상, 공감→판단→체크포인트→행동유도 4블록을 빠짐없이 작성하세요.`
+            finalQuestionContent + `\n\n⚠️ 길이 재조정 요청: 이전 답변 길이는 ${answerContent.length}자였습니다. 이번에는 반드시 ${ANSWER_TARGET_MIN}~${ANSWER_TARGET_MAX}자 사이로 작성하세요. 답변은 공감→판단→근거→마무리 4블록을 유지하고, 문장 중간에서 끊기지 않게 완결형으로 마무리하세요.`
           )
           const retryResult = await generateContentWithFallback(retryPrompt, designSheetImage, false, '3.1')
           await new Promise(resolve => setTimeout(resolve, 1000))
@@ -3551,21 +3547,25 @@ coverageSummaryForPrompt: toUndefined(coverageSummaryForPromptForPrompt),
             .replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]/g, '')
             .replace(/```[\s\S]*?```/g, '').trim()
             .replace(/\[생성된 답변\]/g, '').trim()
-          if (retryAnswer.length > ANSWER_SOFT_CAP) {
-            retryAnswer = enforceAnswerLength(retryAnswer, ANSWER_SOFT_CAP)
-          }
-          if (retryAnswer.length > answerContent.length) {
-            console.log(`[Q&A 생성] [Step 2] ✅ 재생성 성공: ${answerContent.length}자 → ${retryAnswer.length}자`)
+          const retryInRange = retryAnswer.length >= ANSWER_TARGET_MIN && retryAnswer.length <= ANSWER_TARGET_MAX
+          if (retryInRange) {
+            console.log(`[Q&A 생성] [Step 2] ✅ 재생성 성공(권장 구간): ${answerContent.length}자 → ${retryAnswer.length}자`)
             answerContent = retryAnswer
           } else {
-            console.log(`[Q&A 생성] [Step 2] 재생성 결과가 더 짧음, 원본 유지: ${answerContent.length}자`)
+            console.log(`[Q&A 생성] [Step 2] 재생성 길이 ${retryAnswer.length}자 (권장 범위 밖) → 원본 유지`)
           }
         } catch (retryError) {
           console.error('[Q&A 생성] [Step 2] 재생성 실패, 원본 유지:', retryError)
         }
       }
+      
+      // 8. 하드 안전장치: 극단적 장문에만 제한 적용
+      if (answerContent.length > ANSWER_HARD_MAX) {
+        answerContent = enforceAnswerLength(answerContent, ANSWER_HARD_MAX)
+        console.log(`[Q&A 생성] [Step 2] 하드 상한 적용: ${ANSWER_HARD_MAX}자 이내로 최종 정리`)
+      }
 
-      console.log(`[Q&A 생성] [Step 2] 최종 답변 길이: ${answerContent.length}자 (목표: 300-500자)`)
+      console.log(`[Q&A 생성] [Step 2] 최종 답변 길이: ${answerContent.length}자 (권장: ${ANSWER_TARGET_MIN}-${ANSWER_TARGET_MAX}자, 하드상한: ${ANSWER_HARD_MAX}자)`)
 
       console.log('Step 2 완료:', { answerContentLength: answerContent.length })
     } else {
