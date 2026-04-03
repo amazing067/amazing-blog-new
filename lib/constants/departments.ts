@@ -63,6 +63,12 @@ export const DEPARTMENTS: Department[] = [
   },
 ] as const
 
+/**
+ * 일부 본부(예: 290/067/292)는 결제 만료일(paid_until)이 없어도 되는 정책
+ * - 이 본부 소속 사용자는 paid_until을 null로 유지/처리합니다.
+ */
+export const DEPARTMENTS_WITHOUT_EXPIRY = ['067', '290', '292'] as const
+
 export type DepartmentId = typeof DEPARTMENTS[number]['id']
 export type TeamId = typeof DEPARTMENTS[number]['teams'][number]['id']
 

@@ -40,6 +40,11 @@ export default function UsersTable({ users: initialUsers, initialFilter = 'all' 
   const [searchTerm, setSearchTerm] = useState('')
   const [departmentFilter, setDepartmentFilter] = useState<string>('')
   const [roleFilter, setRoleFilter] = useState<string>('')
+  const [selectedUserIds, setSelectedUserIds] = useState<string[]>([])
+  const [showBulkModal, setShowBulkModal] = useState(false)
+  const [bulkExtendMonths, setBulkExtendMonths] = useState<number>(1)
+  const [bulkPaymentNote, setBulkPaymentNote] = useState<string>('')
+  const [isBulkLoading, setIsBulkLoading] = useState(false)
 
   // initialFilter가 변경되면 internalFilter도 업데이트 (동기화)
   useEffect(() => {
@@ -166,6 +171,64 @@ export default function UsersTable({ users: initialUsers, initialFilter = 'all' 
     return false
   })
 
+  const isSelectableUser = (u: User) => u.role !== 'admin' && u.username !== 'amazing'
+  const selectableVisibleUsers = filteredUsers.filter(isSelectableUser)
+
+  const allSelectableSelected =
+    selectableVisibleUsers.length > 0 &&
+    selectableVisibleUsers.every(u => selectedUserIds.includes(u.id))
+
+  const toggleSelectAllVisible = () => {
+    if (allSelectableSelected) {
+      const visibleIds = new Set(selectableVisibleUsers.map(u => u.id))
+      setSelectedUserIds(prev => prev.filter(id => !visibleIds.has(id)))
+    } else {
+      setSelectedUserIds(prev => Array.from(new Set([...prev, ...selectableVisibleUsers.map(u => u.id)])))
+    }
+  }
+
+  const handleBulkExtend = async () => {
+    if (selectedUserIds.length === 0) return
+
+    if (!confirm(`선택한 ${selectedUserIds.length}명의 결제 만료일을 ${bulkExtendMonths}개월 연장 처리할까요?`)) {
+      return
+    }
+
+    setIsBulkLoading(true)
+    try {
+      const res = await fetch('/api/admin/bulk-extend-paid-until', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userIds: selectedUserIds,
+          extendMonths: bulkExtendMonths,
+          paymentNote: bulkPaymentNote || null,
+        }),
+      })
+
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        throw new Error(data?.error || data?.message || '일괄 처리 실패')
+      }
+
+      const updatedWithExpiry = data?.data?.updatedWithExpiry ?? 0
+      const updatedNoExpiry = data?.data?.updatedNoExpiry ?? 0
+
+      alert(`처리 완료\n- 만료일 연장: ${updatedWithExpiry}명\n- 만료일 없음(290/067/292 처리): ${updatedNoExpiry}명`)
+
+      setShowBulkModal(false)
+      setSelectedUserIds([])
+      setBulkExtendMonths(1)
+      setBulkPaymentNote('')
+
+      handleUpdate()
+    } catch (error: any) {
+      alert(`오류: ${error?.message || error || '일괄 처리 중 오류가 발생했습니다'}`)
+    } finally {
+      setIsBulkLoading(false)
+    }
+  }
+
   // 고유한 본부 목록 추출
   const uniqueDepartments = Array.from(
     new Set(users.map(u => u.department_id).filter(Boolean))
@@ -216,12 +279,47 @@ export default function UsersTable({ users: initialUsers, initialFilter = 'all' 
         </div>
       </div>
 
+      {/* 선택 회원 일괄 처리 */}
+      {selectedUserIds.length > 0 && (
+        <div className="mb-4 bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-center justify-between gap-3">
+          <div className="text-sm text-blue-900 font-semibold">
+            선택됨: {selectedUserIds.length}명
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setSelectedUserIds([])}
+              className="px-3 py-2 bg-white text-blue-900 border border-blue-200 rounded-lg hover:bg-blue-100 font-semibold text-sm"
+              disabled={isBulkLoading}
+            >
+              선택 해제
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowBulkModal(true)}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={isBulkLoading}
+            >
+              선택 만료일 +연장
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* 테이블 */}
       {filteredUsers.length > 0 ? (
         <div className="overflow-x-auto rounded-lg border border-gray-200">
           <table className="w-full">
             <thead className="bg-gradient-to-r from-gray-100 to-gray-50">
               <tr>
+                <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
+                  <input
+                    type="checkbox"
+                    checked={allSelectableSelected}
+                    onChange={toggleSelectAllVisible}
+                    className="h-4 w-4"
+                  />
+                </th>
                 <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
                   아이디
                 </th>
@@ -255,6 +353,20 @@ export default function UsersTable({ users: initialUsers, initialFilter = 'all' 
                   key={user.id} 
                   className="hover:bg-blue-50 transition-colors"
                 >
+                  <td className="px-6 py-4 whitespace-nowrap text-sm">
+                    <input
+                      type="checkbox"
+                      checked={selectedUserIds.includes(user.id)}
+                      disabled={!isSelectableUser(user)}
+                      onChange={() => {
+                        if (!isSelectableUser(user)) return
+                        setSelectedUserIds(prev =>
+                          prev.includes(user.id) ? prev.filter(id => id !== user.id) : [...prev, user.id]
+                        )
+                      }}
+                      className="h-4 w-4"
+                    />
+                  </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900">
                     {user.username}
                     {user.role === 'admin' && (
@@ -402,6 +514,7 @@ export default function UsersTable({ users: initialUsers, initialFilter = 'all' 
                       userId={user.id}
                       currentStatus={user.membership_status}
                       paidUntil={user.paid_until}
+                      departmentId={user.department_id}
                       role={user.role || ''}
                       username={user.username}
                       onUpdate={handleUpdate}
@@ -418,6 +531,72 @@ export default function UsersTable({ users: initialUsers, initialFilter = 'all' 
           <p className="text-gray-500 text-lg font-medium">
             검색 결과가 없습니다
           </p>
+        </div>
+      )}
+
+      {showBulkModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl">
+            <h3 className="text-xl font-bold mb-4 flex items-center gap-2">
+              연장 일괄 처리
+            </h3>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  결제 만료일을 얼마나 늘릴까요?
+                </label>
+                <select
+                  value={bulkExtendMonths}
+                  onChange={(e) => setBulkExtendMonths(Number(e.target.value))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                >
+                  <option value={1}>+1개월</option>
+                  <option value={2}>+2개월</option>
+                  <option value={3}>+3개월</option>
+                  <option value={6}>+6개월</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  메모 (선택사항)
+                </label>
+                <textarea
+                  value={bulkPaymentNote}
+                  onChange={(e) => setBulkPaymentNote(e.target.value)}
+                  placeholder="결제/만료 관련 메모를 입력하세요"
+                  rows={3}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
+
+              <div className="text-xs text-gray-600">
+                290/067/292 본부는 만료일을 “없음”(`paid_until=null`)으로 처리합니다.
+              </div>
+            </div>
+
+            <div className="flex gap-2 mt-6">
+              <button
+                type="button"
+                onClick={handleBulkExtend}
+                disabled={isBulkLoading}
+                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-semibold"
+              >
+                {isBulkLoading ? '처리 중...' : '일괄 적용'}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowBulkModal(false)
+                }}
+                disabled={isBulkLoading}
+                className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors disabled:opacity-50 font-semibold"
+              >
+                취소
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

@@ -2,23 +2,26 @@
 
 import { useState } from 'react'
 import { CreditCard } from 'lucide-react'
+import { DEPARTMENTS_WITHOUT_EXPIRY } from '@/lib/constants/departments'
 
 interface MembershipActionsProps {
   userId: string
   currentStatus: 'active' | 'pending' | 'suspended' | 'deleted' | null
   paidUntil: string | null
+  departmentId?: string | null
   role?: string
   username?: string
   onUpdate: () => void
 }
 
-export default function MembershipActions({ userId, currentStatus, paidUntil, role, username, onUpdate }: MembershipActionsProps) {
+export default function MembershipActions({ userId, currentStatus, paidUntil, departmentId, role, username, onUpdate }: MembershipActionsProps) {
   const [isLoading, setIsLoading] = useState(false)
   const [showPaymentModal, setShowPaymentModal] = useState(false)
   const [paymentDate, setPaymentDate] = useState('')
   const [paymentNote, setPaymentNote] = useState('')
 
   const isSuperAdmin = role === 'admin' || username === 'amazing'
+  const isNoExpiryDepartment = !!departmentId && DEPARTMENTS_WITHOUT_EXPIRY.includes(departmentId as any)
 
   // 승인 처리 (ApprovalButton 로직 통합)
   const handleApprove = async () => {
@@ -126,17 +129,20 @@ export default function MembershipActions({ userId, currentStatus, paidUntil, ro
       alert('이 계정은 결제가 필요 없습니다.')
       return
     }
-    if (!paymentDate) {
+    if (!isNoExpiryDepartment && !paymentDate) {
       alert('결제 만료일을 입력해주세요')
       return
     }
 
     setIsLoading(true)
-    const paidUntilDate = new Date(paymentDate)
-    const payload = {
+    const payload: any = {
       userId,
-      paidUntil: paidUntilDate.toISOString(),
       paymentNote: paymentNote || null
+    }
+
+    if (!isNoExpiryDepartment) {
+      const paidUntilDate = new Date(paymentDate)
+      payload.paidUntil = paidUntilDate.toISOString()
     }
 
     fetch('/api/admin/confirm-payment', {
@@ -149,7 +155,11 @@ export default function MembershipActions({ userId, currentStatus, paidUntil, ro
         if (!res.ok) {
           throw new Error(data.error || '결제 확인 실패')
         }
-        alert(`결제가 확인되었습니다.\n만료일: ${paidUntilDate.toLocaleDateString('ko-KR')}`)
+        alert(
+          isNoExpiryDepartment
+            ? '결제가 확인되었습니다(만료일 없음 처리).'
+            : `결제가 확인되었습니다.\n만료일: ${new Date(paymentDate).toLocaleDateString('ko-KR')}`,
+        )
         setShowPaymentModal(false)
         setPaymentDate('')
         setPaymentNote('')
@@ -236,7 +246,7 @@ export default function MembershipActions({ userId, currentStatus, paidUntil, ro
         {/* 결제 확인 버튼 - 항상 표시 */}
         <button
           onClick={() => {
-            setPaymentDate(getDefaultPaymentDate())
+          setPaymentDate(isNoExpiryDepartment ? '' : getDefaultPaymentDate())
             setShowPaymentModal(true)
           }}
           disabled={isLoading}
@@ -260,12 +270,18 @@ export default function MembershipActions({ userId, currentStatus, paidUntil, ro
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   결제 만료일 (기본값: 오늘 기준 1개월 후)
                 </label>
-                <input
-                  type="date"
-                  value={paymentDate}
-                  onChange={(e) => setPaymentDate(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                />
+                {isNoExpiryDepartment ? (
+                  <div className="text-sm text-gray-600">
+                    290/067/292 본부는 만료일이 필요 없습니다. (자동 처리)
+                  </div>
+                ) : (
+                  <input
+                    type="date"
+                    value={paymentDate}
+                    onChange={(e) => setPaymentDate(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                )}
               </div>
 
               <div>
@@ -285,7 +301,7 @@ export default function MembershipActions({ userId, currentStatus, paidUntil, ro
             <div className="flex gap-2 mt-6">
               <button
                 onClick={handlePaymentConfirm}
-                disabled={!paymentDate}
+                disabled={!isNoExpiryDepartment && !paymentDate}
                 className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-semibold"
               >
                 확인 (안내 표시)

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
+import { DEPARTMENTS_WITHOUT_EXPIRY } from '@/lib/constants/departments'
 
 export async function POST(request: NextRequest) {
   try {
@@ -71,14 +72,14 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const { userId, paidUntil, paymentNote } = body
 
-    if (!userId || !paidUntil) {
-      return NextResponse.json({ error: 'userId와 paidUntil이 필요합니다' }, { status: 400 })
+    if (!userId) {
+      return NextResponse.json({ error: 'userId가 필요합니다' }, { status: 400 })
     }
 
     // 대상 사용자 정보 확인 (관리 제외: admin / username 'amazing')
     const { data: targetProfile } = await supabase
       .from('profiles')
-      .select('role, username')
+      .select('role, username, department_id')
       .eq('id', userId)
       .single()
 
@@ -86,12 +87,22 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '이 계정은 결제가 필요 없습니다.' }, { status: 400 })
     }
 
+    const departmentId = targetProfile?.department_id
+    const isNoExpiryDepartment = !!departmentId && DEPARTMENTS_WITHOUT_EXPIRY.includes(departmentId as any)
+
     // 결제 확인 및 활성화 (직접 UPDATE 쿼리 사용)
+    const paidUntilIso =
+      !isNoExpiryDepartment && paidUntil ? new Date(paidUntil).toISOString() : null
+
+    if (!isNoExpiryDepartment && !paidUntilIso) {
+      return NextResponse.json({ error: 'userId와 paidUntil이 필요합니다' }, { status: 400 })
+    }
+
     const { error } = await updateClient
       .from('profiles')
       .update({
         membership_status: 'active',
-        paid_until: paidUntil,
+        paid_until: isNoExpiryDepartment ? null : paidUntilIso,
         last_payment_at: new Date().toISOString(),
         grace_period_until: null,
         suspended_at: null,
@@ -108,7 +119,12 @@ export async function POST(request: NextRequest) {
       }, { status: 500 })
     }
 
-    return NextResponse.json({ success: true, message: '결제가 확인되었고 회원이 활성화되었습니다' })
+    return NextResponse.json({
+      success: true,
+      message: isNoExpiryDepartment
+        ? '결제가 확인되었고 회원이 활성화되었습니다(만료일 없음)'
+        : '결제가 확인되었고 회원이 활성화되었습니다'
+    })
   } catch (error) {
     console.error('API 오류:', error)
     return NextResponse.json({ error: '서버 오류가 발생했습니다' }, { status: 500 })
