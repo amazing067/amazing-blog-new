@@ -101,46 +101,67 @@ const QUESTION_CONCEPTS = [
  */
 const TITLE_PATTERNS = [
   {
+    id: 'AFTER_REVIEW',
+    type: '후기/경험 공유형',
+    guide: '"가입한 분 후기 들려주세요", "OO 들고 계신 분 의견 부탁", "OO 가입하고 N개월 됐는데" 식으로 후기/경험을 묻거나 공유하는 톤. 카페 클릭률 최상위.',
+    example: '50대 여성분들 무해지환급 건강보험 후기 들려주세요',
+    probability: 0.18
+  },
+  {
+    id: 'VS_COMPARE',
+    type: 'vs/비교형',
+    guide: '"OO vs OO 어느 게 나아요", "OO와 OO 비교 부탁드려요", "갱신형 vs 비갱신형" 식으로 두 옵션 비교를 요청하는 톤. 검색 클릭률 매우 높음.',
+    example: '50대 남성 일반 vs 간편건강보험 비교 좀 부탁드립니다',
+    probability: 0.15
+  },
+  {
+    id: 'CONS_LIST',
+    type: '단점/주의/N가지형',
+    guide: '"단점 있나요", "함정/주의할 점 알려주세요", "체크할 N가지" 식으로 단점·주의사항·체크리스트를 묻는 톤. SEO 클릭 트리거 강함.',
+    example: '갱신형 간편보험 단점 3가지만 알려주세요',
+    probability: 0.12
+  },
+  {
     id: 'SIMPLE_AGGRO',
     type: '초간단/어그로형',
     guide: '상품명이나 나이를 모두 빼고, "이거 맞나요?", "호구 당한 건가요?", "해지해야 할까요?" 처럼 매우 짧고 자극적으로 작성하세요. (15자 이내)',
     example: '이거 설계사님이 추천했는데 맞나요?',
-    probability: 0.2
+    probability: 0.12
   },
   {
     id: 'PRICE_FOCUS',
     type: '가격/금액 강조형',
     guide: '상품명보다는 "월 3만원", "5만원대" 처럼 가격을 제목의 핵심으로 내세우세요. 나이/성별은 생략 가능합니다.',
     example: '월 4만원대 암보험 견적 받았는데 봐주세요',
-    probability: 0.2
+    probability: 0.12
   },
   {
     id: 'PRODUCT_SKEPTIC',
     type: '상품명+의심형',
     guide: '상품명을 언급하되, 구체적인 의심이나 단점을 질문하세요. 나이/성별은 생략하거나 간단히만 언급하세요.',
     example: '교보생명 암보험 갱신형이라는데 괜찮나요?',
-    probability: 0.2
+    probability: 0.12
   },
   {
     id: 'SITUATION_FOCUS',
     type: '상황/고민 강조형',
     guide: '상품명 대신 본인의 상황(결혼, 임신, 해지 고민, 갈아타기 등)을 제목에 쓰세요. 나이/성별은 자연스럽게 포함하되 상품명은 생략 가능합니다.',
     example: '30대 직장인 암보험 갈아타기 조언 좀 부탁드려요',
-    probability: 0.2
+    probability: 0.10
   },
   {
     id: 'SPECIFIC_ASK',
     type: '구체적 특약 질문형',
     guide: '전체 상품보다는 특정 특약(암진단비, 표적항암 등)을 콕 집어서 질문하세요. 상품명, 나이, 성별 모두 생략 가능합니다.',
     example: '표적항암치료비 특약 꼭 넣어야 하나요?',
-    probability: 0.1
+    probability: 0.05
   },
   {
     id: 'STANDARD',
     type: '정석 질문형',
     guide: '나이/성별/상품명을 포함하여 정중하게 질문하세요. (기존 스타일)',
     example: '35세 여성 교보생명 암보험 견적 문의드립니다',
-    probability: 0.1 // 비중을 대폭 낮춤
+    probability: 0.04
   }
 ] as const
 
@@ -340,58 +361,47 @@ function getRandomContext() {
 }
 
 /**
- * 대화 상태 머신: 단계별 대화 흐름 제어
+ * targetPersona 문자열에서 나이/성별/표기 라벨 추출 (질문·답변·스레드·후기 공통)
+ * - "50대" → age=55, ageDecadeLabel="50대"
+ * - "40세" → age=40
+ * - "신혼부부" → age=32, "자녀 있는 가족" → age=38
+ * - 여/여성/주부 → gender='여', 그 외 → '남' 기본
  */
-function getDialogueState(currentStep: number, totalSteps: number): {
-  phase: '초반' | '중반' | '후반'
-  goal: string
-  constraints: string[]
-  focus: string
+function extractPersonaProfile(targetPersona: string): {
+  age: number
+  gender: '남' | '여'
+  ageDecadeLabel: string | null
 } {
-  const stepNumber = Math.ceil(currentStep / 2)
-  const isEarly = stepNumber <= 2
-  const isLate = stepNumber >= totalSteps - 1
-  
-  if (isEarly) {
-    return {
-      phase: '초반',
-      goal: '탐색 및 조건 확인',
-      constraints: [
-        '구체적인 담보나 조건에 대한 질문을 하세요',
-        '설계사의 답변을 이해하려는 자세를 보이세요',
-        '과도한 의심보다는 궁금증을 표현하세요'
-      ],
-      focus: '기본 정보 확인 및 이해'
-    }
-  } else if (isLate) {
-    return {
-      phase: '후반',
-      goal: '확신 및 가입 의사 표시',
-      constraints: [
-        '가입에 대한 확신을 보이거나 마지막 확인을 하세요',
-        '보험료나 특약 구성에 대한 최종 확인을 하세요',
-        '자연스럽게 가입으로 이어지도록 하세요'
-      ],
-      focus: '최종 확인 및 가입 의사'
-    }
-  } else {
-    return {
-      phase: '중반',
-      goal: '갈등 심화 및 구체적 비교',
-      constraints: [
-        '의심을 표현하거나 다른 상품과 비교를 요청하세요',
-        '구체적인 금액이나 조건에 대한 심화 질문을 하세요',
-        '설계사의 답변에 반박하거나 추가 확인을 요청하세요'
-      ],
-      focus: '심화 질문 및 비교'
-    }
+  let age = 30
+  const ageDecadeMatch = targetPersona.match(/(\d+)대/)
+  const ageYearMatch = targetPersona.match(/(\d+)세/)
+
+  if (ageDecadeMatch) {
+    age = parseInt(ageDecadeMatch[1]) + 5
+  } else if (ageYearMatch) {
+    age = parseInt(ageYearMatch[1])
+  } else if (targetPersona.includes('신혼부부')) {
+    age = 32
+  } else if (targetPersona.includes('자녀 있는 가족')) {
+    age = 38
   }
+
+  let gender: '남' | '여' = '남'
+  if (targetPersona.includes('여') || targetPersona.includes('여성') || targetPersona.includes('주부')) {
+    gender = '여'
+  }
+
+  return { age, gender, ageDecadeLabel: ageDecadeMatch ? ageDecadeMatch[0] : null }
 }
 
 export interface QAPromptData {
   productName: string
   topicName?: string
   displayProductName?: string
+  /** 답변/설계사 댓글 전용 노출명 (예: "이 건강보험"). 회사명·브랜드 모두 제거. */
+  agentSafeName?: string
+  /** 답변/agent 출력 sanitize용 차단 키워드 목록 (회사명+원본 상품명 변형) */
+  agentBlockedTerms?: string[]
   targetPersona: string
   worryPoint: string
   sellingPoint: string
@@ -472,65 +482,54 @@ export function generateQuestionPrompt(data: QAPromptData): QuestionPromptResult
     console.log(`[Q&A 프롬프트] concernVariant 선택: "${rawConcern}" → "${concernVariant}"`)
   }
 
-  // 나이대 추출 (targetPersona에서)
-  // "50대", "40대", "30대" 형식 또는 "50세", "40세" 형식 모두 지원
-  // 특수 케이스 처리: "주부", "신혼부부", "자녀 있는 가족" 등
-  let age = 30 // 기본값
-  const ageDecadeMatch = targetPersona.match(/(\d+)대/) // "50대", "40대" 등
-  const ageYearMatch = targetPersona.match(/(\d+)세/) // "50세", "40세" 등
-  
-  if (ageDecadeMatch) {
-    // 나이대가 매칭되면 중간값으로 설정 (예: 50대 → 55세, 40대 → 45세, 30대 → 35세)
-    const decade = parseInt(ageDecadeMatch[1])
-    age = decade + 5
-  } else if (ageYearMatch) {
-    // "세" 형식이면 그대로 사용
-    age = parseInt(ageYearMatch[1])
-  } else {
-    // 특수 케이스 처리
-    if (targetPersona.includes('신혼부부')) {
-      age = 32 // 신혼부부는 보통 30대 초반
-    } else if (targetPersona.includes('자녀 있는 가족')) {
-      age = 38 // 자녀 있는 가족은 보통 30대 중후반
-    } else if (targetPersona.includes('주부')) {
-      // 주부의 경우 나이대가 명시되어 있을 수 있음 (예: "40대 주부")
-      // 이미 위에서 처리되지만, 혹시 "주부"만 있으면 30대로 설정
-      age = 30
-    }
-  }
-  
-  // 성별 추출
-  let gender = '남' // 기본값
-  if (targetPersona.includes('여') || targetPersona.includes('여성')) {
-    gender = '여'
-  } else if (targetPersona.includes('남') || targetPersona.includes('남성')) {
-    gender = '남'
-  } else if (targetPersona.includes('주부')) {
-    // 주부는 일반적으로 여성
-    gender = '여'
-  } else if (targetPersona.includes('신혼부부')) {
-    // 신혼부부는 남녀 모두 포함하지만 질문자는 주로 여성 또는 남성 중 하나로 가정
-    // 질문 생성 시에는 "부부"라는 표현으로 자연스럽게 처리되도록 함
-    gender = '남' // 기본값 (실제로는 부부 모두 포함)
-  } else if (targetPersona.includes('자녀 있는 가족')) {
-    // 가족은 남녀 모두 포함하지만 질문자는 주로 부모 중 하나로 가정
-    gender = '남' // 기본값 (실제로는 부모 모두 포함)
-  }
+  // 나이/성별 추출 (질문·답변·스레드·후기 공통 헬퍼)
+  const { age, gender, ageDecadeLabel } = extractPersonaProfile(targetPersona)
 
-  // 나이대별 말투 가이드
+  // 나이대별 말투 가이드 (제목/본문 마무리 톤 다양화 — 카페 클릭 트리거 패턴 골고루 사용)
+  // ⚠️ "괜찮나요/되나요" 일변도 금지 — 후기, vs 비교, 단점, N가지, 함정 같은 표현을 적극 섞을 것
+  const TITLE_TONE_VARIANTS_BY_AGE = {
+    young: [
+      '"이거 괜찮나요?", "이거 맞나요??", "이거 가입한 거 호구인가요"',
+      '"OO보험 후기 좀 들려주세요", "가입한 분 계세요?"',
+      '"OO 단점 알려주세요", "이거 함정 있나요?"',
+      '"A vs B 뭐가 더 나아요?", "이거랑 OO 비교해주세요"',
+      '"가입 전 체크할 거 N가지 알려주세요"',
+    ],
+    middle: [
+      '"이거 괜찮은가요?", "혹시 다른 보험사도 괜찮은지..."',
+      '"가입 후기 들려주세요", "실제로 가입해보신 분?"',
+      '"OO 단점이 뭔가요", "주의할 점 있을까요"',
+      '"OO vs OO 비교 부탁드려요", "OO랑 비교하면 어때요"',
+      '"가입 전 N가지 점검해주세요", "체크포인트 좀..."',
+    ],
+    senior: [
+      '"이게 괜찮은 건지 모르겠어서요", "문의드립니다"',
+      '"가입하신 분 후기 좀 부탁드립니다", "실제로 들고 계신 분?"',
+      '"단점이나 주의사항 알려주세요", "함정은 없는지요"',
+      '"OO와 비교해 주실 분 계실까요", "다른 회사 OO와 비교"',
+      '"가입 전에 점검할 부분 몇 가지 부탁드립니다"',
+    ],
+  } as const
+  const ageBucket = age < 30 ? 'young' : age < 50 ? 'middle' : 'senior'
+  const toneVariants = TITLE_TONE_VARIANTS_BY_AGE[ageBucket]
+  // 매번 다른 톤 1개 무작위 선택해 강조 (이걸 그대로 쓰지 말고 톤만 따라하기)
+  const pickedToneVariant = toneVariants[Math.floor(Math.random() * toneVariants.length)]
   let ageToneGuide = ''
   if (age < 30) {
     ageToneGuide = `
-   - 20대 말투: "이거 괜찮나요?", "혹시...", "설계서 받았는데 잘 모르겠어요 ㅠㅠ", "이거 맞나요??"
-   - 물음표 중복 사용, "요" 체 적극 사용, 이모티콘 사용 가능`
+   - 20대 말투: "요" 체 적극 사용, 이모티콘/물음표 중복 가능
+   - 이번 글의 제목 마무리 톤 (이걸 그대로 쓰지 말고 톤만 따라할 것): ${pickedToneVariant}
+   - ❌ 절대 모든 제목을 "괜찮나요/되나요" 톤으로만 쓰지 말 것 (다양성 핵심)`
   } else if (age < 50) {
     ageToneGuide = `
-   - 30-40대 말투: "이거 괜찮은가요?", "혹시 다른 보험사도 괜찮은지...", "설계서 받았는데 잘 모르겠어서 질문드립니다"
-   - 정중한 표현, "요" 체 사용, 비교 요청 자연스럽게`
+   - 30-40대 말투: 정중한 "요" 체, 비교 요청 자연스럽게
+   - 이번 글의 제목 마무리 톤 (이걸 그대로 쓰지 말고 톤만 따라할 것): ${pickedToneVariant}
+   - ❌ 절대 모든 제목을 "괜찮나요/되나요" 톤으로만 쓰지 말 것 (다양성 핵심)`
   } else {
     ageToneGuide = `
-   - 50대 이상 말투: "이게 괜찮은 건지 모르겠어서요", "설계서를 받았는데 잘 모르겠어서 문의드립니다"
-   - 더 정중한 표현, "요" 체 적극 사용, 문의드립니다 형식 선호`
+   - 50대 이상 말투: 정중한 "요" 체, 문의/부탁 형식 자주 사용
+   - 이번 글의 제목 마무리 톤 (이걸 그대로 쓰지 말고 톤만 따라할 것): ${pickedToneVariant}
+   - ❌ 절대 모든 제목을 "괜찮나요/되나요" 톤으로만 쓰지 말 것 (다양성 핵심)`
   }
 
   // 설계서 정보 추출
@@ -541,8 +540,8 @@ export function generateQuestionPrompt(data: QAPromptData): QuestionPromptResult
   const randomSituation = getRandomContext()
 
   // 연령 표기: 입력이 "50대"면 출력에도 "50대"만 사용. "55세" 등 구체 나이를 임의로 넣지 않도록 프롬프트에도 동일 표기
-  const profileAgeLabel = ageDecadeMatch
-    ? `${ageDecadeMatch[0]} ${gender === '남' ? '남성' : '여성'}`
+  const profileAgeLabel = ageDecadeLabel
+    ? `${ageDecadeLabel} ${gender === '남' ? '남성' : '여성'}`
     : `${age}세 ${gender === '남' ? '남성' : '여성'}`
 
   const prompt = `당신은 보험 가입을 고민 중인 일반인입니다. 커뮤니티에 질문글을 작성합니다.
@@ -558,7 +557,11 @@ ${searchResultsText}
 ` : ''}
 
 [작성 미션]
-1. 제목: [${selectedTitlePattern.type}] 스타일로 작성 (${selectedTitlePattern.guide}). 
+1. 제목: 🚨 **이번 글은 반드시 [${selectedTitlePattern.type}] 패턴 1가지로만 작성** — 다른 패턴 절대 금지
+   - 패턴 가이드: ${selectedTitlePattern.guide}
+   - 패턴 예시: "${selectedTitlePattern.example}" — 형식·톤만 참고, 그대로 복사 금지
+   - ⛔ **이번 글은 절대 사용 금지된 표현** (선택된 패턴이 아래 목록에 있다면 그 항목은 무시):
+     ${selectedTitlePattern.id === 'AFTER_REVIEW' ? '"괜찮을까요/괜찮은가요/괜찮나요/되나요/맞나요" 류 caution 톤 절대 금지. 반드시 "후기/가입하신/들고 계신/들어보신" 류로 끝맺기' : ''}${selectedTitlePattern.id === 'VS_COMPARE' ? '"괜찮을까요/되나요" caution 톤 금지. 반드시 "vs/비교/대비/A보다 B" 형태 사용' : ''}${selectedTitlePattern.id === 'CONS_LIST' ? '"괜찮을까요" 금지. 반드시 "단점/주의/체크/N가지/함정" 류 사용' : ''}${selectedTitlePattern.id === 'SIMPLE_AGGRO' ? '15자 초과 금지, 정중한 표현 금지' : ''}${selectedTitlePattern.id === 'PRICE_FOCUS' ? '제목에 가격(월 X만원, 보험료 숫자) 반드시 포함' : ''}${selectedTitlePattern.id === 'PRODUCT_SKEPTIC' ? '제목에 의심·갈등 단어(정말/진짜/이게 맞나/괜찮나) 포함, 단 모두 동일 표현 금지' : ''}${selectedTitlePattern.id === 'SITUATION_FOCUS' ? '본인 상황 단어(갈아타기/해지 고민/가입 직전/처음 가입) 포함, 상품명 자세히 안 써도 OK' : ''}${selectedTitlePattern.id === 'SPECIFIC_ASK' ? '특약·세부 보장명만 콕 집어 질문, 상품 전체 언급 금지' : ''}${selectedTitlePattern.id === 'STANDARD' ? '나이·성별·상품 카테고리·문의드립니다 정석 형식' : ''}
    - **제목에는 반드시 아래 핵심키워드(검색형 요약어) 중 1개 이상을 포함하세요.** 예: 간편건강보험, 건강보험, 암보험, 보험료, 실손보험 등.
    - **정식 상품명 전체(회사명·버전·코드·괄호까지 포함된 긴 이름)는 제목에 절대 쓰지 마세요.** 고객용 주제명(${customerFacingName})을 기준으로 짧은 검색형 키워드 + 고민 한 줄로 작성하세요.
    - **괄호, 버전 코드(3.105 등), 로마숫자(I, II, III), (주), 무배당 같은 내부 표기는 제목·본문 어디에도 넣지 마세요.**
@@ -587,9 +590,21 @@ ${searchResultsText}
        - "갱신 시기 다가와서 이것저것 보다가 질문드려요"
        - "중간에 사정 생기면 어쩌나 싶어서 고민돼요"
        - "설계서 받고 보니까 이게 맞는 건지 헷갈려서요"
-   - **본문 길이: 반드시 300~500자 이내로 작성하세요. 550자를 초과하면 시스템에서 잘립니다.** 문단은 2~3개면 충분합니다.
-   - **문장 중간에 엔터를 치지 마세요.** 말이 다 끝난 뒤(물음표, 느낌표 뒤)에만 줄을 바꾸세요.
-   - 문단은 2~3개로 나누고, 문단 사이에는 빈 줄을 넣으세요.
+   - **본문 길이: 반드시 300~500자 이내로 작성하세요. 550자를 초과하면 시스템에서 잘립니다.**
+   - 🚨 **반드시 3개 단락으로 출력** (한 덩어리로 쓰면 카페 가독성 0). 단락 사이는 **빈 줄 1개** (\\n\\n) 반드시.
+
+     출력 형식 (이 구조로):
+
+     [단락 1: 인사/도입 — 1~2문장, 50~100자]
+     "안녕하세요" 같은 정형 인사 대신, 위 도입 톤을 살린 자연스러운 한 줄
+
+     [단락 2: 상품 정보·고민 본문 — 2~3문장, 180~280자]
+     설계서 내용·금액·보장 + 본인 고민/의문점 풀어쓰기
+
+     [단락 3: 마무리 질문/조언 요청 — 1~2문장, 50~100자]
+     "조언 부탁드려요", "후기 좀 들려주세요" 같은 자연스러운 마무리
+
+   - **문장 중간에 엔터 절대 금지.** 한 문장 끝(물음표/느낌표/"요" 뒤)에서만 줄바꿈.
    - 마침표(.) 금지.
 
 ${COMMON_GUIDELINES.SENTENCE_INTEGRITY}
@@ -672,13 +687,24 @@ ${searchKeywords && searchKeywords.length > 0 ? `
   }
 }
 
+export interface AnswerPromptResult {
+  prompt: string
+  /** ANSWER_STRUCTURES에서 선택된 구조 id (KPI 추적용) */
+  answerStructureId: string
+  /** ANSWER_OPENERS_BY_TONE에서 선택된 톤 카테고리 (KPI 추적용) */
+  answerOpenerCategory: string
+  /** ANSWER_PERSONAS에서 선택된 페르소나 id (KPI 추적용) */
+  answerPersonaId: string
+}
+
 /**
  * Step 2: 전문가 답변 생성 프롬프트
  */
-export function generateAnswerPrompt(data: QAPromptData, questionTitle: string, questionContent: string): string {
-  const { productName, topicName, displayProductName, sellingPoint, answerTone, targetPersona, designSheetAnalysis, answerLength, searchResultsText, searchKeywords, evidenceMap, conflictAxis, selectedConcern, selectedConcernSearch, coverageSummaryForPrompt, coverageFocusLabels } = data
-  const customerFacingName = topicName || productName
-  const displayName = displayProductName || customerFacingName
+export function generateAnswerPrompt(data: QAPromptData, questionTitle: string, questionContent: string): AnswerPromptResult {
+  const { productName, topicName, displayProductName, agentSafeName, sellingPoint, answerTone, targetPersona, designSheetAnalysis, answerLength, searchResultsText, searchKeywords, evidenceMap, conflictAxis, selectedConcern, selectedConcernSearch, coverageSummaryForPrompt, coverageFocusLabels } = data
+  // 답변/설계사 측은 회사명·브랜드 노출 금지 — agentSafeName(예: "이 건강보험")만 사용
+  const customerFacingName = agentSafeName || topicName || productName
+  const displayName = agentSafeName || displayProductName || customerFacingName
   
   // 코드 레벨 무작위성: 답변 구조 랜덤 선택
   const selectedStructure = getRandomItem(ANSWER_STRUCTURES)
@@ -692,16 +718,80 @@ export function generateAnswerPrompt(data: QAPromptData, questionTitle: string, 
 
   const selectedTone = toneMap[answerTone] || toneMap['friendly']
 
-  const empathyStarters = [
-    '걱정되시는 부분이 딱 그 부분이죠',
-    '그 부분 고민하시는 거 맞아요',
-    '네 그 구조라서 고민되시는 거 이해해요',
-    '말씀하신 부분이 핵심이에요',
-    '저도 처음에 그 부분이 제일 신경 쓰였어요',
-    '그게 제일 중요한 포인트예요',
-  ]
+  // ── 답변 첫 문장 다양성: 5가지 톤 카테고리 × 4~5개 = 24개 ──
+  // 같은 이미지를 여러 번 분석해도 첫 문장이 매번 달라지도록 폭넓게 분포
+  const ANSWER_OPENERS_BY_TONE = {
+    공감형: [
+      '걱정되시는 부분이 딱 그 부분이죠',
+      '그 부분 고민하시는 거 맞아요',
+      '네 그 구조라서 고민되시는 거 이해해요',
+      '그 고민 정말 자연스러운 거예요',
+      '말씀하신 부분 보니까 어디서 막히시는지 보이네요',
+    ],
+    경험공유형: [
+      '저도 처음에 그 부분이 제일 신경 쓰였어요',
+      '저도 비슷한 거 알아본 적 있어서 말씀드리면',
+      '저희 가족도 이런 구조 들어봐서 아는데요',
+      '저도 같은 고민으로 한참 비교해봤거든요',
+      '몇 번 비슷한 케이스 본 적 있어서 적어볼게요',
+    ],
+    핵심짚기형: [
+      '말씀하신 부분이 핵심이에요',
+      '그게 제일 중요한 포인트예요',
+      '결국 봐야 할 건 거기가 맞아요',
+      '진짜 봐야 할 데가 그 부분이에요',
+      '딱 그 지점이 이 상품의 갈림길이에요',
+    ],
+    솔직진단형: [
+      '솔직히 말하면 이게 두 갈래로 나뉘는 구조예요',
+      '이 상품 그냥 단순한 게 아니라 호불호가 갈리는 구조라',
+      '편하게 적어보면 장단점이 명확한 상품이에요',
+      '있는 그대로 말하면 누구한텐 좋고 누구한텐 부담이에요',
+      '포장하지 않고 보면 가격이랑 구조가 연결돼 있는 상품이에요',
+    ],
+    질문되돌리기형: [
+      '결국 이게 본인한테 맞느냐가 핵심이에요',
+      '판단은 한 가지 질문에서 시작돼요',
+      '먼저 이거 하나만 정리되면 답이 보여요',
+      '시작할 때 한 가지만 봐도 절반은 정해져요',
+    ],
+  } as const
 
-  const empathyText = getRandomItem(empathyStarters)
+  // 톤 카테고리 자체도 랜덤 → 첫 문장이 더 다양하게 분포
+  const ANSWER_OPENER_CATEGORIES = Object.keys(ANSWER_OPENERS_BY_TONE) as Array<keyof typeof ANSWER_OPENERS_BY_TONE>
+  const selectedOpenerCategory = getRandomItem(ANSWER_OPENER_CATEGORIES)
+  const empathyText = getRandomItem(ANSWER_OPENERS_BY_TONE[selectedOpenerCategory])
+
+  // ── 답변 마무리 다양성: 16개 ──
+  const ANSWER_CLOSERS = [
+    '이 부분만 보시면 판단이 한결 쉬워질 거예요',
+    '유지 가능성 먼저 보시면 그 다음은 자연스럽게 정리돼요',
+    '이 한 가지만 본인 기준에 맞춰서 보시면 답이 보일 거예요',
+    '본인 상황에 맞춰서 그 부분만 점검해보시면 충분해요',
+    '그 부분만 한 번 더 짚어보시면 큰 그림이 보여요',
+    '결국 이건 가격이 아니라 구조를 어떻게 받아들이느냐 문제예요',
+    '같은 가격대 일반형이랑 한 번 비교해보시면 감이 잡혀요',
+    '이건 좋다 나쁘다보다 본인한테 맞느냐가 답이에요',
+    '여기까지만 정리되면 나머지는 어렵지 않아요',
+    '이 한 줄만 머리에 두고 보시면 판단이 빨라져요',
+    '그 부분 확인이 첫 단추예요',
+    '먼저 이 조건만 본인이랑 맞춰보시면 돼요',
+    '이게 정해지면 나머지는 따라오는 결정이에요',
+    '본인이 끝까지 갈 수 있느냐가 진짜 기준이에요',
+    '결국 본인이 감당할 수 있는 구조인지가 핵심이에요',
+    '이걸 먼저 보시면 어떤 게 본인한테 맞는지 보일 거예요',
+  ] as const
+  const closerText = getRandomItem(ANSWER_CLOSERS)
+
+  // ── 답변자 페르소나 family: 5개 (중립/경험자/꼼꼼이/솔직형/비교 마니아) ──
+  const ANSWER_PERSONAS = [
+    { id: 'neutral', name: '중립 회원', guide: '편향 없이 장단점을 둘 다 짚어줌. "이건 ~이고 저건 ~이에요" 톤' },
+    { id: 'experienced', name: '경험자', guide: '"저도 해봤는데/들어봤는데" 1인칭 경험을 살짝 섞음. 자랑은 안 함' },
+    { id: 'detail', name: '꼼꼼이', guide: '조건과 예외를 짚어주는 톤. "이 부분만 조심하시면" 식으로 디테일 한 줄' },
+    { id: 'frank', name: '솔직형', guide: '포장하지 않고 호불호를 명확히 말함. "이건 좋은데 저건 부담돼요" 톤' },
+    { id: 'comparator', name: '비교 마니아', guide: '"비슷한 일반형이랑 비교하면" 식으로 다른 옵션과 비교 한 줄' },
+  ] as const
+  const selectedAnswerPersona = getRandomItem(ANSWER_PERSONAS)
 
   // 설계서 정보
   const premiumInfo = designSheetAnalysis?.premium || ''
@@ -723,12 +813,13 @@ export function generateAnswerPrompt(data: QAPromptData, questionTitle: string, 
 - 영업 냄새 금지 — 정보를 주되 판단은 읽는 사람이 하게 해야 함
 - 정리문체 금지 ("정리해드리면", "따라서", "검토해보세요", "고려하시면")
 
-[상품명 사용 규칙]
-- 첫 언급은 "${displayName}"을 1회 사용
-- 이후에는 "${customerFacingName}"처럼 짧은 주제명만
-- 정식 상품명("${productName}") 그대로 쓰지 말 것
-- 괄호, 버전 코드, 로마숫자(I, II, III), (주), 무배당 같은 내부 표기 절대 금지
+[🚨 상품명 사용 규칙 — 답변/설계사 측은 회사명·브랜드 노출 절대 금지]
+- 답변 본문에서는 "${customerFacingName}" 같은 일반 카테고리 표현만 사용하세요 (예: "이 건강보험", "이 간편보험", "이 상품")
+- 회사명 절대 금지: 삼성/한화/교보/현대해상/DB/메리츠/흥국/KB/하나/동양/신한라이프/NH농협/AIG/푸본현대/처브라이프/미래에셋/AXA/AIA/라이나/MG/동부 등 보험사명을 답변에 쓰지 마세요
+- 브랜드/원본 상품명 절대 금지: "M-케어", "마이핏1680", "흥Good 든든한", "하나더퍼스트", "통합건강보험 ONE" 같은 고유 브랜드 명칭을 답변에 쓰지 마세요 (질문 본문에는 OK, 답변에는 NO)
+- 괄호, 버전 코드, 로마숫자(I, II, III), 점 시퀀스(3.10.5), 코드(5N5/3N5), (주), 무배당 같은 내부 표기 절대 금지
 - 해지·환급 구조 설명 절대 금지: "중간에 해지하면 돌려받는 돈이 거의 없는", "해지하면 돌려받는 돈이 없는 구조", "해약환급금이 없는 대신" 등은 전문가 답변에 절대 쓰지 마세요. 간편심사 등 다른 보장 구조어는 자연스럽게 사용 가능
+- 자연스러운 대체 표현: "이 건강보험은 ~", "이 상품은 ~", "말씀하신 보험은 ~", "지금 보고 계신 설계서는 ~"
 ${evidenceMap?.forbiddenPatterns && evidenceMap.forbiddenPatterns.length > 0 ? `
 [⛔ 절대 사용 금지 표기]
 ${evidenceMap.forbiddenPatterns.map(p => `- "${p}"`).join('\n')}` : ''}
@@ -753,19 +844,28 @@ ${evidenceMap?.answerFacts && evidenceMap.answerFacts.length > 0 ? `
 근거에 없는 내용은 단정하지 말고, 추정할 경우 "~로 보여요", "~일 수 있어요" 등으로 표시하세요.
 ${evidenceMap.answerFacts.map((f, i) => `${i + 1}. ${f}`).join('\n')}` : ''}
 ${conflictAxis ? `
-[⚖️ 판단 축 (Conflict Axis)]
-이 상품의 핵심 판단 갈등:
+[⚖️ 판단 축 (Conflict Axis) — 참고 정보]
+이 상품의 핵심 판단 갈등 (배경 지식, 그대로 쓰지 말 것):
 - 키워드: ${conflictAxis.keywordNatural}
 - 유리한 경우: ${conflictAxis.proCondition}
 - 불리한 경우: ${conflictAxis.conCondition}
-- 핵심: ${conflictAxis.summary}
-${answerConcernVariant ? `- 답변에서는 "${answerConcernVariant}" 같은 생활형 표현을 쓰면 좋아요 (전문 용어 대신)` : ''}
+${answerConcernVariant ? `- 답변에서는 "${answerConcernVariant}" 같은 생활형 표현을 쓸 수 있어요 (전문 용어 대신)` : ''}
 
-답변에 이 판단 축을 바탕으로 한 "판단 한 줄"을 넣으면 됩니다.
-예시 느낌: "이 상품은 ${conflictAxis.proCondition.split(' ')[0]}~${conflictAxis.proCondition.split(' ').slice(-2).join(' ')}인데, ${conflictAxis.conCondition.split(' ')[0]}~${conflictAxis.conCondition.split(' ').slice(-2).join(' ')}이기도 해요"` : ''}
+⚠️ 판단 한 줄 작성 시 다음 정형 패턴을 **절대 그대로** 쓰지 마세요 (다양성 저하):
+- "본인 상황에 맞으면 유리하지만 아니면 부담이 될 수 있는 구조"
+- "맞으면 유리하고 안 맞으면 부담"
+- "유리하지만 반대라면 ~ 부담"
+대신 매번 다른 방식으로 판단을 표현하세요. 예시 (그대로 복사 금지, 변형 필수):
+- "${conflictAxis.proCondition.split(' ').slice(0,3).join(' ')}이 가능한 분에겐 좋고, 그 외엔 무리가 따르는 구조예요"
+- "이건 ${conflictAxis.keywordNatural} 쪽에서 갈려요 — 끝까지 갈 분에겐 합리적, 중간에 흔들릴 분에겐 손해"
+- "결국 ${conflictAxis.keywordNatural}에 본인이 어떻게 답하느냐가 결정해요"
+- "${conflictAxis.proCondition.split(' ').slice(0,2).join(' ')}이라면 가성비, 반대라면 비용만 남는 보험"
+- "이 상품은 ${conflictAxis.keywordNatural}을 기준으로 호불호가 명확히 갈리는 편이에요"` : ''}
 ${(selectedConcern ?? selectedConcernSearch) && designSheetAnalysis ? `
 [📌 설계서 판단 축]
-- 판단은 "${selectedConcern || selectedConcernSearch}" 축으로 시작하면 됩니다. 이 고민에 대한 답을 먼저 제시한 뒤 이유를 풀어가세요.
+- 판단 축 (내부 참고용, 답변에 그대로 인용 금지): "${selectedConcern || selectedConcernSearch}"
+- ⛔ 위 검색어 표현을 답변 본문에 따옴표로 인용하거나 그대로 박지 말 것 (예: "이건 ~괜찮은지 스스로 질문해 보셨을 때" 식 금지)
+- ✅ 이 축의 의미를 자기 말로 풀어서 답변 흐름에 자연스럽게 녹여야 함. 예: "본인이 ~을 어떻게 보느냐에 따라 갈려요"
 ${(coverageSummaryForPrompt?.length ?? 0) > 0 ? `- 근거는 아래 보장 요약 중 2개 안팎을 사용하면 됩니다. 설계서에 없는 특약·치료는 넣지 마세요.
   보장 요약: ${(coverageSummaryForPrompt || []).slice(0, 5).join(' / ')}` : (designSheetAnalysis as { designFocusLabel?: string })?.designFocusLabel ? `- 담보 초점: ${(designSheetAnalysis as { designFocusLabel: string }).designFocusLabel}. 이 초점을 근거로 1~2문장 언급하면 됩니다.` : ''}
 ${coverageFocusLabels?.length ? `- 보장 축 참고: ${coverageFocusLabels.join(', ')}` : ''}
@@ -773,61 +873,78 @@ ${coverageFocusLabels?.length ? `- 보장 축 참고: ${coverageFocusLabels.join
 
 [핵심 지침]
 
-1. **답변 4블록 구조**:
-   ① 공감 1문장: "${empathyText}" — 짧게 걱정 포인트를 받아줌
-   ② 판단 한 줄: ${conflictAxis ? `"${conflictAxis.proCondition}" vs "${conflictAxis.conCondition}" 축으로 판단 제시` : '이 상품이 누구에게 유리/불리한지 한 줄로 정리'}
-   ③ 이유 2~3개: ${evidenceMap?.answerFacts ? 'Evidence Map 근거를 참고해' : ''} 왜 그런지 구체적 이유 (보험료, 보장 범위, 유지 가능성)
-   ④ 판단 기준 마무리: "이걸 먼저 확인해보면 판단이 쉬워요" 방향. 여기서 위 "답변 강조 포인트"를 참고해 체크할 항목을 구체화하면 좋아요.
-   ${premiumInfo ? `- 보험료(${premiumInfo})가 있으면 언급` : ''}
+1. **이번 답변의 답변자 페르소나**: ${selectedAnswerPersona.name}
+   - ${selectedAnswerPersona.guide}
+   - 이 페르소나의 톤이 답변 전체에 자연스럽게 묻어나야 합니다 (자기소개 금지, 톤만)
+
+2. **답변 흐름 (이번 글은 "${selectedStructure.id}" 구조)**:
+   - ${selectedStructure.description}
+   - 순서: ${selectedStructure.order.join(' → ')}
+   - 위 구조를 따르되, 다음 4가지 요소가 어딘가에 모두 들어가야 합니다 (순서는 구조에 따라 자유):
+     * 공감 또는 진단 한 줄 (시작 문장 제안: "${empathyText}" — 그대로 복사하지 말고 ${selectedOpenerCategory} 톤으로 자기 말로 변형하세요)
+     * 판단 한 줄: ${conflictAxis ? `"${conflictAxis.proCondition}" vs "${conflictAxis.conCondition}" 축으로 누구에게 유리/불리한지` : '이 상품이 누구에게 유리/불리한지 한 줄로'}
+     * 구체적 이유 2~3개: ${evidenceMap?.answerFacts ? 'Evidence Map 근거를 참고해' : ''} 보험료·보장 범위·유지 가능성 중 2~3가지
+     * 마무리 한 줄 (예: "${closerText}" — 그대로 복사하지 말고 변형하세요)
+
+   ${premiumInfo ? `- 보험료(${premiumInfo}) 정보가 있으면 본문에 언급` : ''}
    ${coverageSummaryForPrompt && coverageSummaryForPrompt.length > 0 ? `- 아래 보장 요약 중 최소 2개 이상을 실제 이름을 살짝 풀어서 언급 (대괄호·코드·로마숫자 없이 자연어로)` : coverageInfo.length > 0 ? `- 설계서 담보 중 최소 2개 이상을 실제 이름을 살짝 풀어서 언급 (대괄호·코드·로마숫자 없이 자연어로)` : ''}
 
-2. **말투 규칙**:
+3. **말투 규칙**:
    - 톤: ${selectedTone}
-   - 허용: "저라면", "보통은", "이건"
-   - 가급적 피하기: "결국", "먼저 볼 건", "핵심은", "정리해드리면", "따라서", "한번 정리해보면"
-   - 금지: "전문적으로 말씀드리면", "상담 경험상", "설계사 관점에서", "연락 주시면", "비교 설계"
-   - 예시 느낌:
+   - 허용: "저라면", "보통은", "이건", "이 상품은"
+   - 가급적 피하기: "정리해드리면", "따라서", "결론적으로", "종합적으로", "전반적으로", "다양한 관점에서", "검토해보세요", "고려하시면", "한번 정리해보면"
+   - 금지: "전문적으로 말씀드리면", "상담 경험상", "설계사 관점에서", "연락 주시면", "비교 설계", "10년 경력", "전문가입니다"
+   - 전문 용어를 그대로 나열하지 말고 자연어로 풀어서. 예: "납입면제 특약" → "아플 때 보험료 안 내도 되는 안전장치"
+   - 예시 느낌 (그대로 복사 금지, 톤만 참고):
      * "이건 끝까지 유지 가능하면 괜찮고, 중간 해지 가능성이 있으면 부담이 큰 구조예요"
      * "보험료가 싼 이유가 환급금 구조 때문이라, 가격만 보고 들어가면 나중에 불편할 수 있어요"
-     * "납입면제보다 먼저 20년 유지 가능성을 보는 게 더 중요해 보여요"
+     * "보장보다 먼저 본인이 20년 동안 끌고 갈 수 있는 구조인지가 더 중요해 보여요"
 ${designSheetAnalysis && answerTone === 'expert' ? `
    - **설계서 모드(expert 톤)**: 전문적인 사람이 존댓말·카페 문장 구조만 빌린 톤으로 작성하세요. 이모티콘/과한 카페체는 줄이고, 치매·장기요양 관련 설계라면 아래처럼 실제로 짚어주는 한 줄을 넣으면 좋습니다.
      * "치매 진단 기준(CDR)이나 장기요양 등급이 설계서에 어떻게 반영돼 있는지 먼저 보시면 좋아요"
      * "갱신 시 나이·건강에 따라 보장이 바뀌는지 한 번 확인해보시는 게 좋아요"` : ''}
-${COMMON_GUIDELINES.NO_PERIOD}
 
-3. **답변 길이**: 320~420자 (권장)
-   - 문단 2~3개, 문단 사이 빈 줄
-   - 문장 중간 줄바꿈 금지
-   - 공감은 짧게, 판단은 날카롭게
-   - 미사여구 금지 ("소중한 질문 감사합니다" 등)
+4. **답변 길이·구조**: 320~420자 (권장), 280~520자 사이 (허용 한도)
+   - 🚨 **반드시 3개 단락으로 출력** (한 덩어리로 쓰면 카페 가독성 0)
+   - 단락 사이에는 **빈 줄 1개** (즉 \\n\\n) 반드시 넣기
+   - 출력 형식 (이 구조 그대로 따르기):
 
-4. **사실성**: Evidence Map 밖의 사실을 단정하지 말 것
+     [단락 1: 공감/진단 — 1~2문장, 60~120자]
+     첫 문장은 짧게, 고객 고민 공감 또는 핵심 진단
+
+     [단락 2: 분석/근거 — 2~3문장, 150~280자]
+     상품의 작동 방식, 보장 구조, 가격·조건 분석
+
+     [단락 3: 마무리/판단 기준 — 1~2문장, 60~120자]
+     핵심 한 줄 또는 비교/체크 권유로 자연스럽게 닫기
+
+   - 각 단락은 2~3문장. 문장 중간 줄바꿈 절대 금지 (단락 끝에서만 줄바꿈)
+   - 단락 4개 이상 금지, 1개(한 덩어리) 절대 금지
+
+5. **이모티콘**: 선택적 사용 (전혀 안 써도 OK)
+   - 사용한다면 전체 0~3개, 문단 시작 또는 끝 어디든 자연스러우면 OK
+
+6. **사실성**: Evidence Map 밖의 사실을 단정하지 말 것
    - 설계서에 없는 특약을 만들어 말하지 말 것
    - 추정할 경우 "~로 보여요", "~일 수 있어요" 사용
    - 구체적 금액은 설계서 데이터 기반으로만
 
-5. **답변 구조 다양성**: ${selectedStructure.id} 구조 적용
-   - ${selectedStructure.description}
-   - 순서: ${selectedStructure.order.join(' → ')}
+${COMMON_GUIDELINES.NO_PERIOD}
 
 ${COMMON_GUIDELINES.SENTENCE_INTEGRITY}
 
-[좋은 답변 예시 (이 느낌으로만 참고)]:
-${empathyText}
+[톤 참고용 답변 예시 (이 느낌으로만, 그대로 복사 절대 금지)]:
+이거 솔직히 말하면 두 갈래로 나뉘는 구조라 본인이 어느 쪽인지부터 봐야 해요
 
-저라면 이 상품은 "끝까지 유지할 가능성이 높은지"를 먼저 보고 판단할 것 같아요 월 ${premiumInfo || '[보험료]'}원으로 보험료 부담이 낮은 편이고, 암 관련 치료비를 집중해서 보는 구조는 분명 장점이에요
+저라면 이 상품은 끝까지 가져갈 자신이 있느냐가 첫 번째 기준이에요 보험료가 낮은 편이라 가성비는 좋은데, 환급이 적은 구조라서 중간에 그만두면 손해가 커지거든요 거기에 암 관련 치료비를 집중해서 보는 점은 분명한 장점이에요
 
-반대로 환급이 적은 구조는 납입 기간 중 해지 시 돌려받는 금액이 적어서, 중간에 보험을 깰 가능성이 조금이라도 있으면 체감 부담이 커질 수 있어요 그래서 "싸니까 좋다"보다 "내가 오래 유지할 수 있느냐"가 더 중요한 상품이에요
-
-보장보다 먼저 유지 가능성을 보고, 그다음에 같은 보험료대의 일반형이랑 비교해보시면 판단이 훨씬 쉬워질 거예요
+같은 보험료대 일반형이랑 보장 범위 한 번만 나란히 놓고 보시면 본인한테 어떤 게 맞는지 금방 보여요
 
 [입력 정보]
 
 - 질문 제목: ${questionTitle}
 - 질문 내용: ${questionContent}
-- 고객용 주제명 (답변에 사용): ${customerFacingName}
-- 정식 상품명 (내부 참고, 본문 최대 1회만): ${productName}
+- 답변에서 사용할 상품 지칭어 (이것만 사용): ${customerFacingName}
 - 답변 강조 포인트 (참고): ${sellingPoint}
 - 질문자 정보: ${targetPersona}
 - 답변 흐름(공감 → 판단 → 이유 → 마무리) 안에서 위 강조 포인트를 자연스럽게 녹이면 좋아요. 복붙하지 말고 문맥에 맞게 풀어 쓰세요.
@@ -836,57 +953,31 @@ ${coverageInfo.length > 0 ? `- 설계서 담보: ${coverageInfo.join(', ')}` : '
 ${specialClauseInfo.length > 0 ? `- 설계서 특약: ${specialClauseInfo.join(', ')}` : ''}
 ${(coverageSummaryForPrompt?.length ?? 0) > 0 ? `- 보장 요약(답변 근거로 사용): ${coverageSummaryForPrompt!.slice(0, 5).join(' / ')}` : ''}
 
-[출력 형식]
-
-본문만 출력하세요. 마크다운이나 HTML 태그 없이 순수 텍스트만 출력하세요.
-제어 문자(<ctrl*> 등)나 특수 문자를 포함하지 마세요.
+${COMMON_GUIDELINES.DIVERSITY}
+- 답변 시작 방식, 설명 순서, 표현 방식을 매번 다르게 선택하세요
+- 같은 내용이라도 설명 방식과 순서를 매번 다르게 하세요
 
 **절대 금지**:
-- 520자 이상 길게 작성
-- 280자 미만으로 짧게 작성 (공감+판단+체크포인트+행동유도 4블록이 빠지지 않도록)
+- 520자 초과
+- 280자 미만 (공감+판단+이유+마무리 4블록이 빠지지 않도록)
 - 4개 이상 문단으로 나누기
+- 한 문장마다 줄바꿈 (한 문단에 여러 문장 자연스럽게 연결)
 - 의미 없는 미사여구 ("소중한 질문 감사합니다" 등)
-- 기계적인 인사 ("안녕하세요 설계사입니다"만 반복)
-- 마침표(.) 사용
-
-${COMMON_GUIDELINES.DIVERSITY}
-- 답변 시작 방식, 설명 순서, 표현 방식, 이모티콘 배치를 매번 다르게 선택하세요
-- 위의 "다양성 확보" 섹션에 나온 패턴들을 매번 랜덤하게 조합하여 사용하세요
-- 같은 내용이라도 설명하는 방식과 순서를 매번 다르게 하세요
-
-**자유롭게**:
-- 인사 방식 (상황에 맞게 다양하게)
-- 문단 순서 (질문 내용에 따라 자유롭게)
-- 이모티콘 사용 여부 (선택적)
-- 표현 방식 (자연스럽게)
-
-${COMMON_GUIDELINES.NO_PERIOD}
-- 첫 문단은 절대 마침표(.)를 사용하지 마세요! 마침표 대신 자연스럽게 끝내거나 이모티콘으로 마무리하세요!
-
-[주의사항]
-절대 하지 말아야 할 것:
-- **짜고 치는 느낌 (절대 금지! 설계사에게 과도하게 친근하거나 정중하지 마세요!)**
+- 기계적인 인사 ("안녕하세요 설계사입니다" 반복)
+- 짜고 치는 느낌 (설계사에게 과도하게 친근하거나 정중하지 말 것)
+- 추상적인 설명 (구체적 금액·특약명·보장 내용 필수)
+- 제어 문자 사용
 
 ${COMMON_GUIDELINES.OUTPUT_FORMAT}
 
 [생성된 답변]`
-  
-  const restOfAnswerPrompt = `
-- 전문 용어 남발 (납입면제, 해지환급금 등 - 일반 고객이 이해하기 어려운 용어)
-- 이모티콘을 문단 끝에 배치하는 것 (반드시 각 문단 시작 부분에 배치하세요)
-- 이모티콘을 전혀 사용하지 않거나 과도하게 사용하는 것 (전체 4-6개 정도 권장, 각 문단 시작에 1개씩)
-- 첫 문단을 여러 줄로 나누는 것 (첫 문단은 한 줄로 간결하게 작성하세요)
-- 첫 멘트를 항상 동일하게 작성하는 것 (매번 다양한 표현으로 변화시키세요)
-- 한 문단에 모든 내용 압축 (반드시 4-5개 문단으로 구분하여 읽기 편하게 작성)
-- 각 문장마다 줄바꿈하는 것 (한 문단에 여러 문장을 자연스럽게 연결해야 함)
-- 문단 구분 없이 주르륵 나열하는 것 (반드시 문단 사이에 빈 줄 2개 넣기)
-- 문단이 너무 길어서 읽기 힘든 것 (각 문단은 2-3문장 정도로 적절한 길이 유지)
-- 상품명 마스킹 (일반 고객 질문이므로 필요 없음)
-- 제어 문자 사용
-- 추상적인 설명 (구체적 금액, 특약명, 보장 내용 필수)
-- 감정 상태 무시 (질문자의 감정에 맞춘 공감 필수)`
-  
-  return answerPrompt + '\n' + restOfAnswerPrompt
+
+  return {
+    prompt: answerPrompt,
+    answerStructureId: selectedStructure.id,
+    answerOpenerCategory: selectedOpenerCategory,
+    answerPersonaId: selectedAnswerPersona.id,
+  }
 }
 
 /**
@@ -902,29 +993,10 @@ export function generateConversationThreadPrompt(
   const displayName = displayProductName || customerFacingName
   const { initialQuestion, firstAnswer, conversationHistory, totalSteps, currentStep } = context
 
-  // 나이/성별 추출 (기존 로직 재사용)
-  let age = 30
-  const ageDecadeMatch = targetPersona.match(/(\d+)대/)
-  const ageYearMatch = targetPersona.match(/(\d+)세/)
-  
-  if (ageDecadeMatch) {
-    age = parseInt(ageDecadeMatch[1]) + 5
-  } else if (ageYearMatch) {
-    age = parseInt(ageYearMatch[1])
-  }
-
-  let gender = '남'
-  if (targetPersona.includes('여') || targetPersona.includes('여성') || targetPersona.includes('주부')) {
-    gender = '여'
-  }
-
   // 현재 단계에 따른 역할 결정
   const isCustomerTurn = currentStep % 2 === 1 // 홀수: 고객, 짝수: 설계사
   const isLastStep = currentStep >= totalSteps
   const stepNumber = Math.ceil(currentStep / 2) // 몇 번째 댓글인지
-
-  // 대화 상태 머신: 단계별 대화 흐름 제어
-  const dialogueState = getDialogueState(currentStep, totalSteps)
 
   // 이전 대화 요약 (중복 방지용)
   const historyText = conversationHistory
@@ -1158,8 +1230,9 @@ export function generateCommentPairPrompt(
     isLastPair: boolean
   }
 ): string {
-  const { productName, topicName, displayProductName, targetPersona, worryPoint, sellingPoint, designSheetAnalysis, conflictAxis, selectedConcern, selectedConcernSearch, coverageSummaryForPrompt, coverageFocusLabels } = data
-  const customerFacingName = topicName || productName
+  const { productName, topicName, displayProductName, agentSafeName, targetPersona, worryPoint, sellingPoint, designSheetAnalysis, conflictAxis, selectedConcern, selectedConcernSearch, coverageSummaryForPrompt, coverageFocusLabels } = data
+  // 페어 댓글의 agent도 회사명·브랜드 노출 금지 — agentSafeName 사용 (질문/customer 측은 별도 입력에서 노출 OK)
+  const customerFacingName = agentSafeName || topicName || productName
   const price = designSheetAnalysis?.premium || '이 보험료'
   const coverage = designSheetAnalysis?.coverages?.[0] || ''
 
@@ -1177,9 +1250,23 @@ export function generateCommentPairPrompt(
   const allText = [context.initialQuestion.title, context.firstAnswer, ...context.conversationHistory.map(m => m.content)].join(' ')
   const hasAskedForDM = allText.includes('쪽지') || allText.includes('상담') || allText.includes('문의')
 
-  const pairFlow = context.pairIndex === 0
-    ? { customerRole: '걱정 → 기준 요청', agentRole: '기준 제시 + 체크포인트', desc: '첫 번째 쌍: 걱정을 꺼내고, 설계사가 판단 기준을 제시' }
-    : { customerRole: '조건 확인 → 정리', agentRole: '정리 + 행동 유도', desc: '두 번째 쌍: 조건을 확인하고, 설계사가 정리하며 마무리' }
+  // 페어 흐름 family — 매번 다른 흐름 패턴으로 다양화 (이전엔 "걱정→기준→정리→유도" 정형 1개로 고정)
+  const FIRST_PAIR_FLOWS = [
+    { customerRole: '특정 보장 콕 집기', agentRole: '그 보장의 실제 작동 방식 설명', desc: '고객이 답변에서 본 특정 보장(예: 특약, 특정 진단비)을 콕 집어 추가 질문' },
+    { customerRole: '비교 사례 요청', agentRole: '간략한 비교 + 본인에게 맞는 기준 한 줄', desc: '고객이 다른 회사/상품과 비교를 부탁, 설계사가 차이점만 짚음' },
+    { customerRole: '본인 상황 추가 정보', agentRole: '그 상황에 맞는 한 줄 조언', desc: '고객이 본인 가족/병력/직업 같은 추가 정보를 주며 적합 여부 묻기' },
+    { customerRole: '의심/반박', agentRole: '오해 풀어주기', desc: '고객이 "이거 진짜 그래요?" 식으로 의심, 설계사가 부드럽게 풀어줌' },
+    { customerRole: '걱정 토로', agentRole: '공감 + 다른 시각 제시', desc: '고객이 불안을 토로, 설계사가 다른 관점에서 짚어줌' },
+  ]
+  const SECOND_PAIR_FLOWS = [
+    { customerRole: '판단 결심 표현', agentRole: '결심 인정 + 마지막 점검 한 가지', desc: '고객이 가입 쪽으로 마음이 기울어 답글, 설계사가 마지막 한 가지만 짚음' },
+    { customerRole: '여전한 망설임', agentRole: '망설임 정상화 + 시간 권유', desc: '고객이 아직 결정 못함을 인정, 설계사가 천천히 보라고 함' },
+    { customerRole: '사이드 질문', agentRole: '간단 답 + 본 주제로 마무리', desc: '고객이 살짝 다른 질문 (예: 청약 절차, 갱신 시기), 설계사가 짧게 답하고 본 주제로 닫음' },
+    { customerRole: '경험 공유', agentRole: '사례 짧게 받음 + 마무리', desc: '고객이 본인/지인 경험 짧게 공유, 설계사가 받아주며 마무리' },
+    { customerRole: '핵심 재확인', agentRole: '핵심만 한 줄로 재정리', desc: '고객이 "그러니까 핵심은 이거 맞죠?" 식 재확인, 설계사가 한 줄 정리' },
+  ]
+  const flowPool = context.pairIndex === 0 ? FIRST_PAIR_FLOWS : SECOND_PAIR_FLOWS
+  const pairFlow = flowPool[Math.floor(Math.random() * flowPool.length)]
 
   // 마지막 설계사 마무리 변주 풀 (매번 다른 톤으로 끝나게)
   const ENDING_VARIANTS = [
@@ -1213,8 +1300,17 @@ ${lastPairGuide}
 [핵심 원칙]
 1. 고객 댓글은 앞 대화를 **실제로 읽고 소화한** 느낌이어야 합니다. 앞 답변의 특정 내용을 가리키며 후속 질문을 하세요.
 2. 설계사 답글은 고객 질문에 **정확히 대응**하되, 새로운 정보를 1개 이상 추가하세요.
-3. 둘 다 **카페 댓글 말투**(존댓말, 마침표 금지, 문장 중간 줄바꿈 금지)를 지키세요.
+3. **카페 댓글 말투** (존댓말, 문장 중간 줄바꿈 금지)
+   - 설계사(agent): 마침표 최소(0~2개), "다"체 금지, "결론적으로/정리하면" 금지 → "~예요/~어요/~네요" 위주
+   - 고객(customer): 마침표·"~요요" 같은 자연스러운 카페 표현 자유. 회사명/원본 상품명도 자유 사용 OK ("하나더퍼스트", "M-케어" 등 그대로 적어도 됨)
 4. 설계사는 "검토해보세요", "고려하시면" 대신 → "이건 꼭 보셔야 해요", "이 부분은 좀 조심" 같은 생활형 표현을 쓰세요.
+5. ⚠️ 다음 정형 패턴은 **절대 사용 금지** (이전 답변에서 매번 반복됐던 표현):
+   - 설계사: "딱 두 가지만 체크해보세요" / "딱 두 가지만 기억하시면" / "딱 한 가지만"
+   - 설계사: "첫째 ~ 둘째 ~" 번호 매김 (자연스럽게 풀어 쓰기)
+   - 고객: "아 이제 그림이 그려지네요" / "아 이제 정리가 되네요" / "아하 ~군요"
+   - 고객/설계사: "본인 상황에 맞으면 유리하지만 아니면 부담"
+   - 양쪽 모두 매번 같은 마무리 톤 ("결국 ~가 핵심" "~게 답이에요")
+   대신 매번 다른 도입 (예: "이 부분이 헷갈리실 수 있는데", "그 점이 의외로 중요해요", "한 가지 짚어드릴게요"), 다른 마무리 (열린 질문, 공감 한 줄, 추가 시각 한 줄 등)를 사용하세요.
 ${conflictAxis ? `5. [⚖️ 핵심 갈등 축 (Conflict Axis)]
    이 상품의 핵심 갈등: "${conflictAxis.keywordNatural}"
    - 유리한 경우: ${conflictAxis.proCondition}
@@ -1232,10 +1328,24 @@ ${(selectedConcern ?? selectedConcernSearch) && (coverageSummaryForPrompt?.lengt
 - 설계사 답글: ${context.pairIndex === 0 ? '180~280자' : '150~230자'}
 
 [상품 정보]
-- 고객용 주제명: ${customerFacingName}
 - 보험료: ${price}
 ${coverage ? `- 주요 보장: ${coverage}` : ''}
-- 괄호, 버전 코드, 로마숫자(I, II, III), (주), 무배당 같은 내부 표기 절대 금지
+- 🎯 고객(customer) 댓글에서 사용할 지칭어: 자유 (원본 상품명/회사명 그대로 OK, 예: "하나더퍼스트", "M-케어 건강보험", "그 보험" 등 자연스럽게)
+- 🚨 설계사(agent) 답글에서만 사용 가능한 지칭어: ${customerFacingName} (회사명·브랜드 절대 노출 금지)
+
+[🚨 설계사(agent) 댓글 절대 금지 — 회사명·브랜드 노출 금지]
+- 회사명 절대 금지: 삼성/한화/교보/현대해상/DB/메리츠/흥국/KB/하나/동양/신한라이프/NH농협/AIG/푸본현대/처브라이프/미래에셋/AXA/AIA/라이나/MG/동부 등 보험사명을 설계사 답글에 쓰지 마세요
+- 브랜드/원본 상품명 절대 금지: "M-케어", "마이핏1680", "흥Good 든든한", "하나더퍼스트", "통합건강보험 ONE" 같은 고유 브랜드 명칭을 설계사 답글에 쓰지 마세요
+- 괄호, 버전 코드, 로마숫자(I, II, III), 점 시퀀스(3.10.5), 코드(5N5/3N5), (주), 무배당 같은 내부 표기 절대 금지
+- 자연스러운 대체 표현: "이 건강보험은 ~", "이 상품은 ~", "말씀하신 보험은 ~"
+- 단, 고객(customer) 댓글에서는 회사명/원본 상품명 노출 OK (실제 카페 사용자는 그렇게 적음). 설계사(agent) 답글에서만 절대 금지.
+
+[🚨 설계사(agent) 답글 말투 규칙 — 정리문체/단정 마침표 금지]
+- ❌ 절대 금지 단어/표현: "결론적으로", "결론은", "정리하면", "정리해드리면", "따라서", "종합적으로", "전반적으로", "검토해보세요", "고려하시면", "한번 정리해보면", "한 마디로"
+- ❌ "~합니다", "~입니다" 같은 격식 "다"체 금지 — 카페 톤은 "~예요", "~어요", "~네요"
+- ❌ 마침표(.) 사용 최소화 — 평문 종결은 마침표 없이 "~예요" 자체로 끝. 마침표 1~2개까지만 허용
+- ✅ 자연스러운 카페 어미: "~예요", "~어요", "~거든요", "~네요", "~죠", "~잖아요"
+- ✅ 단, 고객(customer) 댓글에서는 마침표/다체 일부 허용 (실제 카페 톤 다양함)
 
 [원글 질문]
 Q: ${context.initialQuestion.title}
@@ -1260,338 +1370,6 @@ ${historyText ? `\n[이전 댓글]\n${historyText}` : ''}
  * 토큰 절감: 이전 대화 맥락 제거, 패턴 예시 축소
  * 품질 유지: 핵심 정보(나이, 성별, 상품명) 유지, 상품 장점 강조
  */
-// ============================================
-// 통합 생성 프롬프트 (설계서 모드 전용: 제목+질문+답변을 1회 Pro 호출로)
-// ============================================
-
-export interface UnifiedQAPromptData extends QAPromptData {
-  cleanProductCore: string
-  companyShort: string
-  personaBucket: string
-  topicConcern: string
-  topicConcernSearch: string
-  titleFamilies: Array<{ id: string; name: string; guide: string; example: string }>
-}
-
-export interface UnifiedQAPromptResult {
-  prompt: string
-  openingFamilyId: string
-  openingFamilyName: string
-  questionConceptId: string
-  concernVariant?: string
-}
-
-export function generateUnifiedQAPrompt(data: UnifiedQAPromptData): UnifiedQAPromptResult {
-  const {
-    productName, topicName, displayProductName, targetPersona,
-    worryPoint, sellingPoint, designSheetAnalysis, searchResultsText, searchKeywords,
-    cleanProductCore, personaBucket, topicConcern, topicConcernSearch, titleFamilies,
-    selectedConcern, selectedConcernSearch, coverageSummaryForPrompt, coverageFocusLabels,
-  } = data
-  const customerFacingName = topicName || productName
-  const displayName = displayProductName || customerFacingName
-
-  const selectedConcept = getRandomItem(QUESTION_CONCEPTS)
-  const openingFamily = _pickOpeningFamily()
-  const openingGuide = openingFamily ? openingFamily.template : '설계서 받고 고민이 생겨서요'
-  const randomSituation = getRandomContext()
-  const selectedStructure = getRandomItem(ANSWER_STRUCTURES)
-
-  // concern 생활형 변주 (통합 프롬프트용)
-  const rawConcern = topicConcern || ''
-  const unifiedConcernVariant = rawConcern ? pickConcernVariant(rawConcern) : ''
-  if (unifiedConcernVariant && unifiedConcernVariant !== rawConcern) {
-    console.log(`[통합 프롬프트] concernVariant 선택: "${rawConcern}" → "${unifiedConcernVariant}"`)
-  }
-
-  let age = 30
-  const ageDecadeMatch = targetPersona.match(/(\d+)대/)
-  const ageYearMatch = targetPersona.match(/(\d+)세/)
-  if (ageDecadeMatch) {
-    age = parseInt(ageDecadeMatch[1]) + 5
-  } else if (ageYearMatch) {
-    age = parseInt(ageYearMatch[1])
-  }
-
-  let gender = '남'
-  if (targetPersona.includes('여') || targetPersona.includes('여성') || targetPersona.includes('주부')) {
-    gender = '여'
-  }
-
-  const profileAgeLabel = ageDecadeMatch
-    ? `${ageDecadeMatch[0]} ${gender === '남' ? '남성' : '여성'}`
-    : `${age}세 ${gender === '남' ? '남성' : '여성'}`
-
-  const premiumInfo = designSheetAnalysis?.premium || ''
-  const coverageInfo = designSheetAnalysis?.coverages || []
-  const specialClauseInfo = designSheetAnalysis?.specialClauses || []
-
-  const titleFamilyBlock = titleFamilies.map((f, i) =>
-    `${i + 1}. [${f.name}] ${f.guide}\n   예시: "${f.example}"`
-  ).join('\n')
-
-  const hasBothConcerns = topicConcern && topicConcernSearch
-  const concernMixGuide = hasBothConcerns
-    ? `- 내부 고민어: "${topicConcern}" / 생활형 고민어: "${topicConcernSearch}" → 제목 절반씩 교차 사용
-${unifiedConcernVariant ? `- 본문/답변에서 이 고민을 말할 때 "${unifiedConcernVariant}" 같은 생활형 표현을 쓰세요 (전문 용어 대신)` : ''}`
-    : ''
-
-  const kwBlock = searchKeywords && searchKeywords.length > 0
-    ? `- 핵심키워드: ${searchKeywords.join(', ')} (제목에 1개, 본문에 1~2개, 답변에 1~2개 자연스럽게)`
-    : ''
-
-  const hasDesignSheetConcernBlock = (selectedConcern ?? selectedConcernSearch) && (coverageSummaryForPrompt?.length ?? 0) > 0
-  const designSheetConcernBlock = hasDesignSheetConcernBlock
-    ? `- 이번 글의 고민 축: "${selectedConcern || selectedConcernSearch}"를 중심으로 질문과 답변을 전개하세요. 이 문장을 그대로 복붙하지 말고, 고객 입장에서 자연스럽게 풀어 쓰세요.
-- 아래 보장 요약 중 1~2개를 실제 예시로 사용하여, "보장 구성/보장 쏠림/보장 균형" 관점에서 장단점을 설명하세요.
-  보장 요약: ${(coverageSummaryForPrompt || []).slice(0, 5).join(' / ')}
-${coverageFocusLabels && coverageFocusLabels.length > 0 ? `- 강조할 보장 축(참고): ${coverageFocusLabels.join(', ')}` : ''}`
-    : ''
-
-  const prompt = `너는 보험카페 Q&A 콘텐츠 전문가다. 아래 설계서 분석 결과를 기반으로 **제목 후보 ${titleFamilies.length}개 + 질문 본문 1개 + 전문가 답변 1개**를 JSON으로 한 번에 생성한다.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-공통 규칙 (전 영역 적용)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-- 마침표(.) 절대 금지. 물음표(?), 느낌표(!)는 가능
-- 문장 중간 줄바꿈 금지. 문장이 끝난 뒤(?, ! 뒤)에만 줄바꿈
-- 괄호, 버전 코드(3.105 등), 로마숫자(I, II, III), (주), 무배당 같은 내부 표기 금지
-- 입력에 없는 보험료 금액, 보장 기간, 보장 금액, 특약명을 임의로 만들어 넣지 마세요
-${kwBlock}
-${designSheetConcernBlock}
-${concernMixGuide}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-PART A: 제목 후보 ${titleFamilies.length}개
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-아래 패밀리별로 1개씩, 카페 회원이 실제로 올릴 법한 자연스러운 질문 제목을 생성하세요.
-- 18~38자 권장, 최소 ${Math.max(titleFamilies.length - 2, 3)}개는 의문형(~까요, ~없나요 등)
-- 각 제목은 문장 구조와 어조가 서로 달라야 합니다
-- 블로그/SEO형("진짜 이유", "꿀팁", "추천합니다") 표현 금지
-- 인삿말("안녕하세요"), 본문 첫 문장 스타일 금지
-
-제목 패밀리:
-${titleFamilyBlock}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-PART B: 질문 본문 (300~500자, 문단 2~3개)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-화자: ${profileAgeLabel} (${targetPersona})
-현재 상황: **${randomSituation}**
-질문 태도: **${selectedConcept.tone}**
-도입 톤: **"${openingGuide}"** (이 느낌으로 첫 1~2문장 시작, 복사하지 말고 자연스럽게)
-
-- 본문 첫 언급: "${displayName}" 1회 사용 → 이후 "${customerFacingName}" 짧은 주제명만
-- ${premiumInfo || coverageInfo.length > 0 ? `설계서 내용(${premiumInfo || '보험료'}, ${coverageInfo.slice(0, 3).join(', ') || '주요보장'})을 언급하며 궁금한 점을 물어보세요` : '고민과 강조점을 반영하여 궁금한 점을 물어보세요'}
-- 첫 2~3문장은 카페 일상 말투 (❌ "합리적인 선택일지 검토 중" → ✅ "이 정도면 괜찮은 건지 모르겠어요")
-- body 첫 문장에 호칭만 단독으로 넣지 마세요 (❌ "선배님들!", ❌ "옆집 언니들!")
-- 문단 사이 빈 줄(\\n\\n) 넣기
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-PART C: 카페 상위 답글 (300~450자, 문단 2~3개)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-역할: 이 상품 잘 아는 카페 회원 (전문가 자기소개 금지, 영업 CTA 금지)
-답변 구조: ${selectedStructure.id} (${selectedStructure.order.join(' → ')})
-
-4블록 구조:
-① 공감/전제 1문장: 걱정 포인트 짧게 받아줌
-② 판단 한 줄: 누구에게 유리/불리한지 바로 판단
-③ 이유 2~3개: 왜 그런지 구체적 이유
-④ 판단 기준 마무리: "이걸 먼저 확인해보면 판단이 쉬워요" 방향 (상담/문의 유도 금지)
-
-- 상품명: 첫 언급 "${displayName}" 1회 → 이후 "${customerFacingName}" 짧은 주제명만
-- 정리문체 단어 금지: "정리해드리면", "핵심은", "따라서", "검토해보세요" → "이건 꼭 보셔야 해요", "이 부분은 좀 조심" 등
-${premiumInfo ? `- 설계서 보험료(${premiumInfo}) 언급하며 적정성 평가` : ''}
-${coverageInfo.length > 0 ? `- 설계서 담보(${coverageInfo.slice(0, 3).join(', ')}) 구체적으로 분석` : ''}
-${specialClauseInfo.length > 0 ? `- 설계서 특약(${specialClauseInfo.slice(0, 2).join(', ')})의 필요성과 장점 설명` : ''}
-${searchResultsText ? `\n[검색 요약 (근거로 활용, 출처 표기 금지)]\n${searchResultsText}` : ''}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-입력 데이터
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-- 제목/키워드용 주제명: ${customerFacingName}
-- 본문 첫 언급용 상품명: ${displayName}
-- 정식 상품명 (내부 참고만): ${productName}
-- 고민: ${worryPoint}
-- 강조점: ${sellingPoint}
-- 타깃: ${targetPersona}
-${designSheetAnalysis ? `- 설계서: ${JSON.stringify(designSheetAnalysis)}` : ''}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-출력 형식 (반드시 아래 JSON만 출력)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-\`\`\`json
-{
-  "titleCandidates": ["제목1", "제목2", ...],
-  "questionBody": "질문 본문 (300~500자)",
-  "answerBody": "답변 본문 (300~500자)"
-}
-\`\`\``
-
-  return {
-    prompt,
-    openingFamilyId: openingFamily?.id || 'unknown',
-    openingFamilyName: openingFamily?.name || 'unknown',
-    questionConceptId: selectedConcept.id,
-    concernVariant: unifiedConcernVariant || undefined,
-  }
-}
-
-// ============================================
-// 댓글 스레드 배치 프롬프트 (4개 댓글을 1회 Pro 호출로)
-// ============================================
-
-export interface ThreadBatchPromptData {
-  productName: string
-  topicName?: string
-  displayProductName?: string
-  targetPersona: string
-  worryPoint: string
-  sellingPoint: string
-  designSheetAnalysis?: {
-    premium?: string
-    coverages?: string[]
-    specialClauses?: string[]
-  }
-  questionTitle: string
-  questionBody: string
-  answerBody: string
-  threadSteps: number
-  // 설계서 모드: 대화 전체에 공유할 고민/보장 축
-  selectedConcern?: string
-  selectedConcernSearch?: string
-  coverageSummaryForPrompt?: string[]
-  coverageFocusLabels?: string[]
-}
-
-export function generateThreadBatchPrompt(data: ThreadBatchPromptData): string {
-  const {
-    productName, topicName, displayProductName, targetPersona,
-    worryPoint, sellingPoint, designSheetAnalysis,
-    questionTitle, questionBody, answerBody, threadSteps,
-    selectedConcern, selectedConcernSearch, coverageSummaryForPrompt, coverageFocusLabels,
-  } = data
-  const customerFacingName = topicName || productName
-  const price = designSheetAnalysis?.premium || '이 보험료'
-  const coverage = designSheetAnalysis?.coverages?.[0] || '보장 내용'
-
-  const steps: Array<{ step: number; role: string; persona: string; family: string; lengthGuide: string }> = []
-
-  for (let i = 0; i < threadSteps; i++) {
-    const stepNum = i + 3
-    const isCustomer = i % 2 === 0
-    const stepOrder = Math.ceil((i + 1) / 2)
-
-    if (isCustomer) {
-      const persona = getWeightedPersona()
-      const COMMENT_FAMILIES_POOL = [
-        '의심/검증', '구체적 비교', '조건 확인', '공감/불안 공유',
-        '실사용 경험 요청', '추가질문/디테일',
-      ]
-      const family = i === threadSteps - 2
-        ? '판단정리형'
-        : COMMENT_FAMILIES_POOL[Math.floor(Math.random() * COMMENT_FAMILIES_POOL.length)]
-      const lengthGuide = stepOrder <= 2 ? '180~250자' : stepOrder <= 4 ? '150~220자' : '100~180자'
-      steps.push({
-        step: stepNum,
-        role: 'customer',
-        persona: `${persona.type} (${persona.desc})`,
-        family,
-        lengthGuide,
-      })
-    } else {
-      const ADVISOR_TONES_POOL = ['정리형', '판단기준형', '공감+해결형', '주의사항형']
-      const tone = ADVISOR_TONES_POOL[Math.floor(Math.random() * ADVISOR_TONES_POOL.length)]
-      const lengthGuide = stepOrder <= 2 ? '180~280자' : stepOrder <= 4 ? '150~230자' : '100~180자'
-      steps.push({
-        step: stepNum,
-        role: 'agent',
-        persona: `베테랑 설계사 (${tone})`,
-        family: tone,
-        lengthGuide,
-      })
-    }
-  }
-
-  const stepInstructions = steps.map(s => {
-    if (s.role === 'customer') {
-      return `Step ${s.step} [고객 - ${s.persona}]:
-  - 댓글 유형: ${s.family}
-  - 글자 수: **${s.lengthGuide}** (반드시 지키세요)
-  - 이전 댓글에서 다룬 주제와 겹치지 않는 새로운 질문/반응
-  - 말투: 존댓말(해요체) 필수, 카페 회원 느낌`
-    } else {
-      const isLastAgentStep = s.step === steps[steps.length - 1]?.step && s.role === 'agent'
-      const BATCH_ENDING_POOL = [
-        '결국 보험료가 아니라 이 구조를 감당할 수 있느냐가 기준이에요',
-        '이건 좋다 나쁘다보다 본인 상황에 맞느냐로 보시면 판단이 쉬워요',
-        '보장보다 유지 가능성을 먼저 따져보시면 답이 보일 거예요',
-        '가격에 끌리셨다면, 그 가격의 조건을 받아들일 수 있는지가 핵심이에요',
-        '20년이란 시간을 버틸 수 있는지, 거기서부터 시작하시면 돼요',
-        '싸다는 건 이유가 있고, 그 이유를 감수할 수 있으면 나쁘지 않아요',
-        '이 구조가 내 성향에 맞는지, 그게 제일 먼저 볼 부분이에요',
-      ]
-      const lastAgentGuide = isLastAgentStep
-        ? `\n  - ⚠️ 마지막 답글: "비교 설계", "상담", "문의", "연락" 유도 절대 금지. "핵심은 보험료보다"로 시작하는 문장도 금지.
-  - 마무리 톤 예시 (똑같이 쓰지 말고 자기 말로): "${BATCH_ENDING_POOL[Math.floor(Math.random() * BATCH_ENDING_POOL.length)]}"`
-        : '\n  - 답변 후 자연스럽게 판단 기준으로 마무리'
-      return `Step ${s.step} [설계사 - ${s.persona}]:
-  - 글자 수: **${s.lengthGuide}** (반드시 지키세요)
-  - 직전 고객 댓글의 질문에 정확히 답변 (동문서답 금지)
-  - 톤: "이건 꼭 보셔야 해요", "이 부분은 좀 조심하셔야 해요" 같은 생활형${lastAgentGuide}`
-    }
-  }).join('\n\n')
-
-  return `너는 보험카페 Q&A 게시글의 댓글 스레드를 한 번에 생성하는 전문가다.
-아래 원글(질문+답변)을 읽고, 이어지는 댓글 ${threadSteps}개를 고객↔설계사 교대로 작성하라.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-공통 규칙
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-- 마침표(.) 금지, 물음표(?)/느낌표(!) 가능
-- 문장 중간 줄바꿈 금지
-- 괄호, 버전 코드, 로마숫자, (주), 무배당 같은 내부 표기 금지
-- 각 댓글은 앞선 댓글의 내용을 발전시키되, 같은 주제를 반복하지 말 것
-- 스레드 전체가 자연스러운 하나의 대화 흐름을 이루어야 함
-- 상품명은 "${customerFacingName}" 짧은 주제명만 사용
-${(selectedConcern ?? selectedConcernSearch) && (coverageSummaryForPrompt?.length ?? 0) > 0 ? `
-- 대화의 고민 축: "${selectedConcern || selectedConcernSearch}"를 기준으로, 고객 댓글은 이 고민을 자기 말로 다시 묻거나 확인하고 설계사 답글은 이 고민에 대한 판단 기준을 제시하세요.
-- 아래 보장 요약 중 1개 이상을 실제 예시로 사용하여, "보장 구성/보장 쏠림/보장 균형" 관점에서 장단점을 설명하세요.
-  보장 요약: ${(coverageSummaryForPrompt || []).slice(0, 5).join(' / ')}
-${coverageFocusLabels && coverageFocusLabels.length > 0 ? `- 강조할 보장 축(참고): ${coverageFocusLabels.join(', ')}` : ''}` : ''}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-원글 컨텍스트
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-질문 제목: ${questionTitle}
-질문 본문: ${questionBody}
-전문가 답변: ${answerBody}
-
-상품: ${customerFacingName}
-보험료: ${price}
-주요 보장: ${coverage}
-타깃: ${targetPersona}
-고민: ${worryPoint}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-각 Step별 지시
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-${stepInstructions}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-출력 형식 (반드시 아래 JSON만 출력)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-\`\`\`json
-{
-  "thread": [
-    {"step": ${steps[0]?.step || 3}, "role": "${steps[0]?.role || 'customer'}", "content": "..."},
-    {"step": ${steps[1]?.step || 4}, "role": "${steps[1]?.role || 'agent'}", "content": "..."},
-    {"step": ${steps[2]?.step || 5}, "role": "${steps[2]?.role || 'customer'}", "content": "..."},
-    {"step": ${steps[3]?.step || 6}, "role": "${steps[3]?.role || 'agent'}", "content": "..."}
-  ]
-}
-\`\`\``
-}
 
 export function generateReviewMessagePrompt(
   data: QAPromptData,
@@ -1603,138 +1381,63 @@ export function generateReviewMessagePrompt(
   const customerFacingName = topicName || productName
   const displayName = displayProductName || customerFacingName
 
-  // 나이/성별 추출
-  let age = 30
-  const ageDecadeMatch = targetPersona.match(/(\d+)대/)
-  const ageYearMatch = targetPersona.match(/(\d+)세/)
-  
-  if (ageDecadeMatch) {
-    age = parseInt(ageDecadeMatch[1]) + 5
-  } else if (ageYearMatch) {
-    age = parseInt(ageYearMatch[1])
-  }
+  // 나이/성별 추출 (공통 헬퍼)
+  const { age, gender } = extractPersonaProfile(targetPersona)
+  const genderLabel = gender === '남' ? '남성' : '여성'
 
-  let gender = '남'
-  if (targetPersona.includes('여') || targetPersona.includes('여성') || targetPersona.includes('주부')) {
-    gender = '여'
-  }
+  // ── 후기 톤 family: 8개 (서로 명확히 다른 톤) — 1개만 랜덤 선택 ──
+  const REVIEW_TONES = [
+    { id: 'reassured', name: '안심형', guide: '"가입하고 나니 마음이 놓인다"는 안도감 톤. 차분하고 현실적' },
+    { id: 'practical', name: '실속형', guide: '"가성비가 좋아서 만족"이라는 실속 강조 톤. 보험료 대비 보장 만족' },
+    { id: 'recommend', name: '추천형', guide: '"주변에도 추천하고 싶다"는 자연스러운 추천 의지 톤. 친구한테 알려주고 싶음' },
+    { id: 'detail_appreciation', name: '꼼꼼 감사형', guide: '"설명을 자세히 해주셔서 이해가 쉬웠다"는 과정 감사 톤' },
+    { id: 'family_relief', name: '가족 안도형', guide: '"가족도 든든해한다"는 가족 맥락 톤. 부모/배우자/자녀 언급' },
+    { id: 'shy_thanks', name: '겸손 감사형', guide: '"덕분에 잘 가입했다"는 짧고 겸손한 감사 톤. 과한 칭찬 없음' },
+    { id: 'future_relation', name: '관계 지속형', guide: '"앞으로도 잘 부탁드린다"는 관계 강조 톤. 추가 문의 의향' },
+    { id: 'late_realization', name: '늦은 깨달음형', guide: '"진작 들었어야 했다"는 후회+감사 섞인 톤' },
+  ] as const
+  const selectedReviewTone = REVIEW_TONES[Math.floor(Math.random() * REVIEW_TONES.length)]
 
-  // 다양한 후기성 문구 패턴 (토큰 절감: 각 패턴당 1개 예시만)
-  const reviewPatterns = [
-    {
-      type: '가입 완료 + 상품 장점 + 감사',
-      example: '설계사님 덕분에 ${age}세 ${gender === "남" ? "남성" : "여성"}에게 딱 맞는 ${productName} 가입할 수 있어서 정말 든든하네요 보험료도 합리적이고 보장도 좋아서 만족합니다 여기서 보험 가입했는데 이렇게 가입시켜줘서 정말 고맙습니다'
-    },
-    {
-      type: '만족도 + 상품 장점 + 감사',
-      example: '설계사님 추천대로 가입했는데 생각보다 좋아서 만족합니다 ${productName}이 보험료 대비 보장이 좋아서 가성비가 좋고 ${age}대 ${gender === "남" ? "남성" : "여성"}에게 적합한 상품이어서 정말 좋아요'
-    },
-    {
-      type: '추천 의도 + 상품 장점 + 감사',
-      example: '가입했는데 ${productName}이 정말 좋아서 친구한테도 추천하고 싶어요 보험료도 합리적이고 특약 구성도 탄탄해서 주변 사람들한테도 알려주고 싶습니다 설계사님 덕분에 좋은 보험 가입하게 되어서 고맙습니다'
-    },
-    {
-      type: '상세한 감사 + 상품 장점',
-      example: '여기서 보험 가입했는데 처음부터 끝까지 친절하게 설명해주셔서 정말 고맙습니다 ${productName}이 보장 내용이 좋고 보험료도 적당해서 만족합니다 ${age}세 ${gender === "남" ? "남성" : "여성"}에게 맞는 상품이어서 든든합니다'
-    },
-    {
-      type: '가입 후기 + 상품 장점 + 감사',
-      example: '${productName} 가입했는데 보장 내용도 좋고 보험료도 합리적이어서 만족합니다 설계사님 덕분에 ${age}대 ${gender === "남" ? "남성" : "여성"}에게 적합한 보장을 받을 수 있어서 정말 좋아요'
-    },
-    {
-      type: '감사 + 앞으로의 관계 + 상품 장점',
-      example: '여기서 보험 가입했는데 이렇게 가입시켜줘서 정말 고맙습니다 ${productName}이 ${age}대 ${gender === "남" ? "남성" : "여성"}에게 딱 맞는 상품이어서 만족하고 보장 범위가 넓어서 든든합니다 앞으로도 궁금한 점 있으면 문의해도 될까요?'
-    },
-    {
-      type: '상세한 후기 + 상품 장점 + 감사',
-      example: '설계사님 덕분에 ${productName} 잘 가입했는데 설명이 자세해서 이해하기 쉬웠어요 감사합니다 보험료도 합리적이고 특약 구성도 탄탄해서 ${age}세 ${gender === "남" ? "남성" : "여성"}에게 적합한 보장이어서 정말 만족스러웠습니다'
-    },
-    {
-      type: '만족도 + 상품 장점 + 앞으로의 관계',
-      example: '가입했는데 ${productName}이 생각보다 훨씬 좋아서 만족합니다 보험료 대비 보장이 좋아서 가성비가 좋고 ${age}대 ${gender === "남" ? "남성" : "여성"}에게 맞는 보장이어서 든든합니다 앞으로도 보험 관련해서 궁금한 점 있으면 편하게 물어봐도 되나요?'
-    }
-  ]
+  return `당신은 보험카페에서 ${customerFacingName} 가입 후 설계사에게 감사 인사를 남기는 고객입니다.
 
-  return `당신은 보험카페에서 ${productName}을 가입한 후 설계사에게 감사 인사를 전하는 고객입니다.
+[화자 프로필]
+- ${age}세 ${genderLabel} (${targetPersona})
+- 카페에서 질문 올렸다가 설계사 도움받아 ${customerFacingName} 가입 완료
+- 이번 후기 톤: **${selectedReviewTone.name}** — ${selectedReviewTone.guide}
 
-[상황 설정]
-- **나이: ${age}세 (매우 중요!)**
-- **성별: ${gender === '남' ? '남성' : '여성'} (매우 중요!)**
-- 타겟 고객: ${targetPersona}
-- 보험카페에서 질문을 올리고 설계사의 도움을 받아 ${productName}을 가입 완료함
-- 설계사에게 감사 인사를 전하고 싶어함
-- **⚠️ 매우 중요: 항상 친절하고 자세하게, 감사 인사를 충분히 표현하세요**
+[상품명 표기 규칙]
+- 본문 첫 언급에 "${displayName}" 1회 사용 가능, 이후엔 "${customerFacingName}" 짧은 주제명만
+- 정식 상품명("${productName}")은 절대 그대로 쓰지 말 것
+- 괄호, 버전 코드, 로마숫자, (주), 무배당 같은 내부 표기 금지
 
-[핵심 지침] (문서 11절: 후기 삽입 규칙 - 안심형/현실형 위주)
+[작성 지침]
+1. 길이: **150~250자** (한 덩어리 또는 2문단)
+2. 위 "${selectedReviewTone.name}" 톤 한 가지로만 작성. 톤 가이드를 따르되 그대로 복사하지 말고 자기 말로 풀어 쓸 것
+3. 카페 회원의 자연스러운 후기 톤 — 광고 같지 않게, 과한 숫자 나열 금지
+4. 말투: ${age < 30 ? '20대 친근체 ("~네요", "~어요", 가벼운 ㅎ/ㅠ 1개 정도 OK)' : age < 50 ? '30-40대 정중체 ("~네요", "~합니다" 섞임, 무난한 톤)' : '50대 이상 정중체 ("~합니다", "~네요" 위주, 차분한 톤)'}
 
-1. **후기성 문구 작성 (매우 중요!)**:
-   - 보험 가입 완료 후 설계사에게 감사 인사를 전하는 내용
-   - **톤: 극찬형보다 "안심형/현실형" 위주**. 과도한 상품 찬양·숫자 나열 지양
-   - **⚠️ 항상 친절하고 자세하게 작성하세요**
-   - **⚠️ 감사 인사를 충분히 표현하세요**
-   - **⚠️ 다양한 패턴 중 하나를 선택하여 자연스럽게 작성하세요**
-   
-   - **다양한 후기성 문구 패턴 (매번 다르게 선택)**:
-${reviewPatterns.map((pattern, idx) => {
-  const genderText = gender === '남' ? '남성' : '여성'
-  // 템플릿 변수를 실제 값으로 치환
-  let example = pattern.example
-    .replace(/\$\{productName\}/g, productName)
-    .replace(/\$\{age\}세/g, `${age}세`)
-    .replace(/\$\{age\}대/g, `${age}대`)
-    .replace(/\$\{age\}/g, age.toString())
-    .replace(/\$\{gender === "남" ? "남성" : "여성"\}/g, genderText)
-  return `
-     **패턴 ${idx + 1}: ${pattern.type}**
-     예시: "${example}"`
-}).join('\n')}
+${COMMON_GUIDELINES.NO_PERIOD}
 
-2. **말투**: ${age < 30 ? '20대 말투: 친근하고 자연스럽게' : age < 50 ? '30-40대 말투: 정중하고 친절하게' : '50대 이상 말투: 더욱 정중하고 존중하는 표현'}
-   - "요" 체 사용
-   - 감사 인사를 자연스럽게 표현
-   - **⚠️ 항상 친절하고 자세하게 작성하세요**
+5. 다양성: 매번 다른 첫 문장, 다른 구조, 다른 어미로 작성. 이전 후기와 같은 패턴 반복 금지
 
-3. **자연스러운 표현 및 내용 구성**:
-   - "여기서 보험 가입했는데", "설계사님 덕분에", "가입했는데" 같은 자연스러운 표현 사용
-   - 감사 인사와 함께 만족도나 추가 질문을 자연스럽게 포함 가능
-   - **⚠️ 상품의 장점 언급 (매우 중요! 반드시 포함!)**:
-     * 보험료: "보험료가 합리적이어서", "보험료 대비 보장이 좋아서", "가성비가 좋아서"
-     * 보장: "보장 내용이 좋아서", "보장 범위가 넓어서", "특약 구성이 탄탄해서"
-     * 상품 특징: "${productName}이 ${age}대 ${gender === '남' ? '남성' : '여성'}에게 적합해서", "딱 맞는 상품이어서"
-     * **⚠️ 반드시 상품의 구체적 장점을 언급하면서 감사 인사를 표현하세요**
-   - **⚠️ 앞으로의 일 언급 (매우 중요!)**:
-     * 추가 상담/문의: "앞으로도 궁금한 점 있으면 문의해도 될까요?", "앞으로도 잘 부탁드려요"
-     * 추천 의도: "친구한테도 추천해도 될까요?", "주변 사람들한테도 추천하고 싶어요"
-     * 지속적 관계: "앞으로도 보험 관련해서 도움이 필요하면 연락해도 되나요?"
-   - **⚠️ 과도하게 짧지 않게, 충분히 자세하게 작성하세요 (150-250자 내외)**
-
-4. **⚠️ 마침표(.) 사용 절대 금지**: 
-   - 문장 끝에 마침표를 사용하지 마세요
-   - 물음표(?)나 느낌표(!)는 사용 가능하지만, 마침표는 절대 사용하지 마세요
-
-5. **구체적 정보 포함 및 다양성 확보 (매우 중요!)**:
-   - **⚠️ 구체적 정보 포함**: 나이, 성별, 상품명 등 구체적 정보를 자연스럽게 포함하세요
-     * 예: "설계사님 덕분에 ${age}세 ${gender === '남' ? '남성' : '여성'}에게 딱 맞는 ${productName} 가입할 수 있어서"
-     * 예: "${productName} 가입했는데 ${age}대 ${gender === '남' ? '남성' : '여성'}에게 적합한 상품이어서 만족합니다"
-   - **⚠️ 자세하게 작성**: 보험 가입 과정, 만족도, 감사 인사 등을 자세하게 표현하세요
-     * 보험 가입 과정: "설계서 받아보고", "설명 듣고", "상담 받고" 등
-     * 만족도: "정말 만족합니다", "든든합니다", "좋은 선택이었습니다" 등
-     * 감사 인사: "정말 고맙습니다", "감사합니다", "고맙습니다" 등
-   - **⚠️ 절대 반복 금지**: 이전에 생성한 후기성 문구와 동일한 문구 구조나 표현을 그대로 반복하지 마세요
-   - **매번 생성할 때마다 다른 패턴, 다른 표현을 사용하세요**
-   - 위의 패턴들을 매번 랜덤하게 선택하여 완전히 다른 문구로 작성하세요
-   - 구체적 정보를 포함하면서도 자연스럽고 친절하게 작성하세요 (150-250자 내외)
+[톤별 시작 문장 예시 (그대로 복사 금지, 느낌만 참고)]
+- 안심형: "가입하고 나서야 마음이 좀 놓이네요"
+- 실속형: "이 보험료에 이 보장이면 진짜 가성비 좋네요"
+- 추천형: "친구한테도 알려주고 싶을 만큼 잘 들었어요"
+- 꼼꼼 감사형: "한 단계씩 다 짚어주셔서 이해가 쉬웠어요"
+- 가족 안도형: "저희 부모님도 든든해하시네요"
+- 겸손 감사형: "덕분에 잘 가입했어요 감사합니다"
+- 관계 지속형: "앞으로도 종종 여쭤봐도 될까요?"
+- 늦은 깨달음형: "이걸 진작 알았으면 좋았을걸 싶어요"
 
 ${COMMON_GUIDELINES.OUTPUT_FORMAT}
-**⚠️ 항상 친절하고 자세하게, 감사 인사를 충분히 표현하세요!**
-**⚠️ 반드시 상품의 장점을 언급하면서 감사 인사를 표현하세요!**
 
 [생성된 후기성 문구]`
 }
 
 /**
  * 후기성 문구에 대한 설계사 응답 프롬프트
- * 항상 친절하고 자세하게 응답
+ * 다양성 강화: 톤 family 6개 중 1개 랜덤
  */
 export function generateReviewResponsePrompt(
   data: QAPromptData,
@@ -1743,84 +1446,54 @@ export function generateReviewResponsePrompt(
     productName: string
   }
 ): string {
-  const { productName, answerTone } = data
+  const { productName, topicName, displayProductName, answerTone } = data
   const { reviewMessage } = context
+  const customerFacingName = topicName || productName
+
+  // ── 응답 톤 family: 6개 (서로 다른 마무리 톤) — 1개 랜덤 선택 ──
+  const RESPONSE_TONES = [
+    { id: 'warm_short', name: '따뜻한 단답형', example: '저야말로 감사합니다^^ 잘 선택하셨어요 앞으로도 편하게 물어보세요' },
+    { id: 'reassuring', name: '안심형', example: '믿고 가입해주셔서 감사합니다 만족하셨다니 다행이에요^^' },
+    { id: 'open_invite', name: '편한 초대형', example: '감사합니다^^ 추가로 궁금한 거 생기시면 부담 없이 쪽지 주세요' },
+    { id: 'family_extension', name: '가족 확장형', example: '가족분들 보장도 비슷한 고민 있으시면 같이 봐드릴게요^^ 감사합니다' },
+    { id: 'long_term', name: '장기 관계형', example: '앞으로도 갱신이나 보장 점검 필요하시면 언제든 연락 주세요^^ 감사합니다' },
+    { id: 'humble_short', name: '겸손 짧은형', example: '도움 되셨다니 다행이에요 좋은 선택이셨습니다^^' },
+  ] as const
+  const selectedResponseTone = RESPONSE_TONES[Math.floor(Math.random() * RESPONSE_TONES.length)]
 
   const toneMap: Record<string, string> = {
-    'friendly': '친절하고 다정한 톤으로',
-    'expert': '전문가답게 따뜻한 톤으로',
-    'comparative': '친절하고 다정한 톤으로',
-    'persuasive': '친절하고 다정한 톤으로'
+    friendly: '친절하고 다정한 카페체',
+    expert: '전문가다움이 살짝 묻은 따뜻한 카페체',
+    comparative: '친절하고 다정한 카페체',
+    persuasive: '친절하고 다정한 카페체',
   }
+  const selectedTone = toneMap[answerTone] || toneMap.friendly
 
-  const selectedTone = toneMap[answerTone] || toneMap['friendly']
+  return `당신은 ${customerFacingName} 관련해서 카페에서 답변하던 설계사입니다. 고객의 감사 인사에 짧게 답글을 달아주세요.
 
-  return `당신은 ${productName}을 판매하는 15년 이상의 경력을 가진 베테랑 보험 전문가이며, 고객의 감사 인사에 친절하고 자세하게 응답하는 설계사입니다.
-
-[상황 설정]
-- **당신은 ${productName}을 판매하는 전문가입니다**
-- 고객이 보험 가입 후 감사 인사를 전해옴
-- 고객의 감사 인사에 친절하고 자세하게 응답해야 함
-- **⚠️ 매우 중요: 항상 친절하고 자세하게, 충분히 감사 인사에 응답하세요**
-
-[고객의 후기성 문구]
+[고객의 후기]
 ${reviewMessage}
 
-[핵심 지침]
+[이번 응답 톤]
+- 스타일: **${selectedResponseTone.name}**
+- 예시 (그대로 복사 금지, 톤만 참고): "${selectedResponseTone.example}"
 
-1. **감사 인사 응답 (매우 중요!)**:
-   - 고객의 감사 인사에 친절하고 자세하게 응답
-   - **⚠️ 항상 친절하고 자세하게 작성하세요**
-   - **⚠️ 감사 인사에 충분히 응답하세요**
-   - **⚠️ 다양한 패턴 중 하나를 선택하여 자연스럽게 작성하세요**
-   
-   - **다양한 응답 패턴 (매번 다르게 선택, 항상 친절하고 자세하게)**:
-     * 패턴 1: "고객님~ 가입해주셔서 감사합니다^^ 만족하셔서 다행입니다 앞으로도 궁금한 점 있으시면 언제든 문의 주세요"
-     * 패턴 2: "감사합니다^^ 좋은 선택이셨습니다 앞으로도 보험 관련해서 궁금한 점 있으시면 편하게 문의 주세요"
-     * 패턴 3: "고객님~ 가입해주셔서 정말 감사합니다^^ 만족하셔서 다행입니다 추가로 궁금한 점 있으시면 언제든 연락 주세요"
-     * 패턴 4: "감사합니다^^ 좋은 선택이셨습니다 앞으로도 보험 관련해서 궁금한 점 있으시면 편하게 문의 주세요"
-     * 패턴 5: "고객님~ 가입해주셔서 감사합니다^^ ${productName}에 대해 추가로 궁금한 점 있으시면 언제든 문의 주세요"
-     * 패턴 6: "만족하셔서 다행입니다^^ 앞으로도 보험 관련해서 궁금한 점 있으시면 편하게 물어보세요"
-     * 패턴 7: "고객님~ 감사합니다^^ 추가로 궁금한 점이나 도움이 필요한 일 있으시면 언제든 연락 주세요"
-     * 패턴 8: "가입해주셔서 정말 감사합니다^^ 앞으로도 ${productName} 관련해서 궁금한 점 있으시면 편하게 문의 주세요"
-     * 패턴 9: "고객님~ 만족하셔서 다행입니다^^ 보험 관련해서 추가로 궁금한 점 있으시면 언제든 문의 주세요"
-     * 패턴 10: "감사합니다^^ 좋은 선택이셨습니다 앞으로도 궁금한 점 있으시면 편하게 연락 주세요"
-     * 패턴 11: "고객님~ 가입해주셔서 감사합니다^^ 만족하셔서 정말 다행입니다 앞으로도 보험 관련해서 궁금한 점 있으시면 언제든 문의 주세요"
-     * 패턴 12: "감사합니다^^ 좋은 선택이셨습니다 앞으로도 ${productName} 관련해서 궁금한 점 있으시면 편하게 물어보세요"
-     * 패턴 13: "고객님~ 가입해주셔서 정말 감사합니다^^ 만족하셔서 다행입니다 앞으로도 보험 관련해서 도움이 필요하시면 언제든 연락 주세요"
-     * 패턴 14: "감사합니다^^ 좋은 선택이셨습니다 앞으로도 궁금한 점 있으시면 편하게 문의 주세요"
-     * 패턴 15: "고객님~ 가입해주셔서 감사합니다^^ 앞으로도 보험 관련해서 궁금한 점 있으시면 언제든 문의 주세요"
+[작성 지침]
+1. 길이: **80~160자** (짧게 마무리 — 너무 길면 광고 냄새)
+2. 답변 톤: ${selectedTone}
+3. 다음 중 1~2가지를 자연스럽게 포함:
+   - 가입에 대한 감사 한 줄
+   - 만족하셨다는 점에 안도/긍정 한 줄
+   - 추가 질문/관계 지속 의향 한 줄 (선택)
+4. 고객이 추천 의향을 표현했다면 → "추천해주시면 감사하겠습니다" 식으로 한 줄 응답
+5. 고객이 추가 질문 의향을 표현했다면 → "편하게 물어보세요" 식으로 응답
+6. 상품명은 "${customerFacingName}" 짧은 형태만. 정식명 노출 금지
 
-2. **추천 의도에 대한 응답** (고객이 추천 의도를 표현한 경우):
-   - 추천해도 된다고 친절하게 응답
-   - 예: "네^^ 추천해주시면 감사하겠습니다 궁금한 점 있으시면 언제든 문의 주세요"
-   - 예: "당연히 괜찮습니다^^ 추천해주시면 정말 감사하겠습니다"
-   - 예: "네^^ 주변 분들한테도 추천해주시면 좋을 것 같습니다"
+${COMMON_GUIDELINES.NO_PERIOD}
 
-3. **추가 질문에 대한 응답** (고객이 추가 질문을 언급한 경우):
-   - 추가 질문을 환영한다고 친절하게 응답
-   - 예: "네^^ 궁금한 점 있으시면 편하게 물어보세요"
-   - 예: "당연히 괜찮습니다^^ 추가로 궁금한 점 있으시면 언제든 문의 주세요"
-
-4. **톤**: ${selectedTone} 작성하세요
-   - **⚠️ 항상 친절하고 자세하게 작성하세요**
-   - **⚠️ 감사 인사에 충분히 응답하세요**
-
-5. **답변 길이**: 150-250자 내외 (친절하고 자세하게)
-   - 감사 인사 응답 + 추가 서비스 안내
-   - **⚠️ 과도하게 짧지 않게, 충분히 자세하게 작성하세요**
-
-6. **⚠️ 마침표(.) 사용 절대 금지**: 
-   - 모든 문장 끝에 마침표를 사용하지 마세요
-   - 물음표(?)나 느낌표(!)는 사용 가능하지만, 마침표는 절대 사용하지 마세요
-
-7. **다양성 확보 (매우 중요!)**:
-   - **매번 생성할 때마다 다른 패턴, 다른 표현을 사용하세요**
-   - 위의 패턴들을 매번 랜덤하게 선택하여 완전히 다른 응답으로 작성하세요
-   - 이전에 생성한 응답과 동일한 패턴이나 표현을 절대 사용하지 마세요
+7. 매번 다른 표현·다른 구조로. 이전 응답과 동일한 첫 문장 반복 금지
 
 ${COMMON_GUIDELINES.OUTPUT_FORMAT}
-**⚠️ 항상 친절하고 자세하게, 감사 인사에 충분히 응답하세요!**
 
 [생성된 설계사 응답]`
 }

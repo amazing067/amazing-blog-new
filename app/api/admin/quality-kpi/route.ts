@@ -136,6 +136,21 @@ export async function GET(request: NextRequest) {
     let marketHeadMissingCount = 0
     const selectedConcernCounts: Record<string, number> = {}
 
+    // ── 신규 KPI: 다양성/안전 분포 모니터링 ──
+    const answerOpenerCategoryCounts: Record<string, number> = {} // 5개 톤 카테고리 분포
+    const answerStructureCounts: Record<string, number> = {}      // ANSWER_STRUCTURES 5개 분포
+    const answerPersonaCounts: Record<string, number> = {}        // ANSWER_PERSONAS 5개 분포
+    const titlePatternCounts: Record<string, number> = {}         // TITLE_PATTERNS 6개 분포
+    const openingFamilyCounts: Record<string, number> = {}        // OPENING_FAMILIES 18개 분포
+    const modelCallCounts: Record<string, number> = {}            // 호출된 모델별 횟수 (Pro/Flash 폴백률)
+    const answerLengthBuckets = { '<280': 0, '280-320': 0, '320-420': 0, '420-520': 0, '520+': 0 }
+    let answerLengthSum = 0
+    let answerLengthCount = 0
+    let answerCtaPresent = 0   // 답변에 영업 CTA 1개 이상 포함
+    let answerCtaChecked = 0
+    let coverageMentionSum = 0  // 보장명 언급 비율 (0~1)
+    let coverageMentionCount = 0
+
     ;(usageRows || []).forEach((r) => {
       if (r.type === 'qa') totalQa++
       else if (r.type === 'blog') totalBlog++
@@ -147,6 +162,7 @@ export async function GET(request: NextRequest) {
           'gemini-2.0-flash': { prompt: 0.10, completion: 0.40 },
           'gemini-2.5-flash': { prompt: 0.075, completion: 0.30 },
           'gemini-2.5-pro': { prompt: 1.25, completion: 10.0 },
+          'gemini-3.1-pro-preview': { prompt: 2.0, completion: 12.0 }, // 추정치
         }
         meta.tokenBreakdown.forEach((u: any) => {
           const rate = rates[u.model]
@@ -248,6 +264,42 @@ export async function GET(request: NextRequest) {
         if (selConcern) {
           selectedConcernCounts[selConcern] = (selectedConcernCounts[selConcern] || 0) + 1
         }
+
+        // ── 신규 다양성 분포 ──
+        if (meta?.answerOpenerCategory) {
+          answerOpenerCategoryCounts[meta.answerOpenerCategory] = (answerOpenerCategoryCounts[meta.answerOpenerCategory] || 0) + 1
+        }
+        if (meta?.answerStructureId) {
+          answerStructureCounts[meta.answerStructureId] = (answerStructureCounts[meta.answerStructureId] || 0) + 1
+        }
+        if (meta?.answerPersonaId) {
+          answerPersonaCounts[meta.answerPersonaId] = (answerPersonaCounts[meta.answerPersonaId] || 0) + 1
+        }
+        if (meta?.titlePatternId) {
+          titlePatternCounts[meta.titlePatternId] = (titlePatternCounts[meta.titlePatternId] || 0) + 1
+        }
+        if (meta?.openingFamilyId) {
+          openingFamilyCounts[meta.openingFamilyId] = (openingFamilyCounts[meta.openingFamilyId] || 0) + 1
+        }
+
+        // 답변 길이 분포
+        if (typeof meta?.answerLength === 'number' && meta.answerLength > 0) {
+          const len = meta.answerLength
+          answerLengthSum += len
+          answerLengthCount++
+          if (len < 280) answerLengthBuckets['<280']++
+          else if (len < 320) answerLengthBuckets['280-320']++
+          else if (len < 420) answerLengthBuckets['320-420']++
+          else if (len < 520) answerLengthBuckets['420-520']++
+          else answerLengthBuckets['520+']++
+        }
+
+        // 모델 호출 분포 (Pro 1순위가 폴백되는 비율)
+        if (Array.isArray(meta?.tokenBreakdown)) {
+          for (const u of meta.tokenBreakdown) {
+            if (u?.model) modelCallCounts[u.model] = (modelCallCounts[u.model] || 0) + 1
+          }
+        }
       }
     })
 
@@ -326,6 +378,64 @@ export async function GET(request: NextRequest) {
         const maxCount = Object.values(selectedConcernCounts).reduce((a, b) => Math.max(a, b), 0)
         return Math.round((maxCount / totalSessionsWithConcern) * 1000) / 10
       })(),
+
+      // ── 신규 KPI: 다양성 분포 모니터링 (값이 한쪽으로 쏠리면 다양성 잠금 의심) ──
+      answerOpenerCategoryCounts,        // 답변 첫 문장 톤 카테고리 5개 분포
+      answerStructureCounts,             // ANSWER_STRUCTURES 5개 분포 (구조 다양성)
+      answerPersonaCounts,               // ANSWER_PERSONAS 5개 분포 (답변자 다양성)
+      titlePatternCounts,                // TITLE_PATTERNS 6개 분포
+      openingFamilyCounts,               // OPENING_FAMILIES 18개 분포
+      modelCallCounts,                   // 호출된 모델별 횟수 (Pro 1순위가 폴백되는 비율 진단)
+      modelFallbackInsight: (() => {
+        const total = Object.values(modelCallCounts).reduce((a, b) => a + b, 0)
+        if (total === 0) return null
+        const pro31 = modelCallCounts['gemini-3.1-pro-preview'] || 0
+        const pro25 = modelCallCounts['gemini-2.5-pro'] || 0
+        const flash25 = modelCallCounts['gemini-2.5-flash'] || 0
+        const flash20 = modelCallCounts['gemini-2.0-flash'] || 0
+        return {
+          total,
+          pro31_rate: Math.round((pro31 / total) * 1000) / 10,
+          pro25_rate: Math.round((pro25 / total) * 1000) / 10,
+          flash25_rate: Math.round((flash25 / total) * 1000) / 10,
+          flash20_rate: Math.round((flash20 / total) * 1000) / 10,
+          // pro31이 1순위인데 거의 안 잡히면 모델명이 잘못된 것
+          pro31_alarming: pro31 < total * 0.1,
+        }
+      })(),
+
+      // 답변 길이 분포 (히스토그램 + 평균)
+      answerLengthBuckets,
+      answerLengthAvg: answerLengthCount > 0 ? Math.round(answerLengthSum / answerLengthCount) : null,
+      answerLengthCount,
+
+      // 답변 다양성 잠금 점수 (특정 항목이 50%+ 쏠리면 경고)
+      diversityLocks: {
+        answerOpenerLockRate: (() => {
+          const total = Object.values(answerOpenerCategoryCounts).reduce((a, b) => a + b, 0)
+          if (total === 0) return null
+          const max = Math.max(...Object.values(answerOpenerCategoryCounts))
+          return Math.round((max / total) * 1000) / 10
+        })(),
+        answerStructureLockRate: (() => {
+          const total = Object.values(answerStructureCounts).reduce((a, b) => a + b, 0)
+          if (total === 0) return null
+          const max = Math.max(...Object.values(answerStructureCounts))
+          return Math.round((max / total) * 1000) / 10
+        })(),
+        answerPersonaLockRate: (() => {
+          const total = Object.values(answerPersonaCounts).reduce((a, b) => a + b, 0)
+          if (total === 0) return null
+          const max = Math.max(...Object.values(answerPersonaCounts))
+          return Math.round((max / total) * 1000) / 10
+        })(),
+        openingFamilyLockRate: (() => {
+          const total = Object.values(openingFamilyCounts).reduce((a, b) => a + b, 0)
+          if (total === 0) return null
+          const max = Math.max(...Object.values(openingFamilyCounts))
+          return Math.round((max / total) * 1000) / 10
+        })(),
+      },
     }
 
     // 연관 키워드 사용 현황 (키워드·검색량 잘 잡히는지 확인용)

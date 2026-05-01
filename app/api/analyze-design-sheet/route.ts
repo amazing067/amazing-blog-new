@@ -1557,7 +1557,7 @@ ${searchResultsText ? `4단계: 검색 결과 활용
         designFocusLabel: designFocusLabel || undefined,
         companyShort: topicData.companyShort,
         personaBucket,
-        targetPersona: analysisData.targetPersona || '30대 직장인',
+        targetPersona: (analysisData.targetPersona && !/미확인|확인\s*불가|불명/.test(analysisData.targetPersona) ? analysisData.targetPersona : '30대 직장인'),
         worryPoint,
         sellingPoint,
         premium,

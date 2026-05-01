@@ -271,13 +271,13 @@ export function gateAnswer(
   const failures: string[] = []
   let score = 100
 
-  // 길이: 300~500자
+  // 길이: 280~550자 (실제 임계값과 메시지 일치)
   if (answer.length < 280) {
-    failures.push(`답변 너무 짧음: ${answer.length}자 (최소 300자)`)
+    failures.push(`답변 너무 짧음: ${answer.length}자 (최소 280자)`)
     score -= 30
   }
   if (answer.length > 550) {
-    failures.push(`답변 너무 김: ${answer.length}자 (최대 500자)`)
+    failures.push(`답변 너무 김: ${answer.length}자 (최대 550자)`)
     score -= 10
   }
 
@@ -376,6 +376,72 @@ export function gateAnswer(
   if (periodCount > 3) {
     failures.push(`마침표 과다 사용: ${periodCount}개`)
     score -= 10
+  }
+
+  // ── 4블록 흐름 검사: 판단 한 줄이 답변 앞부분(처음 75%)에 등장하는지 ──
+  // 임계값과 감점을 약화 (이전 60%/-5 → 75%/-2): 너무 엄격하면 답변 재생성 빈도 ↑
+  const judgmentEarlyPatterns = [
+    /자신.*있으면|자신.*없으면/,
+    /유리.*불리|불리.*유리/,
+    /유지.*가능|유지.*자신/,
+    /이건.*괜찮|이건.*부담|이건.*조심/,
+    /이 상품.*맞|이 상품.*안 맞/,
+    /본인.*상황|상황.*맞/,
+    /핵심|관건/,
+  ]
+  const answerLen = answer.length
+  if (answerLen >= 200) {
+    const firstPortion = answer.substring(0, Math.floor(answerLen * 0.75))
+    const judgmentInFirst = judgmentEarlyPatterns.some(p => p.test(firstPortion))
+    if (hasJudgment && !judgmentInFirst) {
+      failures.push('판단 한 줄이 답변 후반부에 위치 (앞 75% 안에 등장 권장)')
+      score -= 2 // 매우 가벼운 감점 (재생성 트리거 방지)
+    }
+  }
+
+  // ── AI 티 검출: "결론적으로", "종합적으로" 같은 AI 특유 표현 ──
+  const aiPhrasePatterns = [
+    /결론적으로/,
+    /종합적으로/,
+    /전반적으로/,
+    /다양한 관점에서/,
+    /여러 측면에서/,
+    /신중히 고려/,
+    /꼼꼼히 검토/,
+    /다음과 같이/,
+    /아래와 같이/,
+    /이러한 측면/,
+    /이런 부분에서/,
+    // 추가: 답변 본문에서 AI가 자주 만드는 분석체 표현 (12회 테스트에서 발견)
+    /[가-힣]+가 핵심 고민이신 것 같아요/,  // "이대로 가입해도 될까요가 핵심 고민이신 것 같아요"
+    /본인 상황에 맞으면 유리하지만 아니면 부담/,  // 정형 패턴 (12회 중 거의 모두)
+    /유리한데 아니면 부담/,
+    /맞으면 유리하고 안 맞으면 부담/,
+  ]
+  for (const p of aiPhrasePatterns) {
+    if (p.test(answer)) {
+      failures.push(`AI 티 표현 사용: "${answer.match(p)?.[0]}"`)
+      score -= 5
+      break
+    }
+  }
+
+  // ── 광고심의·과장 표현 검출 (카페 Q&A는 심의 의무 없지만 과장 표현은 신뢰도 저하) ──
+  const exaggerationPatterns = [
+    /\b1위\b/,
+    /제일\s*저렴/,
+    /최저가/,
+    /단연.*최고/,
+    /무조건\s*좋/,
+    /100%\s*보장/,
+    /절대\s*손해.*없/,
+  ]
+  for (const p of exaggerationPatterns) {
+    if (p.test(answer)) {
+      failures.push(`과장 표현 사용: "${answer.match(p)?.[0]}"`)
+      score -= 8
+      break
+    }
   }
 
   return { passed: failures.length === 0, field: 'answer', failures, score: Math.max(0, score) }
@@ -477,6 +543,32 @@ export function gateHumanLikeness(
   if (/전문가님|나[-~]\s*전문가님/.test(allText)) {
     failures.push('역할 누수: 전문가님 호칭')
     score -= 20
+  }
+
+  // 4-1. 세션 내 자가 유사도 (질문 첫 줄 ↔ 답변 첫 줄 ↔ 첫 댓글 첫 줄)
+  // 같은 글 안에서 첫 문장이 너무 비슷하면 단조로움
+  {
+    const qFirst = getFirstSentence(questionBody)
+    const aFirst = getFirstSentence(answer)
+    const cFirst = getFirstSentence(thread.find(m => m.role === 'customer')?.content || '')
+    const pairs: Array<[string, string, string]> = []
+    if (qFirst.length > 5 && aFirst.length > 5) pairs.push(['질문↔답변', qFirst, aFirst])
+    if (qFirst.length > 5 && cFirst.length > 5) pairs.push(['질문↔첫댓글', qFirst, cFirst])
+    if (aFirst.length > 5 && cFirst.length > 5) pairs.push(['답변↔첫댓글', aFirst, cFirst])
+
+    let intraMaxSim = 0
+    let intraMaxLabel = ''
+    for (const [label, a, b] of pairs) {
+      const sim = jaccardSimilarity(a, b)
+      if (sim > intraMaxSim) {
+        intraMaxSim = sim
+        intraMaxLabel = label
+      }
+    }
+    if (intraMaxSim >= 0.55) {
+      failures.push(`세션 내 ${intraMaxLabel} 첫 문장 유사도 ${Math.round(intraMaxSim * 100)}% (단조로움)`)
+      score -= 10
+    }
   }
 
   // 5. 첫 문장 유사도 검사 (최근 결과물 대비)
