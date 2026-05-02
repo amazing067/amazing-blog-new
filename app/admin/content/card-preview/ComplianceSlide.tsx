@@ -83,13 +83,16 @@ export function ComplianceSlide({ compliance, index, total }: Props) {
 
         {/* 4. 경고 (해지/신계약 불이익) — 옵션 */}
         {showWarning && (
-          <div className="rounded-xl bg-red-50 ring-1 ring-red-200 px-[3.5%] py-[2%] flex flex-col justify-center" style={{ flex: ratio.warn }}>
-            <div className="text-[2.6cqw] font-bold text-[#dc2626] mb-[0.6cqw] leading-snug">
-              ⚠ 보험계약자가 기존 보험계약을 해지하고 새로운 보험계약을 체결하는 과정에서
-            </div>
-            <div className="text-[2.3cqw] text-[#991b1b] leading-[1.55]">
-              ① 질병이력, 연령증가 등으로 가입이 거절되거나 보험료가 인상될 수 있습니다.<br />
-              ② 가입 상품에 따라 새로운 면책기간 적용 및 보장 제한 등 기타 불이익이 발생할 수 있습니다.
+          <div className="rounded-xl bg-red-50 ring-1 ring-red-200 px-[3.5%] py-[2%] flex gap-[1.5cqw] items-start" style={{ flex: ratio.warn }}>
+            <span className="text-[#dc2626] text-[2.8cqw] font-black leading-none flex-none mt-[0.3cqw]">⚠</span>
+            <div className="flex-1 break-keep">
+              <div className="text-[2.6cqw] font-bold text-[#dc2626] mb-[0.6cqw] leading-snug">
+                보험계약자가 기존 보험계약을 해지하고 새로운 보험계약을 체결하는 과정에서
+              </div>
+              <div className="text-[2.3cqw] text-[#991b1b] leading-[1.55]">
+                ① 질병이력, 연령증가 등으로 가입이 거절되거나 보험료가 인상될 수 있습니다.<br />
+                ② 가입 상품에 따라 새로운 면책기간 적용 및 보장 제한 등 기타 불이익이 발생할 수 있습니다.
+              </div>
             </div>
           </div>
         )}
