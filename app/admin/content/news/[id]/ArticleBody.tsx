@@ -7,7 +7,7 @@ import { mdComponents } from './MdComponents';
 export default function ArticleBody({ markdown }: { markdown: string }) {
   return (
     <ReactMarkdown
-      remarkPlugins={[remarkGfm]}
+      remarkPlugins={[[remarkGfm, { singleTilde: false }]]}
       rehypePlugins={[rehypeRaw]}
       components={mdComponents}
     >
