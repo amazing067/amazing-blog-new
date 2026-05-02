@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
-import { Shield, LogOut, UserCheck, UserX, Sparkles, BarChart3, FileText, Lock, ClipboardCheck } from 'lucide-react'
+import { Shield, LogOut, UserCheck, UserX, Sparkles, BarChart3, FileText, Lock, ClipboardCheck, Newspaper } from 'lucide-react'
 import Link from 'next/link'
 
 export default async function AdminDashboardPage() {
@@ -242,6 +242,49 @@ export default async function AdminDashboardPage() {
                 </div>
                 <div className="text-sm text-blue-100">
                   이미 준비된 템플릿으로 빠르게 시작하세요
+                </div>
+              </div>
+            </div>
+          </Link>
+
+          {/* 콘텐츠 허브 카드 (관리자 전용) */}
+          <Link
+            href="/admin/content/news"
+            className="block mt-8 bg-gradient-to-br from-emerald-600 via-teal-600 to-cyan-700 rounded-3xl shadow-2xl p-10 text-white hover:shadow-3xl transition-all transform hover:scale-[1.02] relative overflow-hidden group"
+          >
+            <div className="absolute top-0 right-0 w-72 h-72 bg-white/10 rounded-full -translate-y-32 translate-x-32 group-hover:scale-110 transition-transform"></div>
+            <div className="relative z-10">
+              <div className="flex items-center gap-4 mb-4">
+                <div className="bg-white/20 p-4 rounded-2xl backdrop-blur-sm">
+                  <Newspaper className="w-10 h-10 text-yellow-200" />
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black mb-1">보험뉴스 자동 수집·검수</h2>
+                  <p className="text-emerald-100 text-base">
+                    매일 06:00 RSS 자동 수집 → AI 요약 → 광고심의 검수 → 카페 게시 준비
+                  </p>
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-3 mt-6">
+                <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3">
+                  <div className="text-2xl mb-1">📰</div>
+                  <div className="font-semibold text-sm">RSS 자동 수집</div>
+                  <div className="text-xs text-emerald-100 mt-1">한국보험신문·보험매일·인슈넷</div>
+                </div>
+                <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3">
+                  <div className="text-2xl mb-1">🛡️</div>
+                  <div className="font-semibold text-sm">광고심의 자동 검수</div>
+                  <div className="text-xs text-emerald-100 mt-1">금지표현·보험사명·상품명</div>
+                </div>
+                <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3">
+                  <div className="text-2xl mb-1">📋</div>
+                  <div className="font-semibold text-sm">카페 게시 한 클릭</div>
+                  <div className="text-xs text-emerald-100 mt-1">복사·다운로드·발행마킹</div>
+                </div>
+              </div>
+              <div className="mt-6 flex items-center gap-3">
+                <div className="px-5 py-2 bg-white text-emerald-700 font-bold rounded-xl inline-flex items-center gap-2 group-hover:scale-110 transition-transform text-sm">
+                  검수 대기열 열기 →
                 </div>
               </div>
             </div>
