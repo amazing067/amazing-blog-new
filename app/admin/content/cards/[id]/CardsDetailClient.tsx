@@ -6,6 +6,7 @@ import html2canvas from 'html2canvas';
 import JSZip from 'jszip';
 import { Download, CheckCircle2, X, Trash2, Loader2, Shield, Search } from 'lucide-react';
 import { HybridStyle } from '../../card-preview/CardStyles';
+import { ComplianceSlide } from '../../card-preview/ComplianceSlide';
 import type { CardSlide, ComplianceInfo } from '@/lib/content/types';
 
 type Props = {
@@ -164,13 +165,28 @@ export default function CardsDetailClient({ id, userId, defaultDesigner, title, 
       {/* 카드 5장 미리보기 — 캡처 대상 */}
       <div className="lg:col-span-2 space-y-6">
         <div className="grid gap-5 grid-cols-1 sm:grid-cols-2">
-          {slides.map((s, i) => (
-            <div key={i} className="aspect-square">
-              <div ref={(el) => { captureRefs.current[i] = el; }} className="w-full h-full">
-                <HybridStyle slide={s} index={i} total={slides.length} compliance={comp} />
-              </div>
-            </div>
-          ))}
+          {(() => {
+            const showCompliance = !!(comp.number || comp.start_date || comp.end_date || comp.designer || comp.registration);
+            const total = slides.length + (showCompliance ? 1 : 0);
+            return (
+              <>
+                {slides.map((s, i) => (
+                  <div key={i} className="aspect-square">
+                    <div ref={(el) => { captureRefs.current[i] = el; }} className="w-full h-full">
+                      <HybridStyle slide={s} index={i} total={total} compliance={comp} />
+                    </div>
+                  </div>
+                ))}
+                {showCompliance && (
+                  <div className="aspect-square">
+                    <div ref={(el) => { captureRefs.current[slides.length] = el; }} className="w-full h-full">
+                      <ComplianceSlide compliance={comp} index={slides.length} total={total} />
+                    </div>
+                  </div>
+                )}
+              </>
+            );
+          })()}
         </div>
       </div>
 

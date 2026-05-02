@@ -1,10 +1,20 @@
 import { NextResponse } from 'next/server';
 import { requireAdmin, adminClient } from '@/lib/admin/guard';
 import { lintContent } from '@/lib/content/compliance-lint';
+import { LINT_ENABLED } from '@/lib/content/lint-config';
 
 export async function POST(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   await requireAdmin();
   const { id } = await ctx.params;
+
+  if (!LINT_ENABLED.news) {
+    return NextResponse.json({
+      ok: false,
+      disabled: true,
+      message: '보험뉴스 룰엔진이 비활성화돼 있습니다 (lint-config.ts에서 토글)',
+    }, { status: 200 });
+  }
+
   const supa = adminClient();
   const { data: item } = await supa.from('content_items').select('body_md').eq('id', id).single();
   if (!item) return NextResponse.json({ error: 'not found' }, { status: 404 });
