@@ -41,11 +41,11 @@ const ICONS = {
 type Props = { slide: CardSlide; index: number; total: number };
 
 const TONES = [
-  { bg: 'bg-[#1b64da]',  ink: 'text-white', sub: 'text-white/85', accent: 'bg-yellow-300', accentInk: 'text-slate-900', soft: 'bg-white/15' },
-  { bg: 'bg-[#0f172a]',  ink: 'text-white', sub: 'text-white/80', accent: 'bg-emerald-400', accentInk: 'text-slate-900', soft: 'bg-white/10' },
-  { bg: 'bg-[#7c3aed]',  ink: 'text-white', sub: 'text-white/85', accent: 'bg-amber-300', accentInk: 'text-slate-900', soft: 'bg-white/15' },
-  { bg: 'bg-[#0e7490]',  ink: 'text-white', sub: 'text-white/85', accent: 'bg-pink-300', accentInk: 'text-slate-900', soft: 'bg-white/15' },
-  { bg: 'bg-[#dc2626]',  ink: 'text-white', sub: 'text-white/85', accent: 'bg-yellow-300', accentInk: 'text-slate-900', soft: 'bg-white/15' },
+  { bg: 'bg-[#1b64da]',  ink: 'text-white', sub: 'text-white/85', accent: 'bg-yellow-300', accentText: 'text-yellow-300',  accentInk: 'text-slate-900', soft: 'bg-white/15' },
+  { bg: 'bg-[#0f172a]',  ink: 'text-white', sub: 'text-white/80', accent: 'bg-emerald-400', accentText: 'text-emerald-400', accentInk: 'text-slate-900', soft: 'bg-white/10' },
+  { bg: 'bg-[#7c3aed]',  ink: 'text-white', sub: 'text-white/85', accent: 'bg-amber-300', accentText: 'text-amber-300',   accentInk: 'text-slate-900', soft: 'bg-white/15' },
+  { bg: 'bg-[#0e7490]',  ink: 'text-white', sub: 'text-white/85', accent: 'bg-pink-300', accentText: 'text-pink-300',     accentInk: 'text-slate-900', soft: 'bg-white/15' },
+  { bg: 'bg-[#dc2626]',  ink: 'text-white', sub: 'text-white/85', accent: 'bg-yellow-300', accentText: 'text-yellow-300',  accentInk: 'text-slate-900', soft: 'bg-white/15' },
 ];
 
 // container query units 기반 폰트 — 인스타 피드(~400px)에서 잘 보이도록 큼지막하게.
@@ -60,13 +60,13 @@ const F = {
   coverBigStat: 'text-[20cqw] font-black leading-none',                         // ~216px
   coverStatLab: 'text-[3.6cqw] font-bold uppercase tracking-wide',              // ~39px
   pointEyebrow: 'text-[3.6cqw] font-extrabold uppercase tracking-wider',        // ~39px
-  pointBigStat: 'text-[20cqw] font-black leading-none tracking-tight',          // ~216px
-  pointStatLab: 'text-[3.6cqw] font-bold uppercase tracking-wide',              // ~39px
-  pointTitle:   'text-[9cqw] font-black leading-[1.1]',                         // ~97px
-  pointBody:    'text-[5cqw] leading-[1.45] font-medium',                       // ~54px
+  pointTitle:   'text-[10cqw] font-black leading-[1.05] tracking-tight',        // ~108px (메인 = 가장 큼)
+  pointBigStat: 'text-[14cqw] font-black leading-none tracking-tight',          // ~151px (보조 시각)
+  pointStatLab: 'text-[3.4cqw] font-bold uppercase tracking-wide',              // ~37px
+  pointBody:    'text-[4.2cqw] leading-[1.45]',                                 // ~45px (보조 설명)
   closingTitle: 'text-[9.4cqw] font-black leading-[1.1]',                       // ~102px
-  closingItem:  'text-[6cqw] font-extrabold leading-tight',                     // ~65px
-  closingItemNum:'text-[5cqw] font-black',                                      // ~54px
+  closingItem:  'text-[5cqw] font-bold leading-tight',                          // ~54px (한 줄에 들어가게)
+  closingItemNum:'text-[4.4cqw] font-black',                                    // ~48px
   footer:       'text-[2.4cqw]',                                                // ~26px
   ctaChip:      'text-[4cqw] font-extrabold',                                   // ~43px
 };
@@ -131,7 +131,7 @@ export function HybridStyle({ slide, index, total }: Props) {
       <div style={containerStyle} className={`${CARD_BASE} ${t.bg} ${t.ink}`}>
         {BgDeco}{PageBadge}
         <div className="relative h-full flex flex-col px-[5%] py-[5%]">
-          {/* POINT 라벨 */}
+          {/* POINT 라벨 + 아이콘 */}
           <div className={`flex items-center justify-between`}>
             <div className={`${F.pointEyebrow} ${t.sub}`}>POINT {slide.number}</div>
             <div className={`flex-none ${t.soft} rounded-full p-[3%] backdrop-blur-sm`}>
@@ -139,19 +139,21 @@ export function HybridStyle({ slide, index, total }: Props) {
             </div>
           </div>
 
-          {/* 거대 통계 — 가장 눈에 띄는 메인 포인트 */}
-          <div className="mt-[6%]">
-            <div className={`${F.pointStatLab} ${t.sub} mb-[1cqw]`}>{slide.bigStatLabel}</div>
-            <div className={F.pointBigStat}>{slide.bigStat}</div>
-          </div>
-
-          {/* 짧은 헤딩 */}
-          <h3 className={`mt-[6%] ${F.pointTitle} whitespace-normal break-keep`}>
+          {/* 메인 헤딩 — 가장 큰 글자, 제목 역할 */}
+          <h3 className={`mt-[5%] ${F.pointTitle} whitespace-normal break-keep`}>
             {slide.title.replace(/\n/g, ' ')}
           </h3>
 
-          {/* 짧은 본문 */}
-          <p className={`mt-auto ${F.pointBody} ${t.ink}`}>{slide.body}</p>
+          {/* 거대 숫자 — 보조 시각 임팩트 (헤딩의 핵심을 한 번 더 강조) */}
+          <div className={`mt-[6%] flex items-baseline gap-[2cqw]`}>
+            <div className={`${F.pointBigStat} ${t.accentText}`}>
+              {slide.bigStat}
+            </div>
+            <div className={`${F.pointStatLab} ${t.sub} pb-[2cqw]`}>{slide.bigStatLabel}</div>
+          </div>
+
+          {/* 본문 — 부연 설명 (가장 작은 글자, 흐림) */}
+          <p className={`mt-auto ${F.pointBody} ${t.sub}`}>{slide.body}</p>
         </div>
       </div>
     );
