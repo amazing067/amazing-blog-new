@@ -185,5 +185,12 @@ export async function generateCardSet(topic: Topic): Promise<GeneratedCardSet> {
   const obj = JSON.parse(text.slice(s, e + 1)) as { title?: unknown; slides?: unknown };
   const title = String(obj.title ?? '');
   const slides = validateSlides(obj.slides);
-  return { title, slides };
+  return {
+    title,
+    slides,
+    usage: {
+      input_tokens: message.usage?.input_tokens ?? 0,
+      output_tokens: message.usage?.output_tokens ?? 0,
+    },
+  };
 }

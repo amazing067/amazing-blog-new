@@ -6,6 +6,7 @@ import { generateTopicArticle } from '@/lib/content/generator';
 import { factCheckArticle } from '@/lib/content/fact-check';
 import { lintContent } from '@/lib/content/compliance-lint';
 import { LINT_ENABLED } from '@/lib/content/lint-config';
+import { calcCost } from '@/lib/content/billing';
 import type { EnforcementMode } from '@/lib/content/types';
 
 const DAILY_LIMIT = 1;
@@ -45,7 +46,7 @@ export async function GET(req: Request) {
       const gen = await generateTopicArticle(topic);
 
       // 2. Gemini로 fact-check (Google Search Grounding)
-      const fc = await factCheckArticle(gen.title, gen.body_md).catch(err => {
+      const fc = await factCheckArticle(gen.title, gen.body_md).catch((err): import('@/lib/content/fact-check').FactCheckResult => {
         console.error('[daily-build] fact-check failed', err);
         return { passed: true, issues: [], raw: '' };
       });
@@ -54,6 +55,14 @@ export async function GET(req: Request) {
 
       // 3. 광고심의 lint (LINT_ENABLED.news 토글로 제어 — 현재 false, 보험뉴스는 룰엔진 미적용)
       const lint = LINT_ENABLED.news ? lintContent(gen.body_md) : null;
+
+      // 비용 계산
+      const genIn = gen.usage?.input_tokens ?? 0;
+      const genOut = gen.usage?.output_tokens ?? 0;
+      const fcIn = fc.usage?.input_tokens ?? 0;
+      const fcOut = fc.usage?.output_tokens ?? 0;
+      const genCost = calcCost('claude-haiku-4-5', genIn, genOut);
+      const fcCost = calcCost('gemini-2.5-flash', fcIn, fcOut);
 
       // 4. DB 저장 (fact-check high 이슈 있으면 review 유지하되 fact_check 기록)
       const { data: inserted, error } = await supa
@@ -70,6 +79,13 @@ export async function GET(req: Request) {
           enforcement_mode: mode,
           generated_by: GENERATOR_MODEL,
           fact_check: { passed: fc.passed, issues: fc.issues },
+          gen_input_tokens: genIn,
+          gen_output_tokens: genOut,
+          gen_cost_usd: genCost,
+          fc_input_tokens: fcIn,
+          fc_output_tokens: fcOut,
+          fc_cost_usd: fcCost,
+          total_cost_usd: genCost + fcCost,
         }).select('id').single();
       if (error || !inserted) throw error ?? new Error('insert failed');
 

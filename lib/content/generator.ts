@@ -155,5 +155,12 @@ export async function generateTopicArticle(topic: Topic): Promise<GeneratedSumma
   if (typeof obj.title !== 'string' || typeof obj.body_md !== 'string') {
     throw new Error('Claude 응답 형식 오류');
   }
-  return { title: obj.title, body_md: obj.body_md };
+  return {
+    title: obj.title,
+    body_md: obj.body_md,
+    usage: {
+      input_tokens: message.usage?.input_tokens ?? 0,
+      output_tokens: message.usage?.output_tokens ?? 0,
+    },
+  };
 }

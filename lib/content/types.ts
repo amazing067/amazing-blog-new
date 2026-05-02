@@ -29,9 +29,15 @@ export type LintResult = {
   suggestions: string[];
 };
 
+export type Usage = {
+  input_tokens: number;
+  output_tokens: number;
+};
+
 export type GeneratedSummary = {
   title: string;
   body_md: string;
+  usage?: Usage;
 };
 
 // 카드뉴스 5장 슬라이드 — cover + point×3 + closing
@@ -72,6 +78,7 @@ export type CardSlide =
 export type GeneratedCardSet = {
   title: string;          // 콘텐츠 제목 (slide[0].title 사용 가능)
   slides: CardSlide[];    // 정확히 5장
+  usage?: Usage;
 };
 
 // 광고심의필 정보 — BlogGenerator의 ApprovalGenerator와 동일 구조

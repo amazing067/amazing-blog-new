@@ -5,6 +5,7 @@ import { pickFreshTopics } from '@/lib/content/topic-picker';
 import { generateCardSet } from '@/lib/content/generator-card';
 import { factCheckArticle } from '@/lib/content/fact-check';
 import { lintContent } from '@/lib/content/compliance-lint';
+import { calcCost } from '@/lib/content/billing';
 import type { CardSlide, EnforcementMode } from '@/lib/content/types';
 
 const DAILY_LIMIT = 1;
@@ -51,7 +52,7 @@ export async function GET(req: Request) {
       const set = await generateCardSet(topic);
       const fullText = slidesToPlainText(set.slides);
 
-      const fc = await factCheckArticle(set.title, fullText).catch(err => {
+      const fc = await factCheckArticle(set.title, fullText).catch((err): import('@/lib/content/fact-check').FactCheckResult => {
         console.error('[daily-card] fact-check failed', err);
         return { passed: true, issues: [], raw: '' };
       });
@@ -60,11 +61,19 @@ export async function GET(req: Request) {
 
       const lint = lintContent(fullText);
 
+      // 비용 계산
+      const genIn = set.usage?.input_tokens ?? 0;
+      const genOut = set.usage?.output_tokens ?? 0;
+      const fcIn = fc.usage?.input_tokens ?? 0;
+      const fcOut = fc.usage?.output_tokens ?? 0;
+      const genCost = calcCost('claude-haiku-4-5', genIn, genOut);
+      const fcCost = calcCost('gemini-2.5-flash', fcIn, fcOut);
+
       const { data: inserted, error } = await supa.from('content_items').insert({
         type: 'card',
         title: set.title,
-        body_md: fullText,                // 검색·복사용 평문
-        card_slides: set.slides,           // 5장 JSON
+        body_md: fullText,
+        card_slides: set.slides,
         source_refs: [{
           topic_slug: topic.slug,
           category: topic.category,
@@ -74,6 +83,13 @@ export async function GET(req: Request) {
         enforcement_mode: mode,
         generated_by: GENERATOR_MODEL,
         fact_check: { passed: fc.passed, issues: fc.issues },
+        gen_input_tokens: genIn,
+        gen_output_tokens: genOut,
+        gen_cost_usd: genCost,
+        fc_input_tokens: fcIn,
+        fc_output_tokens: fcOut,
+        fc_cost_usd: fcCost,
+        total_cost_usd: genCost + fcCost,
       }).select('id').single();
       if (error || !inserted) throw error ?? new Error('insert failed');
 

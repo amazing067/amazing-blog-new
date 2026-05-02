@@ -10,6 +10,7 @@ export type FactCheckResult = {
   passed: boolean;          // high 이슈 없으면 통과
   issues: FactCheckIssue[];
   raw: string;              // 원본 응답 (디버깅용)
+  usage?: { input_tokens: number; output_tokens: number };
 };
 
 const PROMPT = (title: string, body: string) => `당신은 한국 보험 콘텐츠의 사실 검증 전문가입니다.
@@ -62,20 +63,22 @@ export async function factCheckArticle(title: string, body: string): Promise<Fac
 
   const result = await model.generateContent(PROMPT(title, body));
   const text = result.response.text().trim();
+  const um = result.response.usageMetadata;
+  const usage = um ? { input_tokens: um.promptTokenCount ?? 0, output_tokens: um.candidatesTokenCount ?? 0 } : undefined;
 
   const s = text.indexOf('{');
   const e = text.lastIndexOf('}');
   if (s === -1 || e === -1) {
     console.error('[fact-check] no JSON in response:', text.slice(0, 500));
-    return { passed: true, issues: [], raw: text };
+    return { passed: true, issues: [], raw: text, usage };
   }
   try {
     const obj = JSON.parse(text.slice(s, e + 1)) as { issues?: FactCheckIssue[] };
     const issues = Array.isArray(obj.issues) ? obj.issues : [];
     const hasHigh = issues.some(i => i.severity === 'high');
-    return { passed: !hasHigh, issues, raw: text };
+    return { passed: !hasHigh, issues, raw: text, usage };
   } catch (err) {
     console.error('[fact-check] JSON parse failed:', text.slice(0, 500), err);
-    return { passed: true, issues: [], raw: text };
+    return { passed: true, issues: [], raw: text, usage };
   }
 }
