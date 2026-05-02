@@ -368,17 +368,21 @@ export default function CardsDetailClient({ id, userId, defaultDesigner, title, 
 
         {/* PNG 다운로드 */}
         <div className="rounded-2xl border border-violet-200 bg-violet-50 p-5">
-          <h3 className="font-bold text-violet-900 mb-3">5장 PNG 다운로드</h3>
+          <h3 className="font-bold text-violet-900 mb-3">PNG 다운로드</h3>
+          <p className="text-[11px] text-violet-700 mb-2">
+            본문 5장 + 심의필 1장 = <strong>총 6장</strong> (심의 정보 입력 시) <br />
+            심의 정보 비어있으면 본문 5장만.
+          </p>
           <button
             disabled={!!busy}
             onClick={downloadAllPng}
             className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 hover:bg-slate-800 px-4 py-3 text-sm font-bold text-white shadow-sm disabled:opacity-50 transition"
           >
             {busy === 'download' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-            5장 PNG zip 다운로드
+            PNG zip 다운로드
           </button>
           <p className="mt-2 text-xs text-violet-700">
-            인스타그램 새 게시글 → 5장 캐러셀로 업로드하세요.
+            인스타그램 새 게시글 → 캐러셀로 업로드하세요. (마지막 슬라이드 = 심의필)
           </p>
         </div>
 
