@@ -244,9 +244,11 @@ export default function CardsDetailClient({ id, userId, defaultDesigner, title, 
             return (
               <div className="space-y-5">
                 {slides.map((s, i) => (
-                  <div key={i} className="grid gap-4 grid-cols-1 lg:grid-cols-2 items-start">
-                    <SlideEditor slide={s} index={i} onChange={(next) => updateSlide(i, next)} />
-                    <div className="aspect-square sticky top-24">
+                  <div key={i} className="grid gap-4 grid-cols-1 lg:grid-cols-2 items-stretch">
+                    <div className="aspect-square">
+                      <SlideEditor slide={s} index={i} onChange={(next) => updateSlide(i, next)} />
+                    </div>
+                    <div className="aspect-square">
                       <div ref={(el) => { captureRefs.current[i] = el; }} className="w-full h-full">
                         <HybridStyle slide={s} index={i} total={total} compliance={comp} />
                       </div>
@@ -254,11 +256,11 @@ export default function CardsDetailClient({ id, userId, defaultDesigner, title, 
                   </div>
                 ))}
                 {showCompliance && (
-                  <div className="grid gap-4 grid-cols-1 lg:grid-cols-2 items-start">
-                    <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-900 leading-relaxed">
-                      <p className="font-bold mb-1">📋 6번째 심의필 슬라이드</p>
-                      <p>이 카드는 우측 사이드바의 <strong>광고심의필 정보 폼</strong>에서 수정합니다.</p>
-                      <p className="mt-2">회사명 · 지점명 · 설계사명 · 협회등록번호 · 심의번호 · 시작/종료일 · 경고문구 포함 여부.</p>
+                  <div className="grid gap-4 grid-cols-1 lg:grid-cols-2 items-stretch">
+                    <div className="aspect-square rounded-xl border border-amber-200 bg-amber-50 p-5 text-amber-900 flex flex-col justify-center">
+                      <p className="font-bold text-base mb-2">📋 6번째 심의필 슬라이드</p>
+                      <p className="text-sm leading-relaxed">이 카드는 우측 사이드바의 <strong>광고심의필 정보 폼</strong>에서 수정합니다.</p>
+                      <p className="mt-3 text-xs leading-relaxed">회사명 · 지점명 · 설계사명 · 협회등록번호 · 심의번호 · 시작/종료일 · 경고문구 포함 여부.</p>
                     </div>
                     <div className="aspect-square">
                       <div ref={(el) => { captureRefs.current[slides.length] = el; }} className="w-full h-full">
