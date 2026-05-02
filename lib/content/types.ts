@@ -73,3 +73,15 @@ export type GeneratedCardSet = {
   title: string;          // 콘텐츠 제목 (slide[0].title 사용 가능)
   slides: CardSlide[];    // 정확히 5장
 };
+
+// 광고심의필 정보 — BlogGenerator의 ApprovalGenerator와 동일 구조
+export type ComplianceInfo = {
+  company: string;          // 회사명 (default "프라임에셋")
+  branch?: string;          // 지점명
+  designer?: string;        // 설계사명
+  registration?: string;    // 협회등록번호
+  number?: string;          // 심의번호 (예: "제2026-1234호")
+  start_date?: string;      // 심의 시작일 (YYYY-MM-DD)
+  end_date?: string;        // 심의 종료일 (YYYY-MM-DD)
+  include_warning?: boolean;// 경고 문구 포함 여부
+};

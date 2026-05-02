@@ -14,10 +14,10 @@ export const COMPARISON_PATTERNS: { pattern: RegExp; label: string }[] = [
   { pattern: /(보다|대비)\s*(더\s*)?(저렴|싼|싸고|좋고|우수)/g, label: '비교 우위' },
   // "실제 사례"는 개인정보·검증 측면에서 광고심의 위험 — "예시 사례"로 표기 권장
   { pattern: /실제\s*사례/g, label: '실제사례 (예시사례로 표기 권장)' },
-  // 돈 액수 단정은 광고심의 위험 — 비율·등급·개념어로 대체 권장
-  { pattern: /\d+(천만|백만|만|억)\s*원/g, label: '돈 액수' },
-  { pattern: /(수십|수백|수천)\s*만\s*원/g, label: '돈 액수(개략)' },
-  { pattern: /월\s*\d+\s*(만|천)\s*원/g, label: '월 액수' },
+  // 추상적 액수 표현은 광고심의 위험 — 구체 숫자(예: 30만원)는 OK, "수백만원" 같은 모호한 표현만 차단
+  { pattern: /(수십|수백|수천|수억)\s*만\s*원/g, label: '추상 액수(수십·수백 만원)' },
+  { pattern: /(수십|수백|수천|수억)\s*억(\s*원)?/g, label: '추상 액수(수십·수백 억)' },
+  { pattern: /수\s*(만|천만|백만|억)\s*원/g, label: '추상 액수(수만·수천만)' },
 ];
 
 export const GUARANTEE_TERMS = [

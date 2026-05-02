@@ -1,9 +1,9 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { adminClient } from '@/lib/admin/guard';
+import { adminClient, requireAdmin } from '@/lib/admin/guard';
 import { ArrowLeft, Images } from 'lucide-react';
 import CardsDetailClient from './CardsDetailClient';
-import type { CardSlide } from '@/lib/content/types';
+import type { CardSlide, ComplianceInfo } from '@/lib/content/types';
 
 const STATUS_LABEL: Record<string, { label: string; cls: string }> = {
   review:    { label: '검토 대기', cls: 'bg-amber-100 text-amber-800 border-amber-200' },
@@ -14,9 +14,11 @@ const STATUS_LABEL: Record<string, { label: string; cls: string }> = {
 
 export default async function CardsDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  const { user } = await requireAdmin();
   const supa = adminClient();
   const { data: item } = await supa.from('content_items').select('*').eq('id', id).single();
   if (!item || item.type !== 'card') notFound();
+  const { data: profile } = await supa.from('profiles').select('full_name').eq('id', user.id).single();
   const { data: lint } = await supa.from('compliance_lints')
     .select('*').eq('content_id', id).order('created_at', { ascending: false }).limit(1).maybeSingle();
 
@@ -47,12 +49,13 @@ export default async function CardsDetailPage({ params }: { params: Promise<{ id
 
       <CardsDetailClient
         id={item.id}
+        userId={user.id}
+        defaultDesigner={(profile as { full_name?: string } | null)?.full_name ?? ''}
         title={item.title}
         status={item.status}
         publishUrl={item.publish_url ?? ''}
         slides={slides}
-        complianceNumber={item.compliance_number ?? ''}
-        complianceExpires={item.compliance_expires ?? ''}
+        compliance={(item.compliance as ComplianceInfo | null) ?? null}
         lint={lint}
         factCheck={factCheck}
       />

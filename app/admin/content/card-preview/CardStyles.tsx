@@ -7,9 +7,9 @@ import {
   ClipboardCheck, Zap,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import type { CardSlide, CardIconKey } from '@/lib/content/types';
+import type { CardSlide, CardIconKey, ComplianceInfo } from '@/lib/content/types';
 
-export type { CardSlide };
+export type { CardSlide, ComplianceInfo };
 
 const ICONS: Record<CardIconKey, LucideIcon> = {
   sparkles: Sparkles, shield: Shield,
@@ -24,7 +24,7 @@ type Props = {
   slide: CardSlide;
   index: number;
   total: number;
-  compliance?: { number?: string | null; expires?: string | null };
+  compliance?: ComplianceInfo | null;
 };
 
 const TONES = [
@@ -182,10 +182,21 @@ export function HybridStyle({ slide, index, total, compliance }: Props) {
           {compliance?.number ? (
             <>
               <div className={`font-bold ${t.ink}`}>
-                광고심의필 {compliance.number}
-                {compliance.expires && <span className={`${t.sub} font-normal ml-[1.5cqw]`}>유효 ~{compliance.expires}</span>}
+                {compliance.company || '프라임에셋'} 심의필 {compliance.number}
+                {(compliance.start_date || compliance.end_date) && (
+                  <span className={`${t.sub} font-normal ml-[1.5cqw]`}>
+                    ({compliance.start_date || ''}~{compliance.end_date || ''})
+                  </span>
+                )}
               </div>
-              <div className={`mt-[0.5cqw] ${t.sub}`}>{slide.footer}</div>
+              {(compliance.branch || compliance.designer || compliance.registration) && (
+                <div className={`mt-[0.5cqw] ${t.sub}`}>
+                  {[compliance.branch, compliance.designer, compliance.registration].filter(Boolean).join(' · ')}
+                </div>
+              )}
+              {compliance.include_warning && (
+                <div className={`mt-[0.5cqw] ${t.sub}`}>본 광고는 광고심의기준을 준수하였으며, 유효기간은 심의일로부터 1년입니다.</div>
+              )}
             </>
           ) : (
             slide.footer

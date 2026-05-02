@@ -1,21 +1,22 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import html2canvas from 'html2canvas';
 import JSZip from 'jszip';
 import { Download, CheckCircle2, X, Trash2, Loader2, Shield, Search } from 'lucide-react';
 import { HybridStyle } from '../../card-preview/CardStyles';
-import type { CardSlide } from '@/lib/content/types';
+import type { CardSlide, ComplianceInfo } from '@/lib/content/types';
 
 type Props = {
   id: string;
+  userId: string;
+  defaultDesigner: string;
   title: string;
   status: string;
   publishUrl: string;
   slides: CardSlide[];
-  complianceNumber: string;
-  complianceExpires: string;
+  compliance: ComplianceInfo | null;
   lint: {
     risk_score: number;
     forbidden_terms_found: string[] | null;
@@ -39,13 +40,51 @@ function riskTone(score: number) {
   return                  { text: 'text-emerald-700', bar: 'bg-emerald-500', label: '안전' };
 }
 
-export default function CardsDetailClient({ id, title, status, publishUrl, slides, complianceNumber, complianceExpires, lint, factCheck }: Props) {
+// BlogGenerator의 ApprovalGenerator와 동일한 localStorage 키 (사용자별)
+const LS_REG = (uid: string) => `insurance_registration_number_${uid}`;
+const LS_BRANCH = (uid: string) => `insurance_branch_name_${uid}`;
+
+export default function CardsDetailClient({ id, userId, defaultDesigner, title, status, publishUrl, slides, compliance, lint, factCheck }: Props) {
   const router = useRouter();
   const captureRefs = useRef<Array<HTMLDivElement | null>>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [url, setUrl] = useState(publishUrl);
-  const [compNum, setCompNum] = useState(complianceNumber);
-  const [compExp, setCompExp] = useState(complianceExpires);
+
+  // 광고심의 폼 — ApprovalGenerator와 동일 구조
+  const [comp, setComp] = useState<ComplianceInfo>({
+    company: compliance?.company ?? '프라임에셋',
+    branch: compliance?.branch ?? '',
+    designer: compliance?.designer ?? defaultDesigner,
+    registration: compliance?.registration ?? '',
+    number: compliance?.number ?? '',
+    start_date: compliance?.start_date ?? '',
+    end_date: compliance?.end_date ?? '',
+    include_warning: compliance?.include_warning ?? true,
+  });
+
+  // 최초 마운트 시 localStorage에서 default 채우기 (사용자가 BlogGenerator에서 한 번 입력했다면 자동)
+  useEffect(() => {
+    if (typeof window === 'undefined' || !userId) return;
+    const storedReg = localStorage.getItem(LS_REG(userId)) || '';
+    const storedBranch = localStorage.getItem(LS_BRANCH(userId)) || '';
+    setComp(prev => ({
+      ...prev,
+      branch: prev.branch || storedBranch,
+      registration: prev.registration || storedReg,
+    }));
+  }, [userId]);
+
+  function updateComp<K extends keyof ComplianceInfo>(field: K, value: ComplianceInfo[K]) {
+    setComp(prev => {
+      const next = { ...prev, [field]: value };
+      // localStorage 동기화 (BlogGenerator와 공유)
+      if (typeof window !== 'undefined' && userId) {
+        if (field === 'registration') localStorage.setItem(LS_REG(userId), String(value ?? ''));
+        if (field === 'branch') localStorage.setItem(LS_BRANCH(userId), String(value ?? ''));
+      }
+      return next;
+    });
+  }
 
   async function saveCompliance() {
     setBusy('compliance');
@@ -53,7 +92,7 @@ export default function CardsDetailClient({ id, title, status, publishUrl, slide
       const res = await fetch(`/api/admin/content/cards/${id}/compliance`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ number: compNum || null, expires: compExp || null }),
+        body: JSON.stringify(comp),
       });
       if (!res.ok) throw new Error(await res.text());
       router.refresh();
@@ -128,12 +167,7 @@ export default function CardsDetailClient({ id, title, status, publishUrl, slide
           {slides.map((s, i) => (
             <div key={i} className="aspect-square">
               <div ref={(el) => { captureRefs.current[i] = el; }} className="w-full h-full">
-                <HybridStyle
-                  slide={s}
-                  index={i}
-                  total={slides.length}
-                  compliance={{ number: compNum, expires: compExp }}
-                />
+                <HybridStyle slide={s} index={i} total={slides.length} compliance={comp} />
               </div>
             </div>
           ))}
@@ -142,39 +176,71 @@ export default function CardsDetailClient({ id, title, status, publishUrl, slide
 
       {/* 사이드바 */}
       <div className="space-y-4">
-        {/* 심의번호 입력 — 마지막 카드 footer에 즉시 반영 */}
+        {/* 광고심의필 정보 — BlogGenerator의 ApprovalGenerator 구조 */}
         <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
-          <h3 className="font-bold text-amber-900 mb-3">광고심의 정보</h3>
-          <p className="text-xs text-amber-800 mb-3 leading-relaxed">
-            협회 심의 통과 후 받은 심의번호를 입력하면 마지막 카드 하단에 자동 표시됩니다.
+          <h3 className="font-bold text-amber-900 mb-1">📋 광고심의필 정보</h3>
+          <p className="text-[11px] text-amber-800 mb-3 leading-relaxed">
+            협회 심의 통과 후 받은 정보를 입력하면 마지막 카드 하단에 즉시 반영됩니다.
+            등록번호·지점명은 블로그 생성기와 공유됩니다.
           </p>
-          <div className="space-y-2">
+          <div className="space-y-2.5">
             <div>
-              <label className="text-xs font-medium text-slate-600 block mb-1">심의번호</label>
-              <input
-                type="text"
-                placeholder="제2026-1234호"
-                value={compNum}
-                onChange={e => setCompNum(e.target.value)}
-                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm focus:border-amber-400 focus:outline-none"
-              />
+              <label className="text-[11px] font-medium text-slate-600 block mb-1">회사명</label>
+              <input type="text" value={comp.company}
+                onChange={e => updateComp('company', e.target.value)}
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm focus:border-amber-400 focus:outline-none" />
             </div>
             <div>
-              <label className="text-xs font-medium text-slate-600 block mb-1">유효 기간 (만료일)</label>
-              <input
-                type="date"
-                value={compExp}
-                onChange={e => setCompExp(e.target.value)}
-                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm focus:border-amber-400 focus:outline-none"
-              />
+              <label className="text-[11px] font-medium text-slate-600 block mb-1">지점명</label>
+              <input type="text" placeholder="예: 강남지점" value={comp.branch ?? ''}
+                onChange={e => updateComp('branch', e.target.value)}
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm focus:border-amber-400 focus:outline-none" />
             </div>
+            <div>
+              <label className="text-[11px] font-medium text-slate-600 block mb-1">설계사명</label>
+              <input type="text" value={comp.designer ?? ''}
+                onChange={e => updateComp('designer', e.target.value)}
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm focus:border-amber-400 focus:outline-none" />
+            </div>
+            <div>
+              <label className="text-[11px] font-medium text-slate-600 block mb-1">협회등록번호</label>
+              <input type="text" placeholder="예: 12345678" value={comp.registration ?? ''}
+                onChange={e => updateComp('registration', e.target.value)}
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm focus:border-amber-400 focus:outline-none" />
+            </div>
+            <div>
+              <label className="text-[11px] font-medium text-slate-600 block mb-1">심의번호</label>
+              <input type="text" placeholder="제2026-1234호" value={comp.number ?? ''}
+                onChange={e => updateComp('number', e.target.value)}
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm focus:border-amber-400 focus:outline-none" />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-[11px] font-medium text-slate-600 block mb-1">시작일</label>
+                <input type="date" value={comp.start_date ?? ''}
+                  onChange={e => updateComp('start_date', e.target.value)}
+                  className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm focus:border-amber-400 focus:outline-none" />
+              </div>
+              <div>
+                <label className="text-[11px] font-medium text-slate-600 block mb-1">종료일</label>
+                <input type="date" value={comp.end_date ?? ''}
+                  onChange={e => updateComp('end_date', e.target.value)}
+                  className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm focus:border-amber-400 focus:outline-none" />
+              </div>
+            </div>
+            <label className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
+              <input type="checkbox" checked={comp.include_warning ?? true}
+                onChange={e => updateComp('include_warning', e.target.checked)}
+                className="rounded" />
+              경고 문구 포함 (&ldquo;본 광고는 광고심의기준을 준수하였으며...&rdquo;)
+            </label>
             <button
               disabled={!!busy}
               onClick={saveCompliance}
               className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-amber-600 hover:bg-amber-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50 transition"
             >
               {busy === 'compliance' ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-              심의번호 저장
+              저장
             </button>
           </div>
         </div>
