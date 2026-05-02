@@ -14,6 +14,8 @@ type Props = {
   status: string;
   publishUrl: string;
   slides: CardSlide[];
+  complianceNumber: string;
+  complianceExpires: string;
   lint: {
     risk_score: number;
     forbidden_terms_found: string[] | null;
@@ -37,11 +39,30 @@ function riskTone(score: number) {
   return                  { text: 'text-emerald-700', bar: 'bg-emerald-500', label: '안전' };
 }
 
-export default function CardsDetailClient({ id, title, status, publishUrl, slides, lint, factCheck }: Props) {
+export default function CardsDetailClient({ id, title, status, publishUrl, slides, complianceNumber, complianceExpires, lint, factCheck }: Props) {
   const router = useRouter();
   const captureRefs = useRef<Array<HTMLDivElement | null>>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [url, setUrl] = useState(publishUrl);
+  const [compNum, setCompNum] = useState(complianceNumber);
+  const [compExp, setCompExp] = useState(complianceExpires);
+
+  async function saveCompliance() {
+    setBusy('compliance');
+    try {
+      const res = await fetch(`/api/admin/content/cards/${id}/compliance`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ number: compNum || null, expires: compExp || null }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      router.refresh();
+    } catch (e) {
+      alert('심의번호 저장 실패: ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setBusy(null);
+    }
+  }
 
   async function downloadAllPng() {
     setBusy('download');
@@ -107,7 +128,12 @@ export default function CardsDetailClient({ id, title, status, publishUrl, slide
           {slides.map((s, i) => (
             <div key={i} className="aspect-square">
               <div ref={(el) => { captureRefs.current[i] = el; }} className="w-full h-full">
-                <HybridStyle slide={s} index={i} total={slides.length} />
+                <HybridStyle
+                  slide={s}
+                  index={i}
+                  total={slides.length}
+                  compliance={{ number: compNum, expires: compExp }}
+                />
               </div>
             </div>
           ))}
@@ -116,6 +142,43 @@ export default function CardsDetailClient({ id, title, status, publishUrl, slide
 
       {/* 사이드바 */}
       <div className="space-y-4">
+        {/* 심의번호 입력 — 마지막 카드 footer에 즉시 반영 */}
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
+          <h3 className="font-bold text-amber-900 mb-3">광고심의 정보</h3>
+          <p className="text-xs text-amber-800 mb-3 leading-relaxed">
+            협회 심의 통과 후 받은 심의번호를 입력하면 마지막 카드 하단에 자동 표시됩니다.
+          </p>
+          <div className="space-y-2">
+            <div>
+              <label className="text-xs font-medium text-slate-600 block mb-1">심의번호</label>
+              <input
+                type="text"
+                placeholder="제2026-1234호"
+                value={compNum}
+                onChange={e => setCompNum(e.target.value)}
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm focus:border-amber-400 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-slate-600 block mb-1">유효 기간 (만료일)</label>
+              <input
+                type="date"
+                value={compExp}
+                onChange={e => setCompExp(e.target.value)}
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm focus:border-amber-400 focus:outline-none"
+              />
+            </div>
+            <button
+              disabled={!!busy}
+              onClick={saveCompliance}
+              className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-amber-600 hover:bg-amber-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50 transition"
+            >
+              {busy === 'compliance' ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+              심의번호 저장
+            </button>
+          </div>
+        </div>
+
         {/* PNG 다운로드 */}
         <div className="rounded-2xl border border-violet-200 bg-violet-50 p-5">
           <h3 className="font-bold text-violet-900 mb-3">5장 PNG 다운로드</h3>

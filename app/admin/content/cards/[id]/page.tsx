@@ -51,6 +51,8 @@ export default async function CardsDetailPage({ params }: { params: Promise<{ id
         status={item.status}
         publishUrl={item.publish_url ?? ''}
         slides={slides}
+        complianceNumber={item.compliance_number ?? ''}
+        complianceExpires={item.compliance_expires ?? ''}
         lint={lint}
         factCheck={factCheck}
       />

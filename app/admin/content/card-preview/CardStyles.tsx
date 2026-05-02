@@ -20,7 +20,12 @@ const ICONS: Record<CardIconKey, LucideIcon> = {
   zap: Zap, arrow: ArrowRight,
 };
 
-type Props = { slide: CardSlide; index: number; total: number };
+type Props = {
+  slide: CardSlide;
+  index: number;
+  total: number;
+  compliance?: { number?: string | null; expires?: string | null };
+};
 
 const TONES = [
   { bg: 'bg-[#1b64da]',  ink: 'text-white', sub: 'text-white/85', accent: 'bg-yellow-300', accentText: 'text-yellow-300',  accentInk: 'text-slate-900', soft: 'bg-white/15' },
@@ -40,11 +45,11 @@ const F = {
   eyebrow:      'text-[3.8cqw] font-extrabold uppercase tracking-wider',       // ~41px
   coverTitle:   'text-[12cqw] font-black leading-[1.05] tracking-tight',       // ~130px
   coverBigStat: 'text-[20cqw] font-black leading-none',                         // ~216px
-  coverStatLab: 'text-[3.6cqw] font-bold uppercase tracking-wide',              // ~39px
-  pointEyebrow: 'text-[3.6cqw] font-extrabold uppercase tracking-wider',        // ~39px
+  coverStatLab: 'text-[3.4cqw] font-bold uppercase tracking-wide whitespace-nowrap truncate', // ~37px, 한 줄 강제
+  pointEyebrow: 'text-[3.6cqw] font-extrabold uppercase tracking-wider whitespace-nowrap',    // 한 줄
   pointTitle:   'text-[10cqw] font-black leading-[1.05] tracking-tight',        // ~108px (메인 = 가장 큼)
   pointBigStat: 'text-[14cqw] font-black leading-none tracking-tight',          // ~151px (보조 시각)
-  pointStatLab: 'text-[3.4cqw] font-bold uppercase tracking-wide',              // ~37px
+  pointStatLab: 'text-[3.2cqw] font-bold uppercase tracking-wide whitespace-nowrap truncate', // 한 줄 강제
   pointBody:    'text-[4.2cqw] leading-[1.45]',                                 // ~45px (보조 설명)
   closingTitle: 'text-[7.5cqw] font-black leading-[1.1]',                       // ~81px (1줄에 들어가게)
   closingItem:  'text-[5cqw] font-bold leading-tight',                          // ~54px (한 줄에 들어가게)
@@ -56,7 +61,7 @@ const F = {
 const containerStyle = { containerType: 'size' } as React.CSSProperties;
 const CARD_BASE = 'relative w-full h-full rounded-2xl overflow-hidden shadow-xl';
 
-export function HybridStyle({ slide, index, total }: Props) {
+export function HybridStyle({ slide, index, total, compliance }: Props) {
   const t = TONES[index % TONES.length];
   const Icon = ICONS[slide.iconKey];
 
@@ -88,11 +93,14 @@ export function HybridStyle({ slide, index, total }: Props) {
             {slide.title.replace(/\n/g, ' ')}
           </h2>
 
-          {/* 거대 통계 — 메인 시각 포인트 */}
-          <div className="mt-auto flex items-end justify-between gap-[3cqw]">
+          {/* 거대 통계 — 메인 시각 포인트. 글자 길이에 따라 폰트 자동 축소 */}
+          <div className="mt-auto flex items-end justify-between gap-[3cqw] overflow-hidden">
             <div className="flex-1 min-w-0">
               <div className={`${F.coverStatLab} ${t.sub} mb-[1cqw]`}>{slide.bigStatLabel}</div>
-              <div className={`${F.coverBigStat}`}>{slide.bigStat}</div>
+              <div className={`font-black leading-none break-keep`}
+                   style={{ fontSize: `clamp(8cqw, ${Math.max(8, 80 / Math.max(slide.bigStat.length, 1))}cqw, 20cqw)` }}>
+                {slide.bigStat}
+              </div>
             </div>
             <div className={`flex-none ${t.soft} rounded-full p-[4%] backdrop-blur-sm`}>
               <Icon style={{ width: '13cqw', height: '13cqw' }} className={t.ink} strokeWidth={2.5} />
@@ -171,7 +179,17 @@ export function HybridStyle({ slide, index, total }: Props) {
         </ul>
 
         <div className={`mt-auto pt-[3%] ${F.footer} ${t.sub} border-t border-white/15`}>
-          {slide.footer}
+          {compliance?.number ? (
+            <>
+              <div className={`font-bold ${t.ink}`}>
+                광고심의필 {compliance.number}
+                {compliance.expires && <span className={`${t.sub} font-normal ml-[1.5cqw]`}>유효 ~{compliance.expires}</span>}
+              </div>
+              <div className={`mt-[0.5cqw] ${t.sub}`}>{slide.footer}</div>
+            </>
+          ) : (
+            slide.footer
+          )}
         </div>
       </div>
     </div>
