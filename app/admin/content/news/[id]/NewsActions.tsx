@@ -1,7 +1,7 @@
 'use client';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { Copy, Download, CheckCircle2, X, RefreshCw, Loader2 } from 'lucide-react';
+import { Copy, Download, CheckCircle2, X, RefreshCw, Loader2, Trash2 } from 'lucide-react';
 
 type Props = { id: string; status: string; title: string; bodyMd: string; publishUrl: string };
 
@@ -38,17 +38,21 @@ export default function NewsActions({ id, status, title, bodyMd, publishUrl }: P
     setTimeout(() => setBusy(null), 500);
   }
 
-  async function call(action: string, path: string, label: string, body?: unknown) {
+  async function call(action: string, path: string, label: string, body?: unknown, method: 'POST' | 'DELETE' = 'POST') {
     if (!confirm(`${label} 진행할까요?`)) return;
     setBusy(action);
     try {
       const res = await fetch(path, {
-        method: 'POST',
+        method,
         headers: body ? { 'Content-Type': 'application/json' } : undefined,
         body: body ? JSON.stringify(body) : undefined,
       });
       if (!res.ok) throw new Error(await res.text());
-      router.refresh();
+      if (action === 'delete') {
+        router.push('/admin/content/news');
+      } else {
+        router.refresh();
+      }
     } catch (e) {
       alert(`${label} 실패: ` + (e instanceof Error ? e.message : String(e)));
     } finally {
@@ -112,12 +116,22 @@ export default function NewsActions({ id, status, title, bodyMd, publishUrl }: P
         <button
           disabled={!!busy || status === 'expired'}
           onClick={() => call('reject', `/api/admin/content/news/${id}/reject`, '거절')}
-          className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-red-200 text-red-700 hover:bg-red-50 px-3 py-2 text-xs font-medium disabled:opacity-50 transition"
+          className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-amber-200 text-amber-700 hover:bg-amber-50 px-3 py-2 text-xs font-medium disabled:opacity-50 transition"
         >
           <X className="w-3.5 h-3.5" />
           거절
         </button>
       </div>
+
+      {/* 4. 영구 삭제 */}
+      <button
+        disabled={!!busy}
+        onClick={() => call('delete', `/api/admin/content/news/${id}/delete`, '영구 삭제 (되돌릴 수 없음)', undefined, 'DELETE')}
+        className="w-full inline-flex items-center justify-center gap-1.5 rounded-lg border border-red-300 text-red-700 hover:bg-red-50 px-3 py-2 text-xs font-medium disabled:opacity-50 transition mt-2"
+      >
+        {busy === 'delete' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+        영구 삭제
+      </button>
     </div>
   );
 }

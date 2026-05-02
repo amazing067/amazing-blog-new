@@ -112,10 +112,11 @@ export default async function NewsListPage({
         </div>
       ) : (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {(items ?? []).map((row: { id: string; title: string; status: string; source_refs: { source: string; pubDate?: string }[] | null; created_at: string; body_md: string | null }) => {
+          {(items ?? []).map((row: { id: string; title: string; status: string; source_refs: { source?: string; topic_slug?: string; category?: string }[] | null; created_at: string; body_md: string | null }) => {
             const score = lintMap.get(row.id);
             const tone = riskTone(score);
-            const source = row.source_refs?.[0]?.source ?? '미상';
+            const ref = row.source_refs?.[0];
+            const source = ref?.category ?? ref?.source ?? '보험뉴스';
             const preview = (row.body_md ?? '').replace(/[#*`>_~\-]+/g, '').replace(/\s+/g, ' ').trim().slice(0, 100);
             return (
               <Link

@@ -3,7 +3,7 @@ import { notFound } from 'next/navigation';
 import { adminClient } from '@/lib/admin/guard';
 import NewsActions from './NewsActions';
 import ReactMarkdown from 'react-markdown';
-import { ArrowLeft, ExternalLink, Shield, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { ArrowLeft, ExternalLink, Shield, AlertCircle, CheckCircle2, Newspaper, Calendar, Tag } from 'lucide-react';
 
 const STATUS_LABEL: Record<string, { label: string; cls: string }> = {
   review:    { label: '검토 대기', cls: 'bg-amber-100 text-amber-800 border-amber-200' },
@@ -45,9 +45,8 @@ function ChipList({ title, items, danger }: { title: string; items: string[] | n
             <span
               key={i}
               className={`inline-block rounded-full px-2 py-0.5 text-[11px] ${
-                danger
-                  ? 'bg-red-100 text-red-800 border border-red-200'
-                  : 'bg-amber-100 text-amber-800 border border-amber-200'
+                danger ? 'bg-red-100 text-red-800 border border-red-200'
+                       : 'bg-amber-100 text-amber-800 border border-amber-200'
               }`}
             >
               {s}
@@ -69,7 +68,9 @@ export default async function NewsDetailPage({ params }: { params: Promise<{ id:
 
   const tone = lint ? riskTone(lint.risk_score) : null;
   const statusInfo = STATUS_LABEL[item.status] ?? { label: item.status, cls: 'bg-slate-100 text-slate-700 border-slate-200' };
-  const sourceRef = (item.source_refs as { source?: string; link?: string; pubDate?: string }[] | null)?.[0];
+  const sourceRef = (item.source_refs as { source?: string; link?: string; pubDate?: string; topic_slug?: string; category?: string; generated_by?: string }[] | null)?.[0];
+  const isAiGenerated = !!sourceRef?.topic_slug;
+  const sourceLabel = sourceRef?.category ?? sourceRef?.source ?? '보험뉴스';
 
   return (
     <div>
@@ -78,42 +79,86 @@ export default async function NewsDetailPage({ params }: { params: Promise<{ id:
         <Link href="/admin/content/news" className="inline-flex items-center gap-1.5 text-sm text-slate-600 hover:text-slate-900">
           <ArrowLeft className="w-4 h-4" /> 검수 대기열
         </Link>
-        <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium ${statusInfo.cls}`}>
-          {statusInfo.label}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 border border-emerald-200">
+            <Newspaper className="w-3 h-3" /> 보험뉴스
+          </span>
+          <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium ${statusInfo.cls}`}>
+            {statusInfo.label}
+          </span>
+        </div>
       </div>
 
-      <div className="grid gap-6 md:grid-cols-3">
+      <div className="grid gap-6 lg:grid-cols-3">
         {/* 본문 */}
-        <article className="rounded-2xl border border-slate-200 bg-white p-8 md:col-span-2">
-          <h1 className="text-3xl font-bold text-slate-900 leading-tight mb-4">{item.title}</h1>
-          <div className="flex flex-wrap items-center gap-3 text-sm text-slate-500 mb-6 pb-6 border-b border-slate-100">
-            {sourceRef?.source && (
-              <span className="inline-flex items-center gap-1.5">
-                <span className="rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700 border border-emerald-200">
-                  📰 {sourceRef.source}
-                </span>
+        <article className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden lg:col-span-2">
+          {/* 헤더 영역 (그라데이션) */}
+          <div className="bg-gradient-to-br from-slate-50 to-emerald-50/40 border-b border-slate-100 p-8">
+            <div className="flex flex-wrap items-center gap-2 mb-4">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1 text-xs font-semibold text-emerald-700 border border-emerald-200 shadow-sm">
+                <Tag className="w-3 h-3" /> {sourceLabel}
               </span>
-            )}
-            {sourceRef?.link && (
-              <a href={sourceRef.link} target="_blank" rel="noopener noreferrer"
-                 className="inline-flex items-center gap-1 hover:text-slate-900">
-                <ExternalLink className="w-3.5 h-3.5" /> 원문 보기
-              </a>
-            )}
-            <span>·</span>
-            <span>{new Date(item.created_at).toLocaleString('ko-KR')}</span>
+              {isAiGenerated && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2.5 py-1 text-xs font-medium text-violet-700 border border-violet-200">
+                  AI 생성
+                </span>
+              )}
+              <span className="inline-flex items-center gap-1.5 text-xs text-slate-500">
+                <Calendar className="w-3 h-3" />
+                {new Date(item.created_at).toLocaleString('ko-KR', { dateStyle: 'medium', timeStyle: 'short' })}
+              </span>
+            </div>
+            <h1 className="text-3xl font-bold text-slate-900 leading-tight tracking-tight">{item.title}</h1>
           </div>
 
-          <div className="prose prose-slate prose-base max-w-none prose-headings:font-bold prose-p:leading-7 prose-a:text-emerald-700 prose-a:no-underline hover:prose-a:underline">
-            <ReactMarkdown>{item.body_md ?? ''}</ReactMarkdown>
+          {/* 본문 영역 */}
+          <div className="p-8">
+            <div className="prose prose-slate max-w-none
+                            prose-headings:font-bold prose-headings:text-slate-900
+                            prose-h2:text-2xl prose-h2:mt-8 prose-h2:mb-3
+                            prose-h3:text-xl prose-h3:mt-6 prose-h3:mb-2
+                            prose-p:text-base prose-p:leading-8 prose-p:text-slate-700 prose-p:my-4
+                            prose-strong:text-slate-900 prose-strong:font-semibold
+                            prose-a:text-emerald-700 prose-a:no-underline hover:prose-a:underline
+                            prose-ul:my-4 prose-li:my-1.5 prose-li:text-slate-700
+                            prose-blockquote:border-l-4 prose-blockquote:border-emerald-200 prose-blockquote:bg-emerald-50/40 prose-blockquote:py-1 prose-blockquote:px-4 prose-blockquote:not-italic prose-blockquote:text-slate-700
+                            prose-code:bg-slate-100 prose-code:rounded prose-code:px-1 prose-code:py-0.5 prose-code:text-sm prose-code:font-mono prose-code:before:content-none prose-code:after:content-none">
+              <ReactMarkdown>{item.body_md ?? ''}</ReactMarkdown>
+            </div>
+
+            {/* 출처/생성 박스 */}
+            {(sourceRef?.link || isAiGenerated) && (
+              <div className="mt-8 pt-6 border-t border-slate-100">
+                <div className="flex items-start gap-3 rounded-xl bg-slate-50 p-4 border border-slate-100">
+                  <ExternalLink className="w-4 h-4 text-slate-400 mt-0.5 shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    {sourceRef?.link ? (
+                      <>
+                        <div className="text-xs font-medium text-slate-500 mb-1">원문 출처</div>
+                        <a href={sourceRef.link} target="_blank" rel="noopener noreferrer"
+                           className="text-sm text-emerald-700 hover:underline break-all">
+                          {sourceRef.link}
+                        </a>
+                      </>
+                    ) : (
+                      <>
+                        <div className="text-xs font-medium text-slate-500 mb-1">생성 정보</div>
+                        <div className="text-sm text-slate-700">
+                          AI 자동 생성 콘텐츠 · 카테고리 {sourceRef?.category} · 모델 {sourceRef?.generated_by}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </article>
 
         {/* 사이드바 */}
         <div className="space-y-4">
           {/* 광고심의 위험도 카드 */}
-          <div className={`rounded-2xl border p-5 ${tone ? tone.bg + ' ' + tone.border : 'border-slate-200 bg-white'}`}>
+          <div className={`rounded-2xl border shadow-sm p-5 ${tone ? tone.bg + ' ' + tone.border : 'border-slate-200 bg-white'}`}>
             <div className="flex items-center gap-2 mb-3">
               <Shield className={`w-5 h-5 ${tone?.text ?? 'text-slate-400'}`} />
               <h3 className={`font-semibold ${tone?.text ?? 'text-slate-700'}`}>광고심의 위험도</h3>
@@ -143,7 +188,7 @@ export default async function NewsDetailPage({ params }: { params: Promise<{ id:
           </div>
 
           {/* 액션 카드 */}
-          <div className="rounded-2xl border border-slate-200 bg-white p-5">
+          <div className="rounded-2xl border border-slate-200 bg-white shadow-sm p-5">
             <div className="flex items-center gap-2 mb-3">
               <CheckCircle2 className="w-5 h-5 text-emerald-600" />
               <h3 className="font-semibold text-slate-700">카페 게시 액션</h3>
