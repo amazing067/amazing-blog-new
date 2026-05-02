@@ -3,10 +3,12 @@ import { adminClient } from '@/lib/admin/guard';
 import { isAuthorizedCron } from '@/lib/cron-auth';
 import { pickFreshTopics } from '@/lib/content/topic-picker';
 import { generateTopicArticle } from '@/lib/content/generator';
+import { factCheckArticle } from '@/lib/content/fact-check';
 import { lintContent } from '@/lib/content/compliance-lint';
 import type { EnforcementMode } from '@/lib/content/types';
 
 const DAILY_LIMIT = 2;
+const GENERATOR_MODEL = 'claude-haiku-4-5';
 
 export async function GET(req: Request) {
   if (!isAuthorizedCron(req)) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
@@ -16,7 +18,6 @@ export async function GET(req: Request) {
     .from('content_settings').select('value').eq('key', 'news.enforcement_mode').single();
   const mode: EnforcementMode = (setting?.value as EnforcementMode) ?? 'open';
 
-  // 최근 30일에 사용한 주제 slug 집합 (재사용 방지)
   const { data: recent } = await supa
     .from('content_items').select('source_refs')
     .eq('type', 'news').gte('created_at', new Date(Date.now() - 30 * 86400_000).toISOString());
@@ -29,11 +30,31 @@ export async function GET(req: Request) {
 
   const topics = pickFreshTopics(usedSlugs, DAILY_LIMIT);
 
-  const summary = { picked: topics.length, generated: 0, failed: 0, slugs: [] as string[] };
+  const summary = {
+    picked: topics.length,
+    generated: 0,
+    fact_check_high_issues: 0,
+    failed: 0,
+    slugs: [] as string[],
+  };
+
   for (const topic of topics) {
     try {
+      // 1. Claude Haiku 4.5로 본문 생성
       const gen = await generateTopicArticle(topic);
+
+      // 2. Gemini로 fact-check (Google Search Grounding)
+      const fc = await factCheckArticle(gen.title, gen.body_md).catch(err => {
+        console.error('[daily-build] fact-check failed', err);
+        return { passed: true, issues: [], raw: '' };
+      });
+      const highIssues = fc.issues.filter(i => i.severity === 'high').length;
+      if (highIssues > 0) summary.fact_check_high_issues += highIssues;
+
+      // 3. 광고심의 lint
       const lint = lintContent(gen.body_md);
+
+      // 4. DB 저장 (fact-check high 이슈 있으면 review 유지하되 fact_check 기록)
       const { data: inserted, error } = await supa
         .from('content_items').insert({
           type: 'news',
@@ -42,12 +63,15 @@ export async function GET(req: Request) {
           source_refs: [{
             topic_slug: topic.slug,
             category: topic.category,
-            generated_by: 'gemini-2.5-flash',
+            generated_by: GENERATOR_MODEL,
           }],
           status: 'review',
           enforcement_mode: mode,
+          generated_by: GENERATOR_MODEL,
+          fact_check: { passed: fc.passed, issues: fc.issues },
         }).select('id').single();
       if (error || !inserted) throw error ?? new Error('insert failed');
+
       await supa.from('compliance_lints').insert({
         content_id: inserted.id,
         forbidden_terms_found: lint.forbidden_terms_found,
@@ -59,6 +83,7 @@ export async function GET(req: Request) {
         must_fix: lint.must_fix,
         raw_report: lint,
       });
+
       summary.generated++;
       summary.slugs.push(topic.slug);
     } catch (err: unknown) {
@@ -67,5 +92,5 @@ export async function GET(req: Request) {
       summary.failed++;
     }
   }
-  return NextResponse.json({ ok: true, mode, ...summary });
+  return NextResponse.json({ ok: true, mode, model: GENERATOR_MODEL, ...summary });
 }

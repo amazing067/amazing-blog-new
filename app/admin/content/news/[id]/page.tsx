@@ -3,7 +3,8 @@ import { notFound } from 'next/navigation';
 import { adminClient } from '@/lib/admin/guard';
 import NewsActions from './NewsActions';
 import ReactMarkdown from 'react-markdown';
-import { ArrowLeft, ExternalLink, Shield, AlertCircle, CheckCircle2, Newspaper, Calendar, Tag } from 'lucide-react';
+import { ArrowLeft, ExternalLink, Shield, AlertCircle, CheckCircle2, Newspaper, Calendar, Tag, Search } from 'lucide-react';
+import { CustomBlockquote } from './Callouts';
 
 const STATUS_LABEL: Record<string, { label: string; cls: string }> = {
   review:    { label: '검토 대기', cls: 'bg-amber-100 text-amber-800 border-amber-200' },
@@ -26,6 +27,47 @@ type LintRow = {
   insurer_mentions: string[] | null;
   product_mentions: string[] | null;
 };
+
+type FactCheckData = {
+  passed: boolean;
+  issues: { claim: string; reason: string; severity: 'high' | 'medium' | 'low' }[];
+};
+
+function FactCheckPanel({ data }: { data: FactCheckData }) {
+  const sevColor: Record<string, { bg: string; text: string; label: string }> = {
+    high:   { bg: 'bg-red-100 text-red-800 border-red-200',    text: 'text-red-800',   label: '⛔ 발행 차단' },
+    medium: { bg: 'bg-amber-100 text-amber-800 border-amber-200', text: 'text-amber-800', label: '⚠️ 사람 검수' },
+    low:    { bg: 'bg-slate-100 text-slate-700 border-slate-200', text: 'text-slate-700', label: 'ℹ️ 참고' },
+  };
+
+  return (
+    <div className={`rounded-2xl border shadow-sm p-5 ${data.passed ? 'border-emerald-200 bg-emerald-50' : 'border-red-200 bg-red-50'}`}>
+      <div className="flex items-center gap-2 mb-3">
+        <Search className={`w-5 h-5 ${data.passed ? 'text-emerald-600' : 'text-red-600'}`} />
+        <h3 className={`font-semibold ${data.passed ? 'text-emerald-700' : 'text-red-700'}`}>
+          AI 사실 검증 (Gemini + Google Search)
+        </h3>
+      </div>
+      {data.issues.length === 0 ? (
+        <div className="text-sm text-emerald-700">의심되는 사실관계 없음 ✓</div>
+      ) : (
+        <div className="space-y-3">
+          {data.issues.map((iss, i) => (
+            <div key={i} className="rounded-xl bg-white/60 border border-white/80 p-3">
+              <div className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium mb-1.5 ${sevColor[iss.severity].bg}`}>
+                {sevColor[iss.severity].label}
+              </div>
+              <div className="text-xs font-medium text-slate-600 mb-1">의심 진술</div>
+              <div className="text-sm text-slate-800 mb-2 line-clamp-2">{iss.claim}</div>
+              <div className="text-xs font-medium text-slate-600 mb-1">검증 결과</div>
+              <div className={`text-sm ${sevColor[iss.severity].text}`}>{iss.reason}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function ChipList({ title, items, danger }: { title: string; items: string[] | null | undefined; danger?: boolean }) {
   const list = items ?? [];
@@ -123,7 +165,7 @@ export default async function NewsDetailPage({ params }: { params: Promise<{ id:
                             prose-ul:my-4 prose-li:my-1.5 prose-li:text-slate-700
                             prose-blockquote:border-l-4 prose-blockquote:border-emerald-200 prose-blockquote:bg-emerald-50/40 prose-blockquote:py-1 prose-blockquote:px-4 prose-blockquote:not-italic prose-blockquote:text-slate-700
                             prose-code:bg-slate-100 prose-code:rounded prose-code:px-1 prose-code:py-0.5 prose-code:text-sm prose-code:font-mono prose-code:before:content-none prose-code:after:content-none">
-              <ReactMarkdown>{item.body_md ?? ''}</ReactMarkdown>
+              <ReactMarkdown components={{ blockquote: CustomBlockquote }}>{item.body_md ?? ''}</ReactMarkdown>
             </div>
 
             {/* 출처/생성 박스 */}
@@ -157,6 +199,11 @@ export default async function NewsDetailPage({ params }: { params: Promise<{ id:
 
         {/* 사이드바 */}
         <div className="space-y-4">
+          {/* Fact-Check 결과 (Gemini + Google Search) */}
+          {item.fact_check && (
+            <FactCheckPanel data={item.fact_check as { passed: boolean; issues: { claim: string; reason: string; severity: 'high' | 'medium' | 'low' }[] }} />
+          )}
+
           {/* 광고심의 위험도 카드 */}
           <div className={`rounded-2xl border shadow-sm p-5 ${tone ? tone.bg + ' ' + tone.border : 'border-slate-200 bg-white'}`}>
             <div className="flex items-center gap-2 mb-3">
