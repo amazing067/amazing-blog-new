@@ -157,16 +157,32 @@ export default function CardsDetailClient({ id, userId, defaultDesigner, title, 
       let successCount = 0;
       for (const el of elements) {
         const i = Number(el.dataset.slideIndex ?? 0);
+        // off-screen 1080×1080 컨테이너로 clone — cqw가 1080 기준으로 정확히 계산됨
+        const clone = el.cloneNode(true) as HTMLElement;
+        clone.style.width = '1080px';
+        clone.style.height = '1080px';
+        clone.style.position = 'fixed';
+        clone.style.left = '-99999px';
+        clone.style.top = '0';
+        clone.style.zIndex = '-1';
+        document.body.appendChild(clone);
+
+        // 폰트·이미지 로딩 대기
+        await document.fonts.ready;
+        await new Promise(r => setTimeout(r, 200));
+
         try {
-          const rect = el.getBoundingClientRect();
-          const scale = rect.width > 0 ? 1080 / rect.width : 1;
-          const canvas = await html2canvas(el, {
-            scale,
+          const canvas = await html2canvas(clone, {
+            scale: 1,
             useCORS: true,
             allowTaint: false,
             backgroundColor: null,
             logging: false,
             imageTimeout: 15000,
+            width: 1080,
+            height: 1080,
+            windowWidth: 1080,
+            windowHeight: 1080,
           });
           const blob = await new Promise<Blob | null>(r => canvas.toBlob(r, 'image/png'));
           if (!blob) {
@@ -178,6 +194,8 @@ export default function CardsDetailClient({ id, userId, defaultDesigner, title, 
         } catch (capErr) {
           console.error(`[capture] slide ${i + 1} 실패:`, capErr);
           throw new Error(`슬라이드 ${i + 1} 캡처 실패: ${capErr instanceof Error ? capErr.message : String(capErr)}`);
+        } finally {
+          document.body.removeChild(clone);
         }
       }
 
