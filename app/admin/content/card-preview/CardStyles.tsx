@@ -1,126 +1,109 @@
-// 두 가지 카드뉴스 디자인 시안 — 같은 데이터 모델로 렌더링.
-// 실제 발행 시 1080×1080 PNG로 캡처될 카드. 미리보기에서는 aspect-square로 축소.
+// 카드뉴스 하이브리드 디자인 — 토스 컬러 임팩트 + 카카오페이 정보 밀도 + 큰 아이콘 일러스트.
+// 1080×1080 인스타 정사각 비율, 5장 시리즈.
+
+import {
+  TrendingDown, AlertTriangle, Gift, Shield, Sparkles,
+  Stethoscope, Calculator, Baby, ArrowRight, Search,
+  ClipboardCheck, Zap,
+} from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 
 export type CardSlide =
-  | { kind: 'cover'; eyebrow: string; title: string; subtitle: string; accent: string }
-  | { kind: 'point'; number: string; title: string; body: string; highlight: string }
-  | { kind: 'closing'; title: string; items: string[]; footer: string };
+  | {
+      kind: 'cover';
+      eyebrow: string;
+      title: string;
+      subtitle: string;
+      stat: { value: string; label: string };
+      iconKey: keyof typeof ICONS;
+    }
+  | {
+      kind: 'point';
+      number: string;
+      title: string;
+      subtitle: string;
+      body: string;
+      highlight: string;
+      stat: { value: string; label: string };
+      iconKey: keyof typeof ICONS;
+    }
+  | {
+      kind: 'closing';
+      title: string;
+      subtitle: string;
+      items: Array<{ title: string; desc: string }>;
+      footer: string;
+      iconKey: keyof typeof ICONS;
+    };
+
+const ICONS = {
+  sparkles: Sparkles, shield: Shield,
+  trendingDown: TrendingDown, alert: AlertTriangle,
+  gift: Gift, stethoscope: Stethoscope,
+  calculator: Calculator, baby: Baby,
+  search: Search, clipboard: ClipboardCheck,
+  zap: Zap, arrow: ArrowRight,
+} satisfies Record<string, LucideIcon>;
 
 type Props = { slide: CardSlide; index: number; total: number };
 
-// ════════════════════════════════════════════════
-// (a) 카카오페이 스타일 — 흰 배경, 컬러 포인트, 정보 밀도 ↑
-// ════════════════════════════════════════════════
-export function KakaopayStyle({ slide, index, total }: Props) {
+// 카드별 컬러 톤 — 페이지 인덱스에 따라 다른 컬러로 시리즈 흐름 만들기
+const TONES = [
+  { bg: 'bg-[#1b64da]',  ink: 'text-white',    sub: 'text-white/85', accent: 'bg-yellow-300', accentInk: 'text-slate-900', soft: 'bg-white/15', stat: 'bg-white/15 text-white' },
+  { bg: 'bg-[#0f172a]',  ink: 'text-white',    sub: 'text-white/80', accent: 'bg-emerald-400', accentInk: 'text-slate-900', soft: 'bg-white/10', stat: 'bg-white/10 text-white' },
+  { bg: 'bg-[#7c3aed]',  ink: 'text-white',    sub: 'text-white/85', accent: 'bg-amber-300', accentInk: 'text-slate-900', soft: 'bg-white/15', stat: 'bg-white/15 text-white' },
+  { bg: 'bg-[#0e7490]',  ink: 'text-white',    sub: 'text-white/85', accent: 'bg-pink-300', accentInk: 'text-slate-900', soft: 'bg-white/15', stat: 'bg-white/15 text-white' },
+  { bg: 'bg-[#dc2626]',  ink: 'text-white',    sub: 'text-white/85', accent: 'bg-yellow-300', accentInk: 'text-slate-900', soft: 'bg-white/15', stat: 'bg-white/15 text-white' },
+];
+
+export function HybridStyle({ slide, index, total }: Props) {
+  const t = TONES[index % TONES.length];
+  const Icon = ICONS[slide.iconKey];
+
   const PageBadge = (
-    <span className="absolute top-5 right-5 inline-flex items-center justify-center w-7 h-7 rounded-full bg-slate-900 text-white text-[11px] font-bold">
+    <div className={`absolute top-4 right-4 inline-flex items-center justify-center w-9 h-9 rounded-full ${t.soft} ${t.ink} text-xs font-extrabold backdrop-blur-sm`}>
       {index + 1}/{total}
-    </span>
-  );
-
-  if (slide.kind === 'cover') {
-    return (
-      <div className="relative w-full h-full bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
-        <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-emerald-400 to-cyan-400" />
-        {PageBadge}
-        <div className="h-full flex flex-col justify-center px-7 py-8">
-          <div className="inline-flex items-center self-start gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-[11px] font-semibold text-emerald-700 mb-5">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-            {slide.eyebrow}
-          </div>
-          <h2 className="text-[26px] font-extrabold text-slate-900 leading-[1.25] whitespace-pre-line tracking-tight">
-            {slide.title}
-          </h2>
-          <p className="mt-3 text-[13px] text-slate-600 leading-snug">{slide.subtitle}</p>
-          <div className="mt-auto pt-6">
-            <span className="inline-flex items-center gap-1 rounded-md bg-yellow-100 px-2 py-1 text-[11px] font-semibold text-amber-800">
-              💡 {slide.accent}
-            </span>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (slide.kind === 'point') {
-    return (
-      <div className="relative w-full h-full bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
-        {PageBadge}
-        <div className="h-full flex flex-col px-7 py-8">
-          <div className="text-[42px] font-black text-emerald-500 leading-none mb-3">{slide.number}</div>
-          <h3 className="text-[22px] font-extrabold text-slate-900 leading-[1.3] whitespace-pre-line">
-            {slide.title}
-          </h3>
-          <p className="mt-3 text-[13px] text-slate-600 leading-relaxed">{slide.body}</p>
-          <div className="mt-auto pt-5">
-            <div className="rounded-xl bg-emerald-50 border border-emerald-100 px-3.5 py-2.5">
-              <div className="text-[10px] font-bold text-emerald-700 mb-0.5">핵심</div>
-              <div className="text-[13px] font-semibold text-emerald-900">{slide.highlight}</div>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // closing
-  return (
-    <div className="relative w-full h-full bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
-      <div className="absolute bottom-0 left-0 right-0 h-1.5 bg-gradient-to-r from-emerald-400 to-cyan-400" />
-      {PageBadge}
-      <div className="h-full flex flex-col px-7 py-8">
-        <div className="text-emerald-600 text-2xl mb-2">📌</div>
-        <h3 className="text-[22px] font-extrabold text-slate-900 leading-tight">{slide.title}</h3>
-        <ul className="mt-5 space-y-2.5">
-          {slide.items.map((it, i) => (
-            <li key={i} className="flex gap-2.5 items-start">
-              <span className="flex-none w-5 h-5 rounded-full bg-emerald-500 text-white text-[10px] font-bold inline-flex items-center justify-center mt-0.5">
-                {i + 1}
-              </span>
-              <span className="text-[13px] text-slate-700 leading-snug">{it}</span>
-            </li>
-          ))}
-        </ul>
-        <div className="mt-auto pt-4 text-[10px] text-slate-400 border-t border-slate-100">
-          {slide.footer}
-        </div>
-      </div>
     </div>
   );
-}
 
-// ════════════════════════════════════════════════
-// (b) 토스피드 스타일 — 컬러 배경, 대담한 타이포, 임팩트
-// ════════════════════════════════════════════════
-const TOSS_BG = ['bg-[#3182f6]', 'bg-[#1b64da]', 'bg-[#0050c8]', 'bg-[#0040a0]', 'bg-[#1a1a1a]'];
-
-export function TossStyle({ slide, index, total }: Props) {
-  const bg = TOSS_BG[index % TOSS_BG.length];
-  const PageBadge = (
-    <span className="absolute top-5 right-5 inline-flex items-center justify-center w-7 h-7 rounded-full bg-white/15 text-white text-[11px] font-bold backdrop-blur-sm">
-      {index + 1}/{total}
-    </span>
+  const BgDeco = (
+    <>
+      <div className="absolute -top-24 -right-24 w-72 h-72 rounded-full bg-white/8" />
+      <div className="absolute -bottom-32 -left-20 w-80 h-80 rounded-full bg-white/5" />
+    </>
   );
 
   if (slide.kind === 'cover') {
     return (
-      <div className={`relative w-full h-full ${bg} rounded-2xl overflow-hidden shadow-lg text-white`}>
-        {/* 배경 장식 */}
-        <div className="absolute -top-20 -right-20 w-72 h-72 rounded-full bg-white/10" />
-        <div className="absolute -bottom-16 -left-16 w-56 h-56 rounded-full bg-white/5" />
-        {PageBadge}
-        <div className="relative h-full flex flex-col justify-center px-7 py-8">
-          <div className="inline-flex items-center self-start gap-1 rounded-full bg-white/15 px-3 py-1 text-[11px] font-bold text-white/90 backdrop-blur-sm mb-6">
+      <div className={`relative w-full h-full ${t.bg} ${t.ink} rounded-2xl overflow-hidden shadow-xl`}>
+        {BgDeco}{PageBadge}
+        <div className="relative h-full flex flex-col px-6 py-7">
+          {/* eyebrow + title */}
+          <div className={`inline-flex items-center self-start gap-1.5 rounded-full ${t.soft} px-3 py-1 text-[11px] font-bold backdrop-blur-sm mb-4`}>
             #{slide.eyebrow}
           </div>
-          <h2 className="text-[34px] font-black leading-[1.15] whitespace-pre-line tracking-tight">
-            {slide.title}
-          </h2>
-          <p className="mt-4 text-[14px] text-white/85 leading-snug">{slide.subtitle}</p>
-          <div className="mt-auto pt-6">
-            <span className="inline-flex items-center gap-1 rounded-full bg-yellow-300 px-3 py-1 text-[12px] font-bold text-slate-900">
-              ⚡ {slide.accent}
-            </span>
+
+          {/* 큰 아이콘 + 제목 가로 배치 */}
+          <div className="flex items-start gap-4 mb-3">
+            <div className={`flex-none ${t.soft} rounded-2xl p-3 backdrop-blur-sm`}>
+              <Icon className={`w-10 h-10 ${t.ink}`} strokeWidth={2} />
+            </div>
+            <h2 className="flex-1 text-[26px] font-black leading-[1.15] tracking-tight whitespace-pre-line">
+              {slide.title}
+            </h2>
+          </div>
+
+          <p className={`text-[13px] ${t.sub} leading-relaxed mb-5`}>{slide.subtitle}</p>
+
+          {/* 큰 통계 박스 */}
+          <div className={`mt-auto rounded-2xl ${t.soft} backdrop-blur-sm p-4`}>
+            <div className={`text-[11px] font-bold ${t.sub} mb-1`}>{slide.stat.label}</div>
+            <div className={`text-[34px] font-black leading-none ${t.ink}`}>{slide.stat.value}</div>
+          </div>
+
+          {/* 하단 CTA */}
+          <div className={`mt-3 inline-flex items-center gap-1.5 ${t.accent} ${t.accentInk} rounded-full px-3 py-1.5 text-[11px] font-extrabold self-start`}>
+            <Zap className="w-3 h-3" /> 슬라이드를 넘겨보세요
           </div>
         </div>
       </div>
@@ -129,16 +112,42 @@ export function TossStyle({ slide, index, total }: Props) {
 
   if (slide.kind === 'point') {
     return (
-      <div className={`relative w-full h-full ${bg} rounded-2xl overflow-hidden shadow-lg text-white`}>
-        <div className="absolute -top-12 -right-12 w-44 h-44 rounded-full bg-white/8" />
-        {PageBadge}
-        <div className="relative h-full flex flex-col px-7 py-8">
-          <div className="text-[80px] font-black text-white/15 leading-none -ml-1 -mt-2">{slide.number}</div>
-          <h3 className="text-[28px] font-black leading-[1.2] whitespace-pre-line -mt-6">{slide.title}</h3>
-          <p className="mt-4 text-[14px] text-white/85 leading-relaxed">{slide.body}</p>
-          <div className="mt-auto pt-5">
-            <div className="rounded-xl bg-yellow-300 px-4 py-2.5">
-              <div className="text-[14px] font-extrabold text-slate-900">{slide.highlight}</div>
+      <div className={`relative w-full h-full ${t.bg} ${t.ink} rounded-2xl overflow-hidden shadow-xl`}>
+        {BgDeco}{PageBadge}
+        <div className="relative h-full flex flex-col px-6 py-7">
+          {/* 큰 페이지 번호 (배경 워터마크) */}
+          <div className={`absolute top-2 left-4 text-[88px] font-black leading-none ${t.ink} opacity-10 select-none`}>
+            {slide.number}
+          </div>
+
+          {/* 헤더: 작은 라벨 + 큰 아이콘 */}
+          <div className="relative flex items-start gap-3 mb-3 pt-3">
+            <div className={`flex-none ${t.soft} rounded-2xl p-2.5 backdrop-blur-sm`}>
+              <Icon className={`w-8 h-8 ${t.ink}`} strokeWidth={2} />
+            </div>
+            <div className="flex-1 pt-1">
+              <div className={`text-[11px] font-bold ${t.sub} uppercase tracking-wider`}>POINT {slide.number}</div>
+              <h3 className={`text-[22px] font-black leading-[1.2] mt-1 whitespace-pre-line ${t.ink}`}>
+                {slide.title}
+              </h3>
+            </div>
+          </div>
+
+          {/* 부제 */}
+          <p className={`text-[12px] font-semibold ${t.sub} mb-3 -mt-1`}>{slide.subtitle}</p>
+
+          {/* 본문 */}
+          <p className={`text-[13.5px] ${t.ink} leading-relaxed mb-4`}>{slide.body}</p>
+
+          {/* 통계 박스 + 핵심 박스 */}
+          <div className="mt-auto space-y-2">
+            <div className={`rounded-xl ${t.soft} backdrop-blur-sm px-3.5 py-2.5 flex items-baseline justify-between gap-3`}>
+              <span className={`text-[10px] font-bold ${t.sub} uppercase tracking-wide`}>{slide.stat.label}</span>
+              <span className={`text-[20px] font-black ${t.ink}`}>{slide.stat.value}</span>
+            </div>
+            <div className={`rounded-xl ${t.accent} ${t.accentInk} px-4 py-3`}>
+              <div className="text-[10px] font-bold opacity-70 mb-0.5">한 줄 정리</div>
+              <div className="text-[14px] font-extrabold leading-snug">{slide.highlight}</div>
             </div>
           </div>
         </div>
@@ -148,23 +157,40 @@ export function TossStyle({ slide, index, total }: Props) {
 
   // closing
   return (
-    <div className={`relative w-full h-full ${bg} rounded-2xl overflow-hidden shadow-lg text-white`}>
-      <div className="absolute -bottom-20 -right-20 w-64 h-64 rounded-full bg-white/8" />
-      {PageBadge}
-      <div className="relative h-full flex flex-col px-7 py-8">
-        <div className="text-yellow-300 text-3xl mb-2">📌</div>
-        <h3 className="text-[26px] font-black leading-tight">{slide.title}</h3>
-        <ul className="mt-5 space-y-3">
+    <div className={`relative w-full h-full ${t.bg} ${t.ink} rounded-2xl overflow-hidden shadow-xl`}>
+      {BgDeco}{PageBadge}
+      <div className="relative h-full flex flex-col px-6 py-7">
+        {/* 큰 아이콘 가운데 */}
+        <div className="flex items-start gap-3 mb-2">
+          <div className={`flex-none ${t.soft} rounded-2xl p-2.5 backdrop-blur-sm`}>
+            <Icon className={`w-8 h-8 ${t.ink}`} strokeWidth={2} />
+          </div>
+          <div className="flex-1 pt-1">
+            <div className={`text-[11px] font-bold ${t.sub} uppercase tracking-wider`}>📌 SUMMARY</div>
+            <h3 className={`text-[22px] font-black leading-tight mt-1 ${t.ink}`}>{slide.title}</h3>
+          </div>
+        </div>
+
+        <p className={`text-[12.5px] ${t.sub} mb-4 leading-snug`}>{slide.subtitle}</p>
+
+        {/* 체크리스트 카드 — 각 항목에 desc */}
+        <ul className="space-y-2.5">
           {slide.items.map((it, i) => (
-            <li key={i} className="flex gap-3 items-start">
-              <span className="flex-none w-7 h-7 rounded-full bg-yellow-300 text-slate-900 text-[12px] font-black inline-flex items-center justify-center">
-                {i + 1}
-              </span>
-              <span className="text-[14px] text-white leading-snug font-medium pt-0.5">{it}</span>
+            <li key={i} className={`rounded-xl ${t.soft} backdrop-blur-sm p-3`}>
+              <div className="flex gap-2.5 items-start">
+                <span className={`flex-none w-6 h-6 rounded-full ${t.accent} ${t.accentInk} text-[11px] font-black inline-flex items-center justify-center mt-0.5`}>
+                  {i + 1}
+                </span>
+                <div className="flex-1">
+                  <div className={`text-[13px] font-bold ${t.ink} leading-tight`}>{it.title}</div>
+                  <div className={`text-[11px] ${t.sub} leading-snug mt-0.5`}>{it.desc}</div>
+                </div>
+              </div>
             </li>
           ))}
         </ul>
-        <div className="mt-auto pt-4 text-[10px] text-white/60 border-t border-white/15">
+
+        <div className={`mt-auto pt-3 text-[9.5px] ${t.sub} border-t ${t.ink === 'text-white' ? 'border-white/15' : 'border-slate-200'}`}>
           {slide.footer}
         </div>
       </div>
