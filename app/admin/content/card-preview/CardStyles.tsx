@@ -1,11 +1,8 @@
-// 카드뉴스 하이브리드 디자인 — 토스 컬러 임팩트 + 카카오페이 정보 밀도 + 큰 아이콘.
-// 1080×1080 인스타 정사각 비율, 5장 시리즈.
-// 모든 폰트·여백은 container query units(cqw)로 카드 크기에 비례 → 1080px일 때 핸드폰에서도 잘 보이는 큰 글자.
+// 카드뉴스 — 인스타 핸드폰 피드(약 400px)에서 한눈에 들어오는 큼지막한 디자인.
+// 한 카드 = 한 메시지. 거대 통계/헤딩 + 짧은 보조 텍스트만. 시각 hierarchy 명확.
 
 import {
-  TrendingDown, AlertTriangle, Gift, Shield, Sparkles,
-  Stethoscope, Calculator, Baby, ArrowRight, Search,
-  ClipboardCheck, Zap,
+  TrendingDown, AlertTriangle, Baby, Sparkles, ClipboardCheck, Zap,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -14,36 +11,31 @@ export type CardSlide =
       kind: 'cover';
       eyebrow: string;
       title: string;
-      subtitle: string;
-      stat: { value: string; label: string };
+      bigStat: string;        // "30% ↓" 거대 통계 — 메인 시각 포인트
+      bigStatLabel: string;   // "월 보험료 인하 추정"
       iconKey: keyof typeof ICONS;
     }
   | {
       kind: 'point';
       number: string;
-      title: string;
-      subtitle: string;
-      body: string;
-      highlight: string;
-      stat: { value: string; label: string };
+      bigStat: string;        // 큰 숫자/% 거대하게 (메인)
+      bigStatLabel: string;   // 통계 라벨
+      title: string;          // 짧은 헤딩 (1줄)
+      body: string;           // 짧은 본문 1~2문장
       iconKey: keyof typeof ICONS;
     }
   | {
       kind: 'closing';
       title: string;
-      subtitle: string;
-      items: string[];
+      items: string[];        // 짧은 항목 3개
       footer: string;
       iconKey: keyof typeof ICONS;
     };
 
 const ICONS = {
-  sparkles: Sparkles, shield: Shield,
+  sparkles: Sparkles,
   trendingDown: TrendingDown, alert: AlertTriangle,
-  gift: Gift, stethoscope: Stethoscope,
-  calculator: Calculator, baby: Baby,
-  search: Search, clipboard: ClipboardCheck,
-  zap: Zap, arrow: ArrowRight,
+  baby: Baby, clipboard: ClipboardCheck, zap: Zap,
 } satisfies Record<string, LucideIcon>;
 
 type Props = { slide: CardSlide; index: number; total: number };
@@ -56,40 +48,38 @@ const TONES = [
   { bg: 'bg-[#dc2626]',  ink: 'text-white', sub: 'text-white/85', accent: 'bg-yellow-300', accentInk: 'text-slate-900', soft: 'bg-white/15' },
 ];
 
-// container query 기반 폰트 크기 — 카드 폭에 비례.
-// 1080px 카드 기준: title 60px, body 32px, stat-value 96px 등. 핸드폰 인스타에서도 충분히 큼.
+// container query units 기반 폰트 — 인스타 피드(~400px)에서 잘 보이도록 큼지막하게.
+// 1080px 카드 기준 환산 (cqw → px):
+//  헤딩 96~120px, 본문 44~52px, 거대 통계 168~192px
+// 폰트 크기 — 박스 안의 글자도 끝까지 채우는 큼지막한 크기.
+// 1080px 카드 기준 환산.
 const F = {
-  pageBadge:    'text-[2.4cqw] font-extrabold',     // ~26px @ 1080
-  eyebrow:      'text-[2.6cqw] font-bold',           // ~28px
-  coverTitle:   'text-[6cqw] font-black leading-[1.1]',   // ~64px
-  coverSub:     'text-[2.8cqw] leading-relaxed',          // ~30px
-  coverStat:    'text-[8.5cqw] font-black leading-none',  // ~92px
-  statLabel:    'text-[2.2cqw] font-bold uppercase',      // ~24px
-  pointWatermark:'text-[18cqw] font-black leading-none',  // ~194px
-  pointEyebrow: 'text-[2.4cqw] font-bold uppercase tracking-wider', // ~26px
-  pointTitle:   'text-[5.6cqw] font-black leading-[1.15]', // ~60px
-  pointSub:     'text-[2.6cqw] font-semibold',             // ~28px
-  pointBody:    'text-[2.9cqw] leading-[1.55]',            // ~31px
-  pointStat:    'text-[4.2cqw] font-black',                // ~45px
-  pointHL:      'text-[3.2cqw] font-extrabold leading-snug', // ~35px
-  closingTitle: 'text-[5.2cqw] font-black leading-tight',  // ~56px
-  closingSub:   'text-[2.7cqw] leading-snug',              // ~29px
-  closingItem:  'text-[3.4cqw] font-bold leading-snug',    // ~37px
-  footer:       'text-[1.8cqw]',                            // ~19px
-  ctaChip:      'text-[2.4cqw] font-extrabold',            // ~26px
+  pageBadge:    'text-[3cqw] font-extrabold',                                  // ~32px
+  eyebrow:      'text-[3.8cqw] font-extrabold uppercase tracking-wider',       // ~41px
+  coverTitle:   'text-[12cqw] font-black leading-[1.05] tracking-tight',       // ~130px
+  coverBigStat: 'text-[20cqw] font-black leading-none',                         // ~216px
+  coverStatLab: 'text-[3.6cqw] font-bold uppercase tracking-wide',              // ~39px
+  pointEyebrow: 'text-[3.6cqw] font-extrabold uppercase tracking-wider',        // ~39px
+  pointBigStat: 'text-[20cqw] font-black leading-none tracking-tight',          // ~216px
+  pointStatLab: 'text-[3.6cqw] font-bold uppercase tracking-wide',              // ~39px
+  pointTitle:   'text-[9cqw] font-black leading-[1.1]',                         // ~97px
+  pointBody:    'text-[5cqw] leading-[1.45] font-medium',                       // ~54px
+  closingTitle: 'text-[9.4cqw] font-black leading-[1.1]',                       // ~102px
+  closingItem:  'text-[6cqw] font-extrabold leading-tight',                     // ~65px
+  closingItemNum:'text-[5cqw] font-black',                                      // ~54px
+  footer:       'text-[2.4cqw]',                                                // ~26px
+  ctaChip:      'text-[4cqw] font-extrabold',                                   // ~43px
 };
 
-const CARD_BASE = 'relative w-full h-full rounded-2xl overflow-hidden shadow-xl';
-
-// container-type을 inline style로 (Tailwind v4 JIT가 임의값 못 잡을 수 있어 안전한 inline)
 const containerStyle = { containerType: 'size' } as React.CSSProperties;
+const CARD_BASE = 'relative w-full h-full rounded-2xl overflow-hidden shadow-xl';
 
 export function HybridStyle({ slide, index, total }: Props) {
   const t = TONES[index % TONES.length];
   const Icon = ICONS[slide.iconKey];
 
   const PageBadge = (
-    <div className={`absolute top-[5%] right-[5%] inline-flex items-center justify-center w-[10%] h-[10%] rounded-full ${t.soft} ${t.ink} ${F.pageBadge} backdrop-blur-sm`}>
+    <div className={`absolute top-[5%] right-[5%] inline-flex items-center justify-center w-[11%] h-[11%] rounded-full ${t.soft} ${t.ink} ${F.pageBadge} backdrop-blur-sm`}>
       {index + 1}/{total}
     </div>
   );
@@ -105,29 +95,31 @@ export function HybridStyle({ slide, index, total }: Props) {
     return (
       <div style={containerStyle} className={`${CARD_BASE} ${t.bg} ${t.ink}`}>
         {BgDeco}{PageBadge}
-        <div className="relative h-full flex flex-col px-[7%] py-[7%]">
-          <div className={`inline-flex items-center self-start gap-[0.5cqw] rounded-full ${t.soft} px-[3%] py-[1.5%] ${F.eyebrow} backdrop-blur-sm mb-[5%]`}>
+        <div className="relative h-full flex flex-col px-[5%] py-[5%]">
+          {/* eyebrow */}
+          <div className={`inline-flex items-center self-start gap-[1cqw] rounded-full ${t.soft} px-[3.5%] py-[1.5%] ${F.eyebrow} backdrop-blur-sm`}>
             #{slide.eyebrow}
           </div>
 
-          <div className="flex items-start gap-[5%] mb-[3%]">
-            <div className={`flex-none ${t.soft} rounded-2xl p-[3%] backdrop-blur-sm`}>
-              <Icon className={`${t.ink}`} style={{ width: '10cqw', height: '10cqw' }} strokeWidth={2} />
+          {/* 제목 — 큼지막, 자동 줄바꿈, 강제 \n 제거 */}
+          <h2 className={`mt-[6%] ${F.coverTitle} whitespace-normal break-keep`}>
+            {slide.title.replace(/\n/g, ' ')}
+          </h2>
+
+          {/* 거대 통계 — 메인 시각 포인트 */}
+          <div className="mt-auto flex items-end justify-between gap-[3cqw]">
+            <div className="flex-1 min-w-0">
+              <div className={`${F.coverStatLab} ${t.sub} mb-[1cqw]`}>{slide.bigStatLabel}</div>
+              <div className={`${F.coverBigStat}`}>{slide.bigStat}</div>
             </div>
-            <h2 className={`flex-1 ${F.coverTitle} tracking-tight whitespace-pre-line`}>
-              {slide.title}
-            </h2>
+            <div className={`flex-none ${t.soft} rounded-full p-[4%] backdrop-blur-sm`}>
+              <Icon style={{ width: '13cqw', height: '13cqw' }} className={t.ink} strokeWidth={2.5} />
+            </div>
           </div>
 
-          <p className={`${F.coverSub} ${t.sub} mb-[5%]`}>{slide.subtitle}</p>
-
-          <div className={`mt-auto rounded-2xl ${t.soft} backdrop-blur-sm p-[5%]`}>
-            <div className={`${F.statLabel} ${t.sub} mb-[1cqw]`}>{slide.stat.label}</div>
-            <div className={`${F.coverStat}`}>{slide.stat.value}</div>
-          </div>
-
-          <div className={`mt-[3%] inline-flex items-center gap-[1cqw] ${t.accent} ${t.accentInk} rounded-full px-[3%] py-[1.5%] ${F.ctaChip} self-start`}>
-            <Zap style={{ width: '2.4cqw', height: '2.4cqw' }} /> 슬라이드를 넘겨보세요
+          {/* CTA 칩 */}
+          <div className={`mt-[5%] inline-flex items-center gap-[1.2cqw] ${t.accent} ${t.accentInk} rounded-full px-[4%] py-[2%] ${F.ctaChip} self-start`}>
+            <Zap style={{ width: '4cqw', height: '4cqw' }} strokeWidth={3} /> 슬라이드 →
           </div>
         </div>
       </div>
@@ -138,60 +130,54 @@ export function HybridStyle({ slide, index, total }: Props) {
     return (
       <div style={containerStyle} className={`${CARD_BASE} ${t.bg} ${t.ink}`}>
         {BgDeco}{PageBadge}
-        <div className="relative h-full flex flex-col px-[7%] py-[7%]">
-          <div className={`absolute top-[2%] left-[5%] ${F.pointWatermark} ${t.ink} opacity-10 select-none pointer-events-none`}>
-            {slide.number}
-          </div>
-
-          <div className="relative flex items-start gap-[4%] mb-[3%] pt-[3%]">
-            <div className={`flex-none ${t.soft} rounded-2xl p-[3%] backdrop-blur-sm`}>
-              <Icon className={`${t.ink}`} style={{ width: '8cqw', height: '8cqw' }} strokeWidth={2} />
-            </div>
-            <div className="flex-1 pt-[1%]">
-              <div className={`${F.pointEyebrow} ${t.sub}`}>POINT {slide.number}</div>
-              <h3 className={`${F.pointTitle} mt-[1%] whitespace-pre-line`}>{slide.title}</h3>
+        <div className="relative h-full flex flex-col px-[5%] py-[5%]">
+          {/* POINT 라벨 */}
+          <div className={`flex items-center justify-between`}>
+            <div className={`${F.pointEyebrow} ${t.sub}`}>POINT {slide.number}</div>
+            <div className={`flex-none ${t.soft} rounded-full p-[3%] backdrop-blur-sm`}>
+              <Icon style={{ width: '8cqw', height: '8cqw' }} className={t.ink} strokeWidth={2.5} />
             </div>
           </div>
 
-          <p className={`${F.pointSub} ${t.sub} mb-[3%]`}>{slide.subtitle}</p>
-          <p className={`${F.pointBody} ${t.ink} mb-[4%]`}>{slide.body}</p>
-
-          <div className="mt-auto space-y-[2cqw]">
-            <div className={`rounded-xl ${t.soft} backdrop-blur-sm px-[4%] py-[3%] flex items-baseline justify-between gap-[3cqw]`}>
-              <span className={`${F.statLabel} ${t.sub}`}>{slide.stat.label}</span>
-              <span className={`${F.pointStat} ${t.ink}`}>{slide.stat.value}</span>
-            </div>
-            <div className={`rounded-xl ${t.accent} ${t.accentInk} px-[5%] py-[4%]`}>
-              <div className={`${F.statLabel} opacity-70 mb-[0.5cqw]`}>한 줄 정리</div>
-              <div className={F.pointHL}>{slide.highlight}</div>
-            </div>
+          {/* 거대 통계 — 가장 눈에 띄는 메인 포인트 */}
+          <div className="mt-[6%]">
+            <div className={`${F.pointStatLab} ${t.sub} mb-[1cqw]`}>{slide.bigStatLabel}</div>
+            <div className={F.pointBigStat}>{slide.bigStat}</div>
           </div>
+
+          {/* 짧은 헤딩 */}
+          <h3 className={`mt-[6%] ${F.pointTitle} whitespace-normal break-keep`}>
+            {slide.title.replace(/\n/g, ' ')}
+          </h3>
+
+          {/* 짧은 본문 */}
+          <p className={`mt-auto ${F.pointBody} ${t.ink}`}>{slide.body}</p>
         </div>
       </div>
     );
   }
 
+  // closing
   return (
     <div style={containerStyle} className={`${CARD_BASE} ${t.bg} ${t.ink}`}>
       {BgDeco}{PageBadge}
       <div className="relative h-full flex flex-col px-[7%] py-[7%]">
-        <div className="flex items-start gap-[4%] mb-[2%]">
-          <div className={`flex-none ${t.soft} rounded-2xl p-[3%] backdrop-blur-sm`}>
-            <Icon className={`${t.ink}`} style={{ width: '8cqw', height: '8cqw' }} strokeWidth={2} />
-          </div>
-          <div className="flex-1 pt-[1%]">
-            <div className={`${F.pointEyebrow} ${t.sub}`}>📌 SUMMARY</div>
-            <h3 className={`${F.closingTitle} mt-[1%]`}>{slide.title}</h3>
+        <div className="flex items-center justify-between">
+          <div className={`${F.eyebrow} ${t.sub}`}>📌 SUMMARY</div>
+          <div className={`flex-none ${t.soft} rounded-full p-[3%] backdrop-blur-sm`}>
+            <Icon style={{ width: '8cqw', height: '8cqw' }} className={t.ink} strokeWidth={2.5} />
           </div>
         </div>
 
-        <p className={`${F.closingSub} ${t.sub} mb-[5%]`}>{slide.subtitle}</p>
+        <h3 className={`mt-[5%] ${F.closingTitle} whitespace-normal break-keep`}>
+          {slide.title.replace(/\n/g, ' ')}
+        </h3>
 
-        <ul className="space-y-[2.5cqw]">
+        <ul className="mt-[6%] space-y-[3.5cqw]">
           {slide.items.map((it, i) => (
-            <li key={i} className={`rounded-xl ${t.soft} backdrop-blur-sm p-[4%] flex gap-[3%] items-center`}>
-              <span className={`flex-none rounded-full ${t.accent} ${t.accentInk} ${F.statLabel} inline-flex items-center justify-center`}
-                    style={{ width: '7cqw', height: '7cqw' }}>
+            <li key={i} className={`rounded-2xl ${t.soft} backdrop-blur-sm px-[3.5%] py-[3%] flex gap-[2.5cqw] items-center`}>
+              <span className={`flex-none rounded-full ${t.accent} ${t.accentInk} ${F.closingItemNum} inline-flex items-center justify-center`}
+                    style={{ width: '11cqw', height: '11cqw' }}>
                 {i + 1}
               </span>
               <span className={`flex-1 ${F.closingItem}`}>{it}</span>
