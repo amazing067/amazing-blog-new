@@ -38,6 +38,7 @@ export async function GET(req: Request) {
     fact_check_high_issues: 0,
     failed: 0,
     slugs: [] as string[],
+    errors: [] as string[],
   };
 
   for (const topic of topics) {
@@ -101,9 +102,16 @@ export async function GET(req: Request) {
       summary.generated++;
       summary.slugs.push(topic.slug);
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.error('[daily-blog] topic failed', topic.slug, msg);
+      let msg: string;
+      if (err instanceof Error) msg = err.message;
+      else if (err && typeof err === 'object') {
+        const obj = err as Record<string, unknown>;
+        msg = String(obj.message ?? obj.code ?? '') + (obj.details ? ` (${obj.details})` : '');
+        if (!msg.trim()) msg = JSON.stringify(err);
+      } else msg = String(err);
+      console.error('[daily-blog] topic failed', topic.slug, msg, err);
       summary.failed++;
+      summary.errors.push(`${topic.slug}: ${msg}`);
     }
   }
   return NextResponse.json({ ok: true, mode, model: GENERATOR_MODEL, ...summary });
