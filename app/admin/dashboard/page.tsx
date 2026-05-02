@@ -286,7 +286,7 @@ export default async function AdminDashboardPage() {
                   <h3 className="text-lg font-bold">인스타 카드뉴스</h3>
                 </div>
                 <p className="text-violet-100 text-xs mb-3 leading-relaxed">
-                  매일 KST 08:30 5장 자동 · 1080×1080 PNG zip
+                  매일 KST 08:00 5장 자동 · 1080×1080 PNG zip
                 </p>
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-violet-100">🎴 5장 · 🖼️ PNG · 🛡️ 심의</span>

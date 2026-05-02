@@ -34,11 +34,13 @@ export default async function CardsListPage({
   const status = (STATUSES.find(s => s.key === sp.status)?.key ?? 'review') as Status;
 
   const supa = adminClient();
+  // billing 컬럼이 적용 안 됐을 수도 있어 별표 select로 안전하게 (없으면 그냥 undefined)
   let q = supa.from('content_items')
-    .select('id, title, status, source_refs, created_at, card_slides, publish_url, total_cost_usd')
+    .select('*')
     .eq('type', 'card').order('created_at', { ascending: false }).limit(200);
   if (status !== 'all') q = q.eq('status', status);
-  const { data: items } = await q;
+  const { data: items, error } = await q;
+  if (error) console.error('[cards/list] supabase error:', error.message);
 
   const { data: counts } = await supa.from('content_items').select('status').eq('type', 'card');
   const statusCount: Record<string, number> = {};
@@ -63,7 +65,7 @@ export default async function CardsListPage({
           <Images className="w-6 h-6 text-violet-600" />
           카드뉴스 검수 대기열
         </h2>
-        <p className="mt-1 text-sm text-slate-500">매일 KST 08:30 자동 생성 · 5장 시리즈 + 심의필 = 6장 PNG zip</p>
+        <p className="mt-1 text-sm text-slate-500">매일 KST 08:00 자동 생성 · 5장 시리즈 + 심의필 = 6장 PNG zip</p>
       </div>
 
       <div className="mb-6 flex flex-wrap gap-2">
@@ -89,7 +91,7 @@ export default async function CardsListPage({
           <Images className="mx-auto w-12 h-12 text-slate-300" />
           <h3 className="mt-4 text-lg font-semibold text-slate-700">생성된 카드뉴스가 없습니다</h3>
           <p className="mt-2 text-sm text-slate-500">
-            매일 KST 08:30 자동 생성됩니다.
+            매일 KST 08:00 자동 생성됩니다.
           </p>
         </div>
       ) : (
