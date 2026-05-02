@@ -44,7 +44,7 @@ function FactCheckPanel({ data }: { data: FactCheckData }) {
       <div className="flex items-center gap-2 mb-3">
         <Search className={`w-5 h-5 ${data.passed ? 'text-emerald-600' : 'text-red-600'}`} />
         <h3 className={`font-semibold ${data.passed ? 'text-emerald-700' : 'text-red-700'}`}>
-          AI 사실 검증 (Gemini + Google Search)
+          AI 사실 검증 · Google 검색 기반
         </h3>
       </div>
       {data.issues.length === 0 ? (
@@ -176,7 +176,7 @@ export default async function NewsDetailPage({ params }: { params: Promise<{ id:
                       <>
                         <div className="text-xs font-medium text-slate-500 mb-1">생성 정보</div>
                         <div className="text-sm text-slate-700">
-                          AI 자동 생성 콘텐츠 · 카테고리 {sourceRef?.category} · 모델 {sourceRef?.generated_by}
+                          AI 자동 생성 콘텐츠 · 카테고리 {sourceRef?.category}
                         </div>
                       </>
                     )}

@@ -269,12 +269,12 @@ export default async function AdminDashboardPage() {
                 <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3">
                   <div className="text-2xl mb-1">🤖</div>
                   <div className="font-semibold text-sm">AI 자동 작성</div>
-                  <div className="text-xs text-emerald-100 mt-1">Claude Haiku 4.5 · 어그로 끌리는 주제</div>
+                  <div className="text-xs text-emerald-100 mt-1">어그로 끌리는 주제 자동 선별</div>
                 </div>
                 <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3">
                   <div className="text-2xl mb-1">🔍</div>
                   <div className="font-semibold text-sm">사실 검증</div>
-                  <div className="text-xs text-emerald-100 mt-1">Gemini + Google Search</div>
+                  <div className="text-xs text-emerald-100 mt-1">Google 검색 기반 자동 검증</div>
                 </div>
                 <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3">
                   <div className="text-2xl mb-1">🛡️</div>

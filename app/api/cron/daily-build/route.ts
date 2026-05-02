@@ -7,7 +7,7 @@ import { factCheckArticle } from '@/lib/content/fact-check';
 import { lintContent } from '@/lib/content/compliance-lint';
 import type { EnforcementMode } from '@/lib/content/types';
 
-const DAILY_LIMIT = 2;
+const DAILY_LIMIT = 1;
 const GENERATOR_MODEL = 'claude-haiku-4-5';
 
 export async function GET(req: Request) {
