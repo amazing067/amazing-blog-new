@@ -234,39 +234,63 @@ export default function CardsDetailClient({ id, userId, defaultDesigner, title, 
           </div>
         </div>
 
-        {/* 편집 폼 — editing 모드에서만 표시 */}
-        {editing && (
-          <div className="space-y-3">
-            {slides.map((s, i) => (
-              <SlideEditor key={i} slide={s} index={i} onChange={(next) => updateSlide(i, next)} />
-            ))}
-          </div>
-        )}
+        {/* 슬라이드 표시 — 편집 모드: 좌우 분할 / 비편집: 2열 그리드 */}
+        {(() => {
+          const showCompliance = !!(comp.number || comp.start_date || comp.end_date || comp.designer || comp.registration);
+          const total = slides.length + (showCompliance ? 1 : 0);
 
-        <div className="grid gap-5 grid-cols-1 sm:grid-cols-2">
-          {(() => {
-            const showCompliance = !!(comp.number || comp.start_date || comp.end_date || comp.designer || comp.registration);
-            const total = slides.length + (showCompliance ? 1 : 0);
+          if (editing) {
+            // 편집 모드 — 슬라이드별 [편집 폼 | 미리보기] 좌우 분할
             return (
-              <>
+              <div className="space-y-5">
                 {slides.map((s, i) => (
-                  <div key={i} className="aspect-square">
-                    <div ref={(el) => { captureRefs.current[i] = el; }} className="w-full h-full">
-                      <HybridStyle slide={s} index={i} total={total} compliance={comp} />
+                  <div key={i} className="grid gap-4 grid-cols-1 lg:grid-cols-2 items-start">
+                    <SlideEditor slide={s} index={i} onChange={(next) => updateSlide(i, next)} />
+                    <div className="aspect-square sticky top-24">
+                      <div ref={(el) => { captureRefs.current[i] = el; }} className="w-full h-full">
+                        <HybridStyle slide={s} index={i} total={total} compliance={comp} />
+                      </div>
                     </div>
                   </div>
                 ))}
                 {showCompliance && (
-                  <div className="aspect-square">
-                    <div ref={(el) => { captureRefs.current[slides.length] = el; }} className="w-full h-full">
-                      <ComplianceSlide compliance={comp} index={slides.length} total={total} />
+                  <div className="grid gap-4 grid-cols-1 lg:grid-cols-2 items-start">
+                    <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-900 leading-relaxed">
+                      <p className="font-bold mb-1">📋 6번째 심의필 슬라이드</p>
+                      <p>이 카드는 우측 사이드바의 <strong>광고심의필 정보 폼</strong>에서 수정합니다.</p>
+                      <p className="mt-2">회사명 · 지점명 · 설계사명 · 협회등록번호 · 심의번호 · 시작/종료일 · 경고문구 포함 여부.</p>
+                    </div>
+                    <div className="aspect-square">
+                      <div ref={(el) => { captureRefs.current[slides.length] = el; }} className="w-full h-full">
+                        <ComplianceSlide compliance={comp} index={slides.length} total={total} />
+                      </div>
                     </div>
                   </div>
                 )}
-              </>
+              </div>
             );
-          })()}
-        </div>
+          }
+
+          // 비편집 모드 — 기존 2열 그리드
+          return (
+            <div className="grid gap-5 grid-cols-1 sm:grid-cols-2">
+              {slides.map((s, i) => (
+                <div key={i} className="aspect-square">
+                  <div ref={(el) => { captureRefs.current[i] = el; }} className="w-full h-full">
+                    <HybridStyle slide={s} index={i} total={total} compliance={comp} />
+                  </div>
+                </div>
+              ))}
+              {showCompliance && (
+                <div className="aspect-square">
+                  <div ref={(el) => { captureRefs.current[slides.length] = el; }} className="w-full h-full">
+                    <ComplianceSlide compliance={comp} index={slides.length} total={total} />
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })()}
       </div>
 
       {/* 사이드바 */}
