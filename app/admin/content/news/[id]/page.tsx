@@ -2,11 +2,8 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { adminClient } from '@/lib/admin/guard';
 import NewsActions from './NewsActions';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import rehypeRaw from 'rehype-raw';
 import { ArrowLeft, ExternalLink, Shield, AlertCircle, CheckCircle2, Newspaper, Calendar, Tag, Search } from 'lucide-react';
-import { mdComponents } from './MdComponents';
+import ArticleBody from './ArticleBody';
 
 const STATUS_LABEL: Record<string, { label: string; cls: string }> = {
   review:    { label: '검토 대기', cls: 'bg-amber-100 text-amber-800 border-amber-200' },
@@ -158,13 +155,7 @@ export default async function NewsDetailPage({ params }: { params: Promise<{ id:
           {/* 본문 영역 — 카카오페이 머니콘텐츠 톤 마크다운 컴포넌트 */}
           <div className="px-8 py-10">
             <div className="max-w-none">
-              <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
-                rehypePlugins={[rehypeRaw]}
-                components={mdComponents}
-              >
-                {item.body_md ?? ''}
-              </ReactMarkdown>
+              <ArticleBody markdown={item.body_md ?? ''} />
             </div>
 
             {/* 출처/생성 박스 */}
