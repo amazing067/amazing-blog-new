@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import html2canvas from 'html2canvas';
+import html2canvas from 'html2canvas-pro';
 import JSZip from 'jszip';
 import { Download, CheckCircle2, X, Trash2, Loader2, Shield, Search, Pencil, Save } from 'lucide-react';
 import { HybridStyle } from '../../card-preview/CardStyles';
@@ -149,15 +149,28 @@ export default function CardsDetailClient({ id, userId, defaultDesigner, title, 
       for (let i = 0; i < captureRefs.current.length; i++) {
         const el = captureRefs.current[i];
         if (!el) continue;
-        const canvas = await html2canvas(el, {
-          scale: 1,
-          useCORS: true,
-          backgroundColor: null,
-          logging: false,
-        });
-        const blob = await new Promise<Blob | null>(r => canvas.toBlob(r, 'image/png'));
-        if (!blob) continue;
-        folder.file(`slide-${String(i + 1).padStart(2, '0')}.png`, blob);
+        try {
+          // 1080×1080 출력을 위해 scale = 1080 / 실제 element width
+          const rect = el.getBoundingClientRect();
+          const scale = rect.width > 0 ? 1080 / rect.width : 1;
+          const canvas = await html2canvas(el, {
+            scale,
+            useCORS: true,
+            allowTaint: false,
+            backgroundColor: null,
+            logging: false,
+            imageTimeout: 15000,
+          });
+          const blob = await new Promise<Blob | null>(r => canvas.toBlob(r, 'image/png'));
+          if (!blob) {
+            console.warn(`[capture] slide ${i + 1}: blob null`);
+            continue;
+          }
+          folder.file(`slide-${String(i + 1).padStart(2, '0')}.png`, blob);
+        } catch (capErr) {
+          console.error(`[capture] slide ${i + 1} 실패:`, capErr);
+          throw new Error(`슬라이드 ${i + 1} 캡처 실패: ${capErr instanceof Error ? capErr.message : String(capErr)}`);
+        }
       }
 
       const archive = await zip.generateAsync({ type: 'blob' });
