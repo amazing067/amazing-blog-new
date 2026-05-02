@@ -2,10 +2,20 @@
 
 import type { CardSlide, CardIconKey } from '@/lib/content/types';
 
-const ICON_KEYS: CardIconKey[] = [
-  'sparkles', 'shield', 'trendingDown', 'alert',
-  'gift', 'stethoscope', 'calculator', 'baby',
-  'search', 'clipboard', 'zap', 'arrow',
+// 아이콘 키 + 한글 라벨 + 미리보기 이모지
+const ICON_OPTIONS: { key: CardIconKey; label: string; emoji: string }[] = [
+  { key: 'sparkles',     label: '반짝 (표지·신상품)',      emoji: '✨' },
+  { key: 'shield',       label: '방패 (보장·안전)',         emoji: '🛡️' },
+  { key: 'trendingDown', label: '하락 (인하·축소)',         emoji: '📉' },
+  { key: 'alert',        label: '경고 (주의·함정)',         emoji: '⚠️' },
+  { key: 'gift',         label: '선물 (혜택·환급)',         emoji: '🎁' },
+  { key: 'stethoscope',  label: '청진기 (의료·진단)',       emoji: '🩺' },
+  { key: 'calculator',   label: '계산기 (계산·세제)',       emoji: '🧮' },
+  { key: 'baby',         label: '아기 (출산·자녀)',         emoji: '👶' },
+  { key: 'search',       label: '돋보기 (검색·확인)',       emoji: '🔍' },
+  { key: 'clipboard',    label: '체크리스트 (마무리)',      emoji: '📋' },
+  { key: 'zap',          label: '번개 (빠른 결정)',         emoji: '⚡' },
+  { key: 'arrow',        label: '화살표 (변환·갈아타기)',   emoji: '➡️' },
 ];
 
 type Props = {
@@ -95,10 +105,18 @@ function TextArea({ label, value, onChange, rows = 3 }: { label: string; value: 
 }
 
 function IconPicker({ value, onChange }: { value: CardIconKey; onChange: (k: CardIconKey) => void }) {
+  const current = ICON_OPTIONS.find(o => o.key === value);
   return (
-    <select value={value} onChange={e => onChange(e.target.value as CardIconKey)}
-      className="text-xs rounded-md border border-slate-200 bg-white px-2 py-1 focus:border-violet-400 focus:outline-none">
-      {ICON_KEYS.map(k => <option key={k} value={k}>{k}</option>)}
-    </select>
+    <div className="flex items-center gap-1.5">
+      <span className="text-base" aria-hidden>{current?.emoji ?? '✨'}</span>
+      <select value={value} onChange={e => onChange(e.target.value as CardIconKey)}
+        className="text-xs rounded-md border border-slate-200 bg-white px-2 py-1 focus:border-violet-400 focus:outline-none">
+        {ICON_OPTIONS.map(o => (
+          <option key={o.key} value={o.key}>
+            {o.emoji} {o.label}
+          </option>
+        ))}
+      </select>
+    </div>
   );
 }
