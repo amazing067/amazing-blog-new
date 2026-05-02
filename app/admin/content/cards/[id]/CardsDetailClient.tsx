@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import html2canvas from 'html2canvas-pro';
+import { domToBlob } from 'modern-screenshot';
 import JSZip from 'jszip';
 import { Download, CheckCircle2, X, Trash2, Loader2, Shield, Search, Pencil, Save } from 'lucide-react';
 import { HybridStyle } from '../../card-preview/CardStyles';
@@ -167,24 +167,20 @@ export default function CardsDetailClient({ id, userId, defaultDesigner, title, 
         clone.style.zIndex = '-1';
         document.body.appendChild(clone);
 
-        // 폰트·이미지 로딩 대기
+        // 폰트·이미지 로딩 + 레이아웃 안정 대기
         await document.fonts.ready;
-        await new Promise(r => setTimeout(r, 200));
+        await new Promise(r => setTimeout(r, 300));
 
         try {
-          const canvas = await html2canvas(clone, {
-            scale: 1,
-            useCORS: true,
-            allowTaint: false,
-            backgroundColor: null,
-            logging: false,
-            imageTimeout: 15000,
+          // modern-screenshot — container query units(cqw), flex auto-margin, modern CSS 정확히 지원
+          const blob = await domToBlob(clone, {
             width: 1080,
             height: 1080,
-            windowWidth: 1080,
-            windowHeight: 1080,
+            scale: 1,
+            backgroundColor: '#ffffff',
+            type: 'image/png',
+            quality: 1,
           });
-          const blob = await new Promise<Blob | null>(r => canvas.toBlob(r, 'image/png'));
           if (!blob) {
             console.warn(`[capture] slide ${i + 1}: blob null`);
             continue;
