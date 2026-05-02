@@ -247,91 +247,54 @@ export default async function AdminDashboardPage() {
             </div>
           </Link>
 
-          {/* AI 보험 콘텐츠 카드 (관리자 전용) */}
-          <Link
-            href="/admin/content/news"
-            className="block mt-8 bg-gradient-to-br from-emerald-600 via-teal-600 to-cyan-700 rounded-3xl shadow-2xl p-10 text-white hover:shadow-3xl transition-all transform hover:scale-[1.02] relative overflow-hidden group"
-          >
-            <div className="absolute top-0 right-0 w-72 h-72 bg-white/10 rounded-full -translate-y-32 translate-x-32 group-hover:scale-110 transition-transform"></div>
-            <div className="relative z-10">
-              <div className="flex items-center gap-4 mb-4">
-                <div className="bg-white/20 p-4 rounded-2xl backdrop-blur-sm">
-                  <Newspaper className="w-10 h-10 text-yellow-200" />
+          {/* 자동 콘텐츠 트랙 — 보험뉴스 + 카드뉴스 컴팩트 2단 */}
+          <div className="grid md:grid-cols-2 gap-4 mt-6">
+            {/* 보험뉴스 */}
+            <Link
+              href="/admin/content/news"
+              className="block bg-gradient-to-br from-emerald-600 to-teal-700 rounded-2xl shadow-lg p-5 text-white hover:shadow-xl transition-all hover:scale-[1.01] relative overflow-hidden group"
+            >
+              <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -translate-y-12 translate-x-12 group-hover:scale-110 transition-transform" />
+              <div className="relative z-10">
+                <div className="flex items-center gap-3 mb-2">
+                  <div className="bg-white/20 p-2 rounded-xl backdrop-blur-sm">
+                    <Newspaper className="w-5 h-5 text-yellow-200" />
+                  </div>
+                  <h3 className="text-lg font-bold">AI 보험 콘텐츠</h3>
                 </div>
-                <div>
-                  <h2 className="text-3xl font-black mb-1">AI 보험 콘텐츠 자동 발행</h2>
-                  <p className="text-emerald-100 text-base">
-                    매일 KST 08:00 카카오페이 톤 콘텐츠 자동 생성 → AI 사실 검증 → 카페 게시 준비
-                  </p>
-                </div>
-              </div>
-              <div className="grid grid-cols-3 gap-3 mt-6">
-                <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3">
-                  <div className="text-2xl mb-1">🤖</div>
-                  <div className="font-semibold text-sm">AI 자동 작성</div>
-                  <div className="text-xs text-emerald-100 mt-1">어그로 끌리는 주제 자동 선별</div>
-                </div>
-                <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3">
-                  <div className="text-2xl mb-1">🔍</div>
-                  <div className="font-semibold text-sm">사실 검증</div>
-                  <div className="text-xs text-emerald-100 mt-1">Google 검색 기반 자동 검증</div>
-                </div>
-                <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3">
-                  <div className="text-2xl mb-1">🛡️</div>
-                  <div className="font-semibold text-sm">광고심의 검수</div>
-                  <div className="text-xs text-emerald-100 mt-1">보험사명·상품명·금지표현</div>
+                <p className="text-emerald-100 text-xs mb-3 leading-relaxed">
+                  매일 KST 08:00 자동 생성 · 카페 게시용 텍스트 복사
+                </p>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-emerald-100">🤖 AI작성 · 🔍 검증 · 🛡️ 심의</span>
+                  <span className="text-xs font-semibold bg-white/20 rounded-full px-2.5 py-1 group-hover:bg-white group-hover:text-emerald-700 transition">검수 →</span>
                 </div>
               </div>
-              <div className="mt-6 flex items-center gap-3">
-                <div className="px-5 py-2 bg-white text-emerald-700 font-bold rounded-xl inline-flex items-center gap-2 group-hover:scale-110 transition-transform text-sm">
-                  검수 대기열 열기 →
-                </div>
-              </div>
-            </div>
-          </Link>
+            </Link>
 
-          {/* 카드뉴스 카드 */}
-          <Link
-            href="/admin/content/cards"
-            className="block mt-6 bg-gradient-to-br from-violet-600 via-fuchsia-600 to-pink-600 rounded-3xl shadow-2xl p-10 text-white hover:shadow-3xl transition-all transform hover:scale-[1.02] relative overflow-hidden group"
-          >
-            <div className="absolute top-0 right-0 w-72 h-72 bg-white/10 rounded-full -translate-y-32 translate-x-32 group-hover:scale-110 transition-transform"></div>
-            <div className="relative z-10">
-              <div className="flex items-center gap-4 mb-4">
-                <div className="bg-white/20 p-4 rounded-2xl backdrop-blur-sm">
-                  <Images className="w-10 h-10 text-yellow-200" />
+            {/* 카드뉴스 */}
+            <Link
+              href="/admin/content/cards"
+              className="block bg-gradient-to-br from-violet-600 to-fuchsia-600 rounded-2xl shadow-lg p-5 text-white hover:shadow-xl transition-all hover:scale-[1.01] relative overflow-hidden group"
+            >
+              <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -translate-y-12 translate-x-12 group-hover:scale-110 transition-transform" />
+              <div className="relative z-10">
+                <div className="flex items-center gap-3 mb-2">
+                  <div className="bg-white/20 p-2 rounded-xl backdrop-blur-sm">
+                    <Images className="w-5 h-5 text-yellow-200" />
+                  </div>
+                  <h3 className="text-lg font-bold">인스타 카드뉴스</h3>
                 </div>
-                <div>
-                  <h2 className="text-3xl font-black mb-1">인스타 카드뉴스 자동 발행</h2>
-                  <p className="text-violet-100 text-base">
-                    매일 KST 08:30 5장 시리즈 자동 생성 → AI 사실 검증 → PNG zip 다운로드
-                  </p>
-                </div>
-              </div>
-              <div className="grid grid-cols-3 gap-3 mt-6">
-                <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3">
-                  <div className="text-2xl mb-1">🎴</div>
-                  <div className="font-semibold text-sm">5장 시리즈</div>
-                  <div className="text-xs text-violet-100 mt-1">표지 + 포인트 3장 + 마무리</div>
-                </div>
-                <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3">
-                  <div className="text-2xl mb-1">🖼️</div>
-                  <div className="font-semibold text-sm">1080×1080 PNG</div>
-                  <div className="text-xs text-violet-100 mt-1">zip 일괄 다운로드 후 업로드</div>
-                </div>
-                <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3">
-                  <div className="text-2xl mb-1">🛡️</div>
-                  <div className="font-semibold text-sm">광고심의 검수</div>
-                  <div className="text-xs text-violet-100 mt-1">보험사명·상품명·금지표현</div>
+                <p className="text-violet-100 text-xs mb-3 leading-relaxed">
+                  매일 KST 08:30 5장 자동 · 1080×1080 PNG zip
+                </p>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-violet-100">🎴 5장 · 🖼️ PNG · 🛡️ 심의</span>
+                  <span className="text-xs font-semibold bg-white/20 rounded-full px-2.5 py-1 group-hover:bg-white group-hover:text-violet-700 transition">검수 →</span>
                 </div>
               </div>
-              <div className="mt-6 flex items-center gap-3">
-                <div className="px-5 py-2 bg-white text-violet-700 font-bold rounded-xl inline-flex items-center gap-2 group-hover:scale-110 transition-transform text-sm">
-                  카드뉴스 검수 →
-                </div>
-              </div>
-            </div>
-          </Link>
+            </Link>
+          </div>
 
           {/* 통계 카드 */}
           <div className="grid md:grid-cols-4 gap-6 mt-8">
