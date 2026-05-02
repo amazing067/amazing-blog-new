@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { adminClient } from '@/lib/admin/guard';
 import { isAuthorizedCron } from '@/lib/cron-auth';
 import { collectDailyNews, parseRssSourcesEnv } from '@/lib/content/news-collector';
+import { filterAndRank } from '@/lib/content/news-filter';
 import { generateNewsSummary } from '@/lib/content/generator';
 import { lintContent } from '@/lib/content/compliance-lint';
 import type { EnforcementMode } from '@/lib/content/types';
@@ -30,9 +31,16 @@ export async function GET(req: Request) {
   if (sources.length === 0) return NextResponse.json({ error: 'RSS_SOURCES not configured' }, { status: 500 });
 
   const candidates = await collectDailyNews(sources, seen);
-  const picked = candidates.slice(0, DAILY_LIMIT);
+  const { passed, excluded } = filterAndRank(candidates);
+  const picked = passed.slice(0, DAILY_LIMIT);
 
-  const summary = { collected: candidates.length, generated: 0, failed: 0 };
+  const summary = {
+    collected: candidates.length,
+    excluded: excluded.length,
+    candidates_after_filter: passed.length,
+    generated: 0,
+    failed: 0,
+  };
   for (const c of picked) {
     try {
       const gen = await generateNewsSummary(c, mode);
