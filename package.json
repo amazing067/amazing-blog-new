@@ -7,6 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "upload-premium-data": "tsx scripts/upload-premium-data.ts",
     "parse-precedents": "tsx scripts/parse-precedents.ts"
   },
@@ -16,6 +18,7 @@
     "@supabase/supabase-js": "^2.86.0",
     "@types/pdf-parse": "^1.1.5",
     "dotenv": "^17.2.3",
+    "fast-xml-parser": "^5.7.2",
     "googleapis": "^167.0.0",
     "html2canvas": "^1.4.1",
     "jspdf": "^3.0.4",
@@ -32,10 +35,12 @@
     "@types/node": "^20.19.25",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@vitest/coverage-v8": "^4.1.5",
     "eslint": "^9",
     "eslint-config-next": "16.0.7",
     "tailwindcss": "^4",
     "tsx": "^4.21.0",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.5"
   }
 }
