@@ -1,7 +1,8 @@
 'use client';
-import type { ComponentProps } from 'react';
+import type { ComponentProps, ReactNode } from 'react';
 import { Check } from 'lucide-react';
 import { CustomBlockquote } from './Callouts';
+import { renderBlogBlock } from './BlogBlocks';
 
 // 카카오페이 머니콘텐츠 톤의 마크다운 컴포넌트 모음.
 
@@ -111,12 +112,25 @@ export const mdComponents = {
   // 구분선
   hr: () => <hr className="my-10 border-0 h-px bg-gradient-to-r from-transparent via-slate-200 to-transparent" />,
 
-  // 인라인 코드 — 핵심 키워드 강조용
-  code: ({ children, ...props }: ComponentProps<'code'>) => (
-    <code {...props} className="bg-slate-100 text-slate-800 px-1.5 py-0.5 rounded text-[14px] font-mono">
-      {children}
-    </code>
-  ),
+  // 인라인 코드 + 코드 블록 (compare/steps/stat/checklist/cta 패턴) 분기
+  code: ({ children, className, ...props }: ComponentProps<'code'> & { className?: string }) => {
+    // 언어 클래스 추출 (예: "language-compare")
+    const m = /language-([\w-]+)/.exec(className ?? '');
+    const lang = m?.[1];
+    const raw = typeof children === 'string' ? children : String(children ?? '');
+    if (lang) {
+      const block = renderBlogBlock(lang, raw);
+      if (block) return block;
+    }
+    return (
+      <code {...props} className="bg-slate-100 text-slate-800 px-1.5 py-0.5 rounded text-[14px] font-mono">
+        {children}
+      </code>
+    );
+  },
+
+  // pre 블록 — 코드 블록의 외곽. 내부 code가 알아서 처리하므로 pre는 단순 통과 (배경 X)
+  pre: ({ children }: { children?: ReactNode }) => <>{children}</>,
 
   // blockquote — 콜아웃 자동 매칭
   blockquote: CustomBlockquote,
