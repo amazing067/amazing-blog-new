@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import html2canvas from 'html2canvas-pro';
 import JSZip from 'jszip';
@@ -48,7 +48,6 @@ const LS_BRANCH = (uid: string) => `insurance_branch_name_${uid}`;
 
 export default function CardsDetailClient({ id, userId, defaultDesigner, title, status, publishUrl, slides: initialSlides, compliance, lint, factCheck }: Props) {
   const router = useRouter();
-  const captureRefs = useRef<Array<HTMLDivElement | null>>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [url, setUrl] = useState(publishUrl);
 
@@ -146,11 +145,19 @@ export default function CardsDetailClient({ id, userId, defaultDesigner, title, 
       const folder = zip.folder(safeTitle);
       if (!folder) throw new Error('zip folder fail');
 
-      for (let i = 0; i < captureRefs.current.length; i++) {
-        const el = captureRefs.current[i];
-        if (!el) continue;
+      // ref 대신 DOM 직접 조회 — 편집/비편집 모드 전환 시 ref 동기화 이슈 회피
+      const elements = Array.from(document.querySelectorAll<HTMLElement>('[data-slide-capture]'))
+        .sort((a, b) => Number(a.dataset.slideIndex ?? 0) - Number(b.dataset.slideIndex ?? 0));
+
+      console.log(`[capture] 캡처 대상 슬라이드 ${elements.length}개 발견`);
+      if (elements.length === 0) {
+        throw new Error('캡처할 슬라이드 요소를 찾지 못했습니다. 페이지 새로고침 후 다시 시도하세요.');
+      }
+
+      let successCount = 0;
+      for (const el of elements) {
+        const i = Number(el.dataset.slideIndex ?? 0);
         try {
-          // 1080×1080 출력을 위해 scale = 1080 / 실제 element width
           const rect = el.getBoundingClientRect();
           const scale = rect.width > 0 ? 1080 / rect.width : 1;
           const canvas = await html2canvas(el, {
@@ -167,10 +174,15 @@ export default function CardsDetailClient({ id, userId, defaultDesigner, title, 
             continue;
           }
           folder.file(`slide-${String(i + 1).padStart(2, '0')}.png`, blob);
+          successCount++;
         } catch (capErr) {
           console.error(`[capture] slide ${i + 1} 실패:`, capErr);
           throw new Error(`슬라이드 ${i + 1} 캡처 실패: ${capErr instanceof Error ? capErr.message : String(capErr)}`);
         }
+      }
+
+      if (successCount === 0) {
+        throw new Error('모든 슬라이드 캡처가 실패했습니다.');
       }
 
       const archive = await zip.generateAsync({ type: 'blob' });
@@ -179,6 +191,7 @@ export default function CardsDetailClient({ id, userId, defaultDesigner, title, 
       a.download = `${safeTitle}.zip`;
       a.click();
       URL.revokeObjectURL(a.href);
+      console.log(`[capture] ${successCount}장 다운로드 완료`);
     } catch (e) {
       alert('PNG 다운로드 실패: ' + (e instanceof Error ? e.message : String(e)));
     } finally {
@@ -262,7 +275,7 @@ export default function CardsDetailClient({ id, userId, defaultDesigner, title, 
                       <SlideEditor slide={s} index={i} onChange={(next) => updateSlide(i, next)} />
                     </div>
                     <div className="aspect-square">
-                      <div ref={(el) => { captureRefs.current[i] = el; }} className="w-full h-full">
+                      <div data-slide-capture data-slide-index={i} className="w-full h-full">
                         <HybridStyle slide={s} index={i} total={total} compliance={comp} />
                       </div>
                     </div>
@@ -276,7 +289,7 @@ export default function CardsDetailClient({ id, userId, defaultDesigner, title, 
                       <p className="mt-3 text-xs leading-relaxed">회사명 · 지점명 · 설계사명 · 협회등록번호 · 심의번호 · 시작/종료일 · 경고문구 포함 여부.</p>
                     </div>
                     <div className="aspect-square">
-                      <div ref={(el) => { captureRefs.current[slides.length] = el; }} className="w-full h-full">
+                      <div data-slide-capture data-slide-index={slides.length} className="w-full h-full">
                         <ComplianceSlide compliance={comp} index={slides.length} total={total} />
                       </div>
                     </div>
@@ -291,14 +304,14 @@ export default function CardsDetailClient({ id, userId, defaultDesigner, title, 
             <div className="grid gap-5 grid-cols-1 sm:grid-cols-2">
               {slides.map((s, i) => (
                 <div key={i} className="aspect-square">
-                  <div ref={(el) => { captureRefs.current[i] = el; }} className="w-full h-full">
+                  <div data-slide-capture data-slide-index={i} className="w-full h-full">
                     <HybridStyle slide={s} index={i} total={total} compliance={comp} />
                   </div>
                 </div>
               ))}
               {showCompliance && (
                 <div className="aspect-square">
-                  <div ref={(el) => { captureRefs.current[slides.length] = el; }} className="w-full h-full">
+                  <div data-slide-capture data-slide-index={slides.length} className="w-full h-full">
                     <ComplianceSlide compliance={comp} index={slides.length} total={total} />
                   </div>
                 </div>
