@@ -3,8 +3,10 @@ import { notFound } from 'next/navigation';
 import { adminClient } from '@/lib/admin/guard';
 import NewsActions from './NewsActions';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import rehypeRaw from 'rehype-raw';
 import { ArrowLeft, ExternalLink, Shield, AlertCircle, CheckCircle2, Newspaper, Calendar, Tag, Search } from 'lucide-react';
-import { CustomBlockquote } from './Callouts';
+import { mdComponents } from './MdComponents';
 
 const STATUS_LABEL: Record<string, { label: string; cls: string }> = {
   review:    { label: '검토 대기', cls: 'bg-amber-100 text-amber-800 border-amber-200' },
@@ -153,19 +155,16 @@ export default async function NewsDetailPage({ params }: { params: Promise<{ id:
             <h1 className="text-3xl font-bold text-slate-900 leading-tight tracking-tight">{item.title}</h1>
           </div>
 
-          {/* 본문 영역 */}
-          <div className="p-8">
-            <div className="prose prose-slate max-w-none
-                            prose-headings:font-bold prose-headings:text-slate-900
-                            prose-h2:text-2xl prose-h2:mt-8 prose-h2:mb-3
-                            prose-h3:text-xl prose-h3:mt-6 prose-h3:mb-2
-                            prose-p:text-base prose-p:leading-8 prose-p:text-slate-700 prose-p:my-4
-                            prose-strong:text-slate-900 prose-strong:font-semibold
-                            prose-a:text-emerald-700 prose-a:no-underline hover:prose-a:underline
-                            prose-ul:my-4 prose-li:my-1.5 prose-li:text-slate-700
-                            prose-blockquote:border-l-4 prose-blockquote:border-emerald-200 prose-blockquote:bg-emerald-50/40 prose-blockquote:py-1 prose-blockquote:px-4 prose-blockquote:not-italic prose-blockquote:text-slate-700
-                            prose-code:bg-slate-100 prose-code:rounded prose-code:px-1 prose-code:py-0.5 prose-code:text-sm prose-code:font-mono prose-code:before:content-none prose-code:after:content-none">
-              <ReactMarkdown components={{ blockquote: CustomBlockquote }}>{item.body_md ?? ''}</ReactMarkdown>
+          {/* 본문 영역 — 카카오페이 머니콘텐츠 톤 마크다운 컴포넌트 */}
+          <div className="px-8 py-10">
+            <div className="max-w-none">
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                rehypePlugins={[rehypeRaw]}
+                components={mdComponents}
+              >
+                {item.body_md ?? ''}
+              </ReactMarkdown>
             </div>
 
             {/* 출처/생성 박스 */}
