@@ -1,5 +1,18 @@
 import { requireAdmin } from '@/lib/admin/guard';
 import { HybridStyle, type CardSlide } from './CardStyles';
+import { ComplianceSlide } from './ComplianceSlide';
+import type { ComplianceInfo } from '@/lib/content/types';
+
+const SAMPLE_COMPLIANCE: ComplianceInfo = {
+  company: '프라임에셋',
+  branch: '강남지점',
+  designer: '홍길동',
+  registration: '12345678901234',
+  number: '제2026-1234호',
+  start_date: '2026.05.02',
+  end_date: '2027.05.01',
+  include_warning: true,
+};
 
 // 한 카드 = 한 메시지. 거대 통계가 메인 시각 포인트, 본문 1~2문장만.
 const SAMPLE: CardSlide[] = [
@@ -62,6 +75,19 @@ export default async function CardPreviewPage() {
           한 카드 = 한 메시지. 거대 통계 + 짧은 헤딩 + 본문 1~2문장.
         </p>
       </div>
+
+      {/* 0. 6번째 심의필 슬라이드 단독 미리보기 (가장 큼, 가독성 확인) */}
+      <section className="mb-10">
+        <div className="mb-3 flex items-baseline gap-3">
+          <span className="inline-flex items-center rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200 px-3 py-1 text-xs font-semibold">
+            6번째 슬라이드 — 광고심의필 (1080×1080)
+          </span>
+          <span className="text-sm text-slate-500">실제 카드뉴스에 자동 추가되는 마지막 카드</span>
+        </div>
+        <div className="w-[640px] h-[640px] max-w-full">
+          <ComplianceSlide compliance={SAMPLE_COMPLIANCE} index={5} total={6} />
+        </div>
+      </section>
 
       {/* 1. 5장 한눈에 — 큰 그리드 (2열) */}
       <section className="mb-10">
