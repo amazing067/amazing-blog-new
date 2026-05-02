@@ -1,14 +1,14 @@
 'use client';
 // 블로그 본문 안에 임베드되는 시각 컴포넌트들.
-// generator가 ```compare / ```steps / ```stat / ```checklist / ```cta 형태로 출력하면
-// MdComponents의 pre 핸들러가 패턴 매칭해서 이 컴포넌트로 렌더링.
+// 카드뉴스 패턴: 콘텐츠가 박스 꽉 채움 (flex-col + justify-around) + 글자 크게 + 가운데 정렬.
 
-import { ArrowRight, CheckCircle2, AlertTriangle, Sparkles } from 'lucide-react';
+import { CheckCircle2, AlertTriangle, Sparkles } from 'lucide-react';
 
-// 비교 카드 — 형식:
-// 항목 | A사 | B사 | C사
-// 보험료 | 12,000원 | 15,000원 | 13,000원
-// ...
+// ════════════════════════════════════════════════
+// 1. 비교 카드
+// 헤더: 항목 | A사 | B사 | C사
+// 행: 보험료 | 12000 | 15000 | 13000
+// ════════════════════════════════════════════════
 export function CompareCard({ raw }: { raw: string }) {
   const lines = raw.trim().split('\n').filter(l => l.trim() && !/^[-=:|\s]+$/.test(l));
   if (lines.length < 2) return <pre>{raw}</pre>;
@@ -16,20 +16,27 @@ export function CompareCard({ raw }: { raw: string }) {
   const header = rows[0];
   const body = rows.slice(1);
   const cardCount = header.length - 1;
-  const colorTones = ['from-emerald-50 to-teal-50 ring-emerald-200 text-emerald-900', 'from-blue-50 to-indigo-50 ring-blue-200 text-blue-900', 'from-violet-50 to-fuchsia-50 ring-violet-200 text-violet-900', 'from-amber-50 to-orange-50 ring-amber-200 text-amber-900'];
+  const tones = [
+    'from-emerald-100 to-teal-50 ring-emerald-300 text-emerald-900',
+    'from-blue-100 to-indigo-50 ring-blue-300 text-blue-900',
+    'from-violet-100 to-fuchsia-50 ring-violet-300 text-violet-900',
+    'from-amber-100 to-orange-50 ring-amber-300 text-amber-900',
+  ];
 
   return (
-    <div className="my-5 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-      <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">⚖️ 비교</div>
-      <div className={`grid gap-2.5`} style={{ gridTemplateColumns: `repeat(${cardCount}, minmax(0, 1fr))` }}>
+    <div className="my-5 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+      <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 px-1">⚖️ 비교</div>
+      <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${cardCount}, minmax(0, 1fr))` }}>
         {header.slice(1).map((name, i) => (
-          <div key={i} className={`rounded-xl bg-gradient-to-br ring-1 px-3 py-3 ${colorTones[i % colorTones.length]} flex flex-col`}>
-            <div className="text-lg font-black text-center pb-2 mb-2 border-b border-current/25">{name}</div>
-            <ul className="flex-1 flex flex-col justify-around space-y-2">
+          <div key={i} className={`rounded-xl bg-gradient-to-br ring-2 ${tones[i % tones.length]} flex flex-col`}>
+            {/* 헤더: 컬러 박스 안 꽉 채우는 큰 라벨 */}
+            <div className="text-[20px] font-black text-center py-3 border-b-2 border-current/30">{name}</div>
+            {/* 본문: 균등 분포로 카드 끝까지 꽉 차게 */}
+            <ul className="flex-1 flex flex-col justify-around py-2 px-2">
               {body.map((row, j) => (
-                <li key={j} className="text-center">
-                  <div className="text-[11px] font-bold opacity-60 uppercase tracking-wide mb-0.5">{row[0]}</div>
-                  <div className="text-[15px] font-extrabold leading-tight">{row[i + 1] ?? '-'}</div>
+                <li key={j} className="text-center py-1.5">
+                  <div className="text-[12px] font-bold opacity-65 uppercase tracking-wide mb-1">{row[0]}</div>
+                  <div className="text-[18px] font-black leading-tight">{row[i + 1] ?? '-'}</div>
                 </li>
               ))}
             </ul>
@@ -40,10 +47,12 @@ export function CompareCard({ raw }: { raw: string }) {
   );
 }
 
-// 단계 카드 — 형식:
+// ════════════════════════════════════════════════
+// 2. 단계 카드
+// 형식:
 // 1. 약관 확인 | 본문 설명...
 // 2. 청구 서류 준비 | 본문 설명...
-// 3. ...
+// ════════════════════════════════════════════════
 export function StepsCard({ raw }: { raw: string }) {
   const lines = raw.trim().split('\n').filter(l => l.trim());
   const steps = lines.map(l => {
@@ -54,32 +63,31 @@ export function StepsCard({ raw }: { raw: string }) {
   }).filter(Boolean) as { num: string; title: string; desc: string }[];
 
   return (
-    <div className="my-5 space-y-3">
-      <div className="text-xs font-bold text-slate-500 uppercase tracking-wider">📋 단계별 진행</div>
-      {steps.map((s, i) => (
-        <div key={i} className="flex gap-4 items-start rounded-xl border border-slate-200 bg-white p-4 shadow-sm hover:border-emerald-300 transition">
-          <div className="flex-none w-12 h-12 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 text-white text-xl font-black flex items-center justify-center shadow">
-            {s.num}
-          </div>
-          <div className="flex-1 pt-1">
-            <div className="font-bold text-slate-900 text-base mb-1">{s.title}</div>
-            {s.desc && <div className="text-sm text-slate-600 leading-relaxed">{s.desc}</div>}
-          </div>
-          {i < steps.length - 1 && (
-            <ArrowRight className="absolute -bottom-3 left-10 w-4 h-4 text-emerald-400 hidden" />
-          )}
-        </div>
-      ))}
+    <div className="my-5">
+      <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 px-1">📋 단계별 진행</div>
+      <ol className="space-y-2">
+        {steps.map((s, i) => (
+          <li key={i} className="flex gap-4 items-stretch rounded-xl border-2 border-slate-200 bg-white shadow-sm hover:border-emerald-400 transition overflow-hidden">
+            {/* 큰 숫자 영역 — 박스 끝까지 꽉 채움 */}
+            <div className="flex-none w-20 bg-gradient-to-br from-emerald-500 to-teal-600 text-white flex items-center justify-center">
+              <span className="text-4xl font-black leading-none">{s.num}</span>
+            </div>
+            {/* 본문 영역 — 큰 글자 + 패딩 적절 */}
+            <div className="flex-1 py-4 pr-5 flex flex-col justify-center">
+              <div className="font-extrabold text-slate-900 text-[18px] mb-1 leading-snug">{s.title}</div>
+              {s.desc && <div className="text-[14px] text-slate-600 leading-relaxed">{s.desc}</div>}
+            </div>
+          </li>
+        ))}
+      </ol>
     </div>
   );
 }
 
-// 통계 박스 — 형식:
-// 80% | 분쟁 조정 청구인 승소율
-// 또는 (한 줄에 여러 통계):
-// 80% | 승소율
-// 90일 | 면책기간
-// 1년 | 감액기간
+// ════════════════════════════════════════════════
+// 3. 통계 박스 — 거대 숫자 + 라벨 (카드뉴스 통계 박스와 동일 톤)
+// 형식: 80% | 분쟁 조정 청구인 승소율
+// ════════════════════════════════════════════════
 export function StatBox({ raw }: { raw: string }) {
   const lines = raw.trim().split('\n').filter(l => l.includes('|'));
   const stats = lines.map(l => {
@@ -87,23 +95,25 @@ export function StatBox({ raw }: { raw: string }) {
     return { value, label: lab.join(' | ') };
   });
   if (stats.length === 0) return <pre>{raw}</pre>;
+  const cols = stats.length === 1 ? 'grid-cols-1' : stats.length === 2 ? 'grid-cols-2' : 'grid-cols-3';
   return (
-    <div className={`my-5 grid gap-3 ${stats.length === 1 ? 'grid-cols-1' : stats.length === 2 ? 'sm:grid-cols-2' : 'sm:grid-cols-3'}`}>
+    <div className={`my-5 grid gap-2 ${cols}`}>
       {stats.map((s, i) => (
-        <div key={i} className="rounded-2xl bg-gradient-to-br from-slate-900 to-slate-700 text-white p-5 text-center shadow-md">
-          <div className="text-4xl font-black mb-1 leading-none">{s.value}</div>
-          <div className="text-xs font-medium opacity-80 mt-2">{s.label}</div>
+        <div key={i} className="rounded-2xl bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white shadow-md flex flex-col justify-center items-center text-center px-4 py-7 min-h-[140px]">
+          <div className="text-[44px] font-black leading-none tracking-tight">{s.value}</div>
+          <div className="text-[13px] font-semibold opacity-80 mt-3 leading-snug">{s.label}</div>
         </div>
       ))}
     </div>
   );
 }
 
-// 체크리스트 카드 — 형식:
+// ════════════════════════════════════════════════
+// 4. 체크리스트 카드
+// 형식:
 // title: 가입 전 체크 항목
 // - 약관에서 보장 범위 확인
-// - 면책기간/감액기간 확인
-// - ...
+// ════════════════════════════════════════════════
 export function ChecklistCard({ raw }: { raw: string }) {
   const lines = raw.trim().split('\n');
   let title = '체크리스트';
@@ -115,16 +125,16 @@ export function ChecklistCard({ raw }: { raw: string }) {
     if (m) items.push(m[1].trim());
   }
   return (
-    <div className="my-5 rounded-2xl bg-emerald-50 ring-1 ring-emerald-200 p-6 shadow-sm">
-      <div className="flex items-center gap-2 mb-4">
-        <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-        <h4 className="font-bold text-emerald-900 text-base">✅ {title}</h4>
+    <div className="my-5 rounded-2xl bg-gradient-to-br from-emerald-50 to-teal-50 ring-2 ring-emerald-300 p-5 shadow-sm">
+      <div className="flex items-center gap-2 mb-3 pb-3 border-b border-emerald-200">
+        <CheckCircle2 className="w-6 h-6 text-emerald-600" />
+        <h4 className="font-black text-emerald-900 text-[18px]">{title}</h4>
       </div>
       <ul className="space-y-2.5">
         {items.map((it, i) => (
-          <li key={i} className="flex gap-2.5 items-start">
-            <span className="flex-none w-5 h-5 rounded-md bg-emerald-500 text-white text-[11px] font-black inline-flex items-center justify-center mt-0.5">✓</span>
-            <span className="text-sm text-emerald-900 leading-relaxed">{it}</span>
+          <li key={i} className="flex gap-3 items-start">
+            <span className="flex-none w-6 h-6 rounded-md bg-emerald-500 text-white text-[13px] font-black inline-flex items-center justify-center mt-0.5">✓</span>
+            <span className="flex-1 text-[15px] text-emerald-900 font-medium leading-relaxed">{it}</span>
           </li>
         ))}
       </ul>
@@ -132,10 +142,13 @@ export function ChecklistCard({ raw }: { raw: string }) {
   );
 }
 
-// CTA 박스 — 형식:
+// ════════════════════════════════════════════════
+// 5. CTA 박스
+// 형식:
 // title: 골든타임을 놓치지 마세요
 // body: 본문 한 단락
-// hashtags: #암보험 #진단비 #골든타임
+// hashtags: #암보험 #진단비
+// ════════════════════════════════════════════════
 export function CtaBox({ raw }: { raw: string }) {
   const lines = raw.trim().split('\n');
   let title = '';
@@ -152,19 +165,19 @@ export function CtaBox({ raw }: { raw: string }) {
     else if (!body && l.trim()) body += (body ? ' ' : '') + l.trim();
   }
   return (
-    <div className="my-6 rounded-3xl bg-gradient-to-br from-emerald-600 via-teal-600 to-cyan-700 text-white p-8 shadow-xl relative overflow-hidden">
+    <div className="my-6 rounded-3xl bg-gradient-to-br from-emerald-600 via-teal-600 to-cyan-700 text-white shadow-xl relative overflow-hidden">
       <div className="absolute -top-10 -right-10 w-44 h-44 rounded-full bg-white/10" />
       <div className="absolute -bottom-12 -left-10 w-56 h-56 rounded-full bg-white/5" />
-      <div className="relative">
-        <div className="inline-flex items-center gap-1.5 rounded-full bg-yellow-300 text-slate-900 px-3 py-1 text-xs font-extrabold mb-3">
-          <Sparkles className="w-3 h-3" /> 지금 시작하세요
+      <div className="relative px-7 py-7 flex flex-col">
+        <div className="inline-flex items-center self-start gap-1.5 rounded-full bg-yellow-300 text-slate-900 px-3 py-1 text-[12px] font-extrabold mb-3">
+          <Sparkles className="w-3.5 h-3.5" /> 지금 시작하세요
         </div>
-        <h3 className="text-2xl font-black leading-tight mb-3">{title || '지금이 골든타임'}</h3>
-        {body && <p className="text-white/90 text-sm leading-relaxed mb-4">{body}</p>}
+        <h3 className="text-[26px] font-black leading-[1.2] mb-2">{title || '지금이 골든타임'}</h3>
+        {body && <p className="text-white/95 text-[15px] leading-relaxed font-medium">{body}</p>}
         {hashtags && (
-          <div className="flex flex-wrap gap-1.5">
+          <div className="flex flex-wrap gap-1.5 mt-4">
             {hashtags.split(/\s+/).filter(Boolean).map((tag, i) => (
-              <span key={i} className="text-xs bg-white/20 backdrop-blur-sm rounded-full px-2.5 py-1 font-medium">
+              <span key={i} className="text-[12px] bg-white/20 backdrop-blur-sm rounded-full px-2.5 py-1 font-semibold">
                 {tag.startsWith('#') ? tag : '#' + tag}
               </span>
             ))}
@@ -175,22 +188,21 @@ export function CtaBox({ raw }: { raw: string }) {
   );
 }
 
-// SVG 인포그래픽 — ```svg ... ``` 형태로 입력된 raw SVG를 dangerouslySetInnerHTML로 안전하게 렌더링
-// (ReactMarkdown이 마크다운 안의 raw <svg>를 안정적으로 처리 못 해서 코드 블록으로 통일)
+// ════════════════════════════════════════════════
+// 6. SVG 인포그래픽 — ```svg 코드 블록 안의 SVG를 안전하게 렌더링
+// ════════════════════════════════════════════════
 export function SvgInfographic({ raw }: { raw: string }) {
-  // 안전성: <script>·on*= 이벤트만 제거. 일반 SVG 태그는 그대로.
   const sanitized = raw
     .replace(/<script[\s\S]*?<\/script>/gi, '')
     .replace(/\son\w+\s*=\s*"[^"]*"/gi, '')
     .replace(/\son\w+\s*=\s*'[^']*'/gi, '');
   return (
-    <div className="my-5 flex justify-center rounded-2xl bg-slate-50 px-4 py-5 ring-1 ring-slate-200">
+    <div className="my-5 rounded-2xl bg-slate-50 ring-1 ring-slate-200 px-4 py-5 flex justify-center">
       <div className="w-full max-w-full overflow-x-auto" dangerouslySetInnerHTML={{ __html: sanitized }} />
     </div>
   );
 }
 
-// pre/code 블록의 언어로 분기 — code className에 'language-compare', 'language-steps' 등
 export function renderBlogBlock(language: string | undefined, raw: string) {
   switch ((language || '').toLowerCase()) {
     case 'compare':   return <CompareCard raw={raw} />;
@@ -206,7 +218,7 @@ export function renderBlogBlock(language: string | undefined, raw: string) {
 
 export function NoteWarning({ children }: { children: React.ReactNode }) {
   return (
-    <div className="my-6 flex gap-3 items-start rounded-xl bg-rose-50 ring-1 ring-rose-200 p-4">
+    <div className="my-5 flex gap-3 items-start rounded-xl bg-rose-50 ring-1 ring-rose-200 p-4">
       <AlertTriangle className="flex-none w-5 h-5 text-rose-600 mt-0.5" />
       <div className="text-sm text-rose-900 leading-relaxed">{children}</div>
     </div>
