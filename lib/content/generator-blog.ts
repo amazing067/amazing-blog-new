@@ -65,14 +65,23 @@ const VISUAL_BLOCKS = `
    hashtags: #보험금청구 #재심사 #분쟁조정
    \\\`\\\`\\\`
 
-6. **SVG 인포그래픽** (직접 SVG 그려서 1개 이상 본문에 임베드 — 가능하면 무조건 1개)
-   - 마크다운에 \`<svg>...</svg>\` 직접 작성
-   - viewBox는 0 0 800 400 같은 일반 비율
-   - 글자는 한글, 색상은 인라인 fill 또는 style
-   - 예: 4세대 vs 5세대 비교 다이어그램, 청구 절차 플로우, 면책/감액기간 타임라인
-   - 절차도일 때는 사각형 박스 + 화살표
-   - 통계일 때는 막대 그래프 또는 도넛
-   - 글자 깨지지 않도록 font-family="sans-serif" + 한글
+6. **SVG 인포그래픽** \\\`\\\`\\\`svg ... \\\`\\\`\\\` (반드시 1~2개 임베드)
+   ⚠️ **중요: 마크다운 본문에 직접 \`<svg>\` 쓰지 마세요. 반드시 \\\`\\\`\\\`svg ... \\\`\\\`\\\` 코드블록 안에**
+   (ReactMarkdown이 raw HTML svg를 안정적으로 처리 못 함)
+
+   예시:
+   \\\`\\\`\\\`svg
+   <svg viewBox="0 0 800 400" xmlns="http://www.w3.org/2000/svg" style="max-width:100%;height:auto;">
+     <rect width="800" height="400" fill="#f9f9f9"/>
+     <text x="400" y="40" font-size="22" font-weight="bold" text-anchor="middle" fill="#0f172a">제목</text>
+     <!-- 박스, 텍스트, 화살표 등 -->
+   </svg>
+   \\\`\\\`\\\`
+
+   - viewBox 800×400 또는 800×500 일반 비율
+   - 글자 한글, font-family는 생략 (기본 sans 사용)
+   - 색상은 인라인 fill / style
+   - 활용: 절차 플로우, 시간순 흐름, 비교 다이어그램, 막대 그래프, 도넛
 `;
 
 const SEO_RULES = `

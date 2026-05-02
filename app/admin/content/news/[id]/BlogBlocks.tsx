@@ -19,17 +19,17 @@ export function CompareCard({ raw }: { raw: string }) {
   const colorTones = ['from-emerald-50 to-teal-50 ring-emerald-200 text-emerald-900', 'from-blue-50 to-indigo-50 ring-blue-200 text-blue-900', 'from-violet-50 to-fuchsia-50 ring-violet-200 text-violet-900', 'from-amber-50 to-orange-50 ring-amber-200 text-amber-900'];
 
   return (
-    <div className="my-5 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-      <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4">⚖️ 비교</div>
-      <div className={`grid gap-3`} style={{ gridTemplateColumns: `repeat(${cardCount}, minmax(0, 1fr))` }}>
+    <div className="my-5 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">⚖️ 비교</div>
+      <div className={`grid gap-2.5`} style={{ gridTemplateColumns: `repeat(${cardCount}, minmax(0, 1fr))` }}>
         {header.slice(1).map((name, i) => (
-          <div key={i} className={`rounded-xl bg-gradient-to-br ring-1 px-4 py-4 ${colorTones[i % colorTones.length]}`}>
-            <div className="text-base font-extrabold mb-3 text-center pb-2 border-b border-current/20">{name}</div>
-            <ul className="space-y-2">
+          <div key={i} className={`rounded-xl bg-gradient-to-br ring-1 px-3 py-3 ${colorTones[i % colorTones.length]} flex flex-col`}>
+            <div className="text-lg font-black text-center pb-2 mb-2 border-b border-current/25">{name}</div>
+            <ul className="flex-1 flex flex-col justify-around space-y-2">
               {body.map((row, j) => (
-                <li key={j} className="text-sm">
-                  <div className="text-[11px] font-semibold opacity-70">{row[0]}</div>
-                  <div className="font-bold mt-0.5">{row[i + 1] ?? '-'}</div>
+                <li key={j} className="text-center">
+                  <div className="text-[11px] font-bold opacity-60 uppercase tracking-wide mb-0.5">{row[0]}</div>
+                  <div className="text-[15px] font-extrabold leading-tight">{row[i + 1] ?? '-'}</div>
                 </li>
               ))}
             </ul>
@@ -175,6 +175,21 @@ export function CtaBox({ raw }: { raw: string }) {
   );
 }
 
+// SVG 인포그래픽 — ```svg ... ``` 형태로 입력된 raw SVG를 dangerouslySetInnerHTML로 안전하게 렌더링
+// (ReactMarkdown이 마크다운 안의 raw <svg>를 안정적으로 처리 못 해서 코드 블록으로 통일)
+export function SvgInfographic({ raw }: { raw: string }) {
+  // 안전성: <script>·on*= 이벤트만 제거. 일반 SVG 태그는 그대로.
+  const sanitized = raw
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/\son\w+\s*=\s*"[^"]*"/gi, '')
+    .replace(/\son\w+\s*=\s*'[^']*'/gi, '');
+  return (
+    <div className="my-5 flex justify-center rounded-2xl bg-slate-50 px-4 py-5 ring-1 ring-slate-200">
+      <div className="w-full max-w-full overflow-x-auto" dangerouslySetInnerHTML={{ __html: sanitized }} />
+    </div>
+  );
+}
+
 // pre/code 블록의 언어로 분기 — code className에 'language-compare', 'language-steps' 등
 export function renderBlogBlock(language: string | undefined, raw: string) {
   switch ((language || '').toLowerCase()) {
@@ -184,6 +199,7 @@ export function renderBlogBlock(language: string | undefined, raw: string) {
     case 'stats':     return <StatBox raw={raw} />;
     case 'checklist': return <ChecklistCard raw={raw} />;
     case 'cta':       return <CtaBox raw={raw} />;
+    case 'svg':       return <SvgInfographic raw={raw} />;
     default:          return null;
   }
 }
