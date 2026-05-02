@@ -29,19 +29,16 @@ export const mdComponents = {
     </p>
   ),
 
-  // 굵게 — 핵심 단어에 자동 형광펜 효과 (배경 노랑, 색상 진한 텍스트)
+  // 굵게 — 폰트 굵기만 (배경 X). 본문에 18~25개 들어가도 시각적으로 깔끔.
   strong: ({ children, ...props }: ComponentProps<'strong'>) => (
-    <strong
-      {...props}
-      className="font-bold text-slate-900 bg-yellow-100/70 px-1 py-0.5 rounded-md"
-    >
+    <strong {...props} className="font-bold text-slate-900">
       {children}
     </strong>
   ),
 
-  // 밑줄 (mark·u 태그 둘 다 지원)
+  // 형광펜 — 진짜 핵심 키워드 2~3개에만 (모델이 <mark> 태그로 명시한 것만).
   mark: ({ children, ...props }: ComponentProps<'mark'>) => (
-    <mark {...props} className="bg-amber-200/80 px-1 py-0.5 rounded-md text-slate-900 font-medium">
+    <mark {...props} className="bg-yellow-200/90 px-1.5 py-0.5 rounded-md text-slate-900 font-semibold">
       {children}
     </mark>
   ),
