@@ -121,12 +121,12 @@ export function HybridStyle({ slide, index, total, compliance }: Props) {
       <div style={containerStyle} className={`${CARD_BASE} ${t.bg} ${t.ink}`}>
         {BgDeco}{PageBadge}
         <div className="relative h-full flex flex-col px-[5%] py-[5%]">
-          {/* POINT 라벨 + 아이콘 */}
-          <div className={`flex items-center justify-between`}>
-            <div className={`${F.pointEyebrow} ${t.sub}`}>POINT {slide.number}</div>
-            <div className={`flex-none ${t.soft} rounded-full p-[3%] backdrop-blur-sm`}>
-              <Icon style={{ width: '8cqw', height: '8cqw' }} className={t.ink} strokeWidth={2.5} />
+          {/* POINT 라벨 + 아이콘 — 좌측에 묶음 (우측 PageBadge와 겹침 회피) */}
+          <div className={`flex items-center gap-[2cqw]`}>
+            <div className={`flex-none ${t.soft} rounded-full p-[2.5%] backdrop-blur-sm`}>
+              <Icon style={{ width: '7cqw', height: '7cqw' }} className={t.ink} strokeWidth={2.5} />
             </div>
+            <div className={`${F.pointEyebrow} ${t.sub}`}>POINT {slide.number}</div>
           </div>
 
           {/* 메인 헤딩 — 가장 큰 글자, 제목 역할 */}
