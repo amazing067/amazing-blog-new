@@ -4,9 +4,10 @@ import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import html2canvas from 'html2canvas';
 import JSZip from 'jszip';
-import { Download, CheckCircle2, X, Trash2, Loader2, Shield, Search } from 'lucide-react';
+import { Download, CheckCircle2, X, Trash2, Loader2, Shield, Search, Pencil, Save } from 'lucide-react';
 import { HybridStyle } from '../../card-preview/CardStyles';
 import { ComplianceSlide } from '../../card-preview/ComplianceSlide';
+import SlideEditor from './SlideEditor';
 import type { CardSlide, ComplianceInfo } from '@/lib/content/types';
 
 type Props = {
@@ -45,11 +46,44 @@ function riskTone(score: number) {
 const LS_REG = (uid: string) => `insurance_registration_number_${uid}`;
 const LS_BRANCH = (uid: string) => `insurance_branch_name_${uid}`;
 
-export default function CardsDetailClient({ id, userId, defaultDesigner, title, status, publishUrl, slides, compliance, lint, factCheck }: Props) {
+export default function CardsDetailClient({ id, userId, defaultDesigner, title, status, publishUrl, slides: initialSlides, compliance, lint, factCheck }: Props) {
   const router = useRouter();
   const captureRefs = useRef<Array<HTMLDivElement | null>>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [url, setUrl] = useState(publishUrl);
+
+  // 슬라이드 편집 모드 + 로컬 슬라이드 state (즉시 미리보기)
+  const [slides, setSlides] = useState<CardSlide[]>(initialSlides);
+  const [editing, setEditing] = useState(false);
+  const dirty = JSON.stringify(slides) !== JSON.stringify(initialSlides);
+
+  function updateSlide(i: number, next: CardSlide) {
+    setSlides(prev => prev.map((s, idx) => idx === i ? next : s));
+  }
+
+  async function saveSlides() {
+    setBusy('slides');
+    try {
+      const res = await fetch(`/api/admin/content/cards/${id}/slides`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ slides }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      setEditing(false);
+      router.refresh();
+    } catch (e) {
+      alert('슬라이드 저장 실패: ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  function discardChanges() {
+    if (!confirm('수정 내용을 취소하고 원래대로 되돌립니다. 진행할까요?')) return;
+    setSlides(initialSlides);
+    setEditing(false);
+  }
 
   // 광고심의 폼 — ApprovalGenerator와 동일 구조
   const [comp, setComp] = useState<ComplianceInfo>({
@@ -164,6 +198,51 @@ export default function CardsDetailClient({ id, userId, defaultDesigner, title, 
     <div className="grid gap-6 lg:grid-cols-3">
       {/* 카드 5장 미리보기 — 캡처 대상 */}
       <div className="lg:col-span-2 space-y-6">
+        {/* 편집 모드 컨트롤 바 */}
+        <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+          <div className="flex items-center gap-2">
+            <Pencil className={`w-4 h-4 ${editing ? 'text-violet-600' : 'text-slate-400'}`} />
+            <span className="text-sm font-semibold text-slate-700">슬라이드 편집</span>
+            {dirty && <span className="text-xs text-amber-700 bg-amber-100 rounded-full px-2 py-0.5">수정됨 · 저장 필요</span>}
+          </div>
+          <div className="flex items-center gap-2">
+            {editing ? (
+              <>
+                <button
+                  disabled={!!busy}
+                  onClick={discardChanges}
+                  className="text-xs px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-700 disabled:opacity-50"
+                >취소</button>
+                <button
+                  disabled={!!busy || !dirty}
+                  onClick={saveSlides}
+                  className="text-xs px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-700 text-white inline-flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  {busy === 'slides' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                  저장
+                </button>
+              </>
+            ) : (
+              <button
+                disabled={!!busy}
+                onClick={() => setEditing(true)}
+                className="text-xs px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white inline-flex items-center gap-1.5 disabled:opacity-50"
+              >
+                <Pencil className="w-3.5 h-3.5" /> 본문 편집
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* 편집 폼 — editing 모드에서만 표시 */}
+        {editing && (
+          <div className="space-y-3">
+            {slides.map((s, i) => (
+              <SlideEditor key={i} slide={s} index={i} onChange={(next) => updateSlide(i, next)} />
+            ))}
+          </div>
+        )}
+
         <div className="grid gap-5 grid-cols-1 sm:grid-cols-2">
           {(() => {
             const showCompliance = !!(comp.number || comp.start_date || comp.end_date || comp.designer || comp.registration);
