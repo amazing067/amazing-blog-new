@@ -247,7 +247,7 @@ export default async function AdminDashboardPage() {
             </div>
           </Link>
 
-          {/* 콘텐츠 허브 카드 (관리자 전용) */}
+          {/* AI 보험 콘텐츠 카드 (관리자 전용) */}
           <Link
             href="/admin/content/news"
             className="block mt-8 bg-gradient-to-br from-emerald-600 via-teal-600 to-cyan-700 rounded-3xl shadow-2xl p-10 text-white hover:shadow-3xl transition-all transform hover:scale-[1.02] relative overflow-hidden group"
@@ -259,27 +259,27 @@ export default async function AdminDashboardPage() {
                   <Newspaper className="w-10 h-10 text-yellow-200" />
                 </div>
                 <div>
-                  <h2 className="text-3xl font-black mb-1">보험뉴스 자동 수집·검수</h2>
+                  <h2 className="text-3xl font-black mb-1">AI 보험 콘텐츠 자동 발행</h2>
                   <p className="text-emerald-100 text-base">
-                    매일 06:00 RSS 자동 수집 → AI 요약 → 광고심의 검수 → 카페 게시 준비
+                    매일 KST 08:00 카카오페이 톤 콘텐츠 자동 생성 → AI 사실 검증 → 카페 게시 준비
                   </p>
                 </div>
               </div>
               <div className="grid grid-cols-3 gap-3 mt-6">
                 <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3">
-                  <div className="text-2xl mb-1">📰</div>
-                  <div className="font-semibold text-sm">RSS 자동 수집</div>
-                  <div className="text-xs text-emerald-100 mt-1">한국보험신문·보험매일·인슈넷</div>
+                  <div className="text-2xl mb-1">🤖</div>
+                  <div className="font-semibold text-sm">AI 자동 작성</div>
+                  <div className="text-xs text-emerald-100 mt-1">Claude Haiku 4.5 · 어그로 끌리는 주제</div>
+                </div>
+                <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3">
+                  <div className="text-2xl mb-1">🔍</div>
+                  <div className="font-semibold text-sm">사실 검증</div>
+                  <div className="text-xs text-emerald-100 mt-1">Gemini + Google Search</div>
                 </div>
                 <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3">
                   <div className="text-2xl mb-1">🛡️</div>
-                  <div className="font-semibold text-sm">광고심의 자동 검수</div>
-                  <div className="text-xs text-emerald-100 mt-1">금지표현·보험사명·상품명</div>
-                </div>
-                <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3">
-                  <div className="text-2xl mb-1">📋</div>
-                  <div className="font-semibold text-sm">카페 게시 한 클릭</div>
-                  <div className="text-xs text-emerald-100 mt-1">복사·다운로드·발행마킹</div>
+                  <div className="font-semibold text-sm">광고심의 검수</div>
+                  <div className="text-xs text-emerald-100 mt-1">보험사명·상품명·금지표현</div>
                 </div>
               </div>
               <div className="mt-6 flex items-center gap-3">
