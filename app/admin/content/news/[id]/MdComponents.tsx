@@ -11,21 +11,21 @@ export const mdComponents = {
   h2: ({ children, ...props }: ComponentProps<'h2'>) => (
     <h2
       {...props}
-      className="mt-12 mb-4 pb-3 border-b-2 border-emerald-100 text-[22px] font-extrabold text-slate-900 leading-snug"
+      className="mt-8 mb-3 pb-2 border-b-2 border-emerald-100 text-[22px] font-extrabold text-slate-900 leading-snug"
     >
       <span className="inline-block w-1 h-5 bg-emerald-500 rounded-full mr-2.5 align-middle" />
       {children}
     </h2>
   ),
   h3: ({ children, ...props }: ComponentProps<'h3'>) => (
-    <h3 {...props} className="mt-8 mb-3 text-lg font-bold text-slate-800">
+    <h3 {...props} className="mt-5 mb-2 text-lg font-bold text-slate-800">
       {children}
     </h3>
   ),
 
   // 단락 — 카카오페이처럼 줄간격 1.85, 글자 굵기 약간 두텁게
   p: ({ children, ...props }: ComponentProps<'p'>) => (
-    <p {...props} className="my-4 text-[16px] leading-[1.85] text-slate-700">
+    <p {...props} className="my-3 text-[16px] leading-[1.8] text-slate-700">
       {children}
     </p>
   ),

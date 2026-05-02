@@ -19,7 +19,7 @@ export function CompareCard({ raw }: { raw: string }) {
   const colorTones = ['from-emerald-50 to-teal-50 ring-emerald-200 text-emerald-900', 'from-blue-50 to-indigo-50 ring-blue-200 text-blue-900', 'from-violet-50 to-fuchsia-50 ring-violet-200 text-violet-900', 'from-amber-50 to-orange-50 ring-amber-200 text-amber-900'];
 
   return (
-    <div className="my-8 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+    <div className="my-5 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
       <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4">⚖️ 비교</div>
       <div className={`grid gap-3`} style={{ gridTemplateColumns: `repeat(${cardCount}, minmax(0, 1fr))` }}>
         {header.slice(1).map((name, i) => (
@@ -54,7 +54,7 @@ export function StepsCard({ raw }: { raw: string }) {
   }).filter(Boolean) as { num: string; title: string; desc: string }[];
 
   return (
-    <div className="my-8 space-y-3">
+    <div className="my-5 space-y-3">
       <div className="text-xs font-bold text-slate-500 uppercase tracking-wider">📋 단계별 진행</div>
       {steps.map((s, i) => (
         <div key={i} className="flex gap-4 items-start rounded-xl border border-slate-200 bg-white p-4 shadow-sm hover:border-emerald-300 transition">
@@ -88,7 +88,7 @@ export function StatBox({ raw }: { raw: string }) {
   });
   if (stats.length === 0) return <pre>{raw}</pre>;
   return (
-    <div className={`my-8 grid gap-3 ${stats.length === 1 ? 'grid-cols-1' : stats.length === 2 ? 'sm:grid-cols-2' : 'sm:grid-cols-3'}`}>
+    <div className={`my-5 grid gap-3 ${stats.length === 1 ? 'grid-cols-1' : stats.length === 2 ? 'sm:grid-cols-2' : 'sm:grid-cols-3'}`}>
       {stats.map((s, i) => (
         <div key={i} className="rounded-2xl bg-gradient-to-br from-slate-900 to-slate-700 text-white p-5 text-center shadow-md">
           <div className="text-4xl font-black mb-1 leading-none">{s.value}</div>
@@ -115,7 +115,7 @@ export function ChecklistCard({ raw }: { raw: string }) {
     if (m) items.push(m[1].trim());
   }
   return (
-    <div className="my-8 rounded-2xl bg-emerald-50 ring-1 ring-emerald-200 p-6 shadow-sm">
+    <div className="my-5 rounded-2xl bg-emerald-50 ring-1 ring-emerald-200 p-6 shadow-sm">
       <div className="flex items-center gap-2 mb-4">
         <CheckCircle2 className="w-5 h-5 text-emerald-600" />
         <h4 className="font-bold text-emerald-900 text-base">✅ {title}</h4>
@@ -152,7 +152,7 @@ export function CtaBox({ raw }: { raw: string }) {
     else if (!body && l.trim()) body += (body ? ' ' : '') + l.trim();
   }
   return (
-    <div className="my-10 rounded-3xl bg-gradient-to-br from-emerald-600 via-teal-600 to-cyan-700 text-white p-8 shadow-xl relative overflow-hidden">
+    <div className="my-6 rounded-3xl bg-gradient-to-br from-emerald-600 via-teal-600 to-cyan-700 text-white p-8 shadow-xl relative overflow-hidden">
       <div className="absolute -top-10 -right-10 w-44 h-44 rounded-full bg-white/10" />
       <div className="absolute -bottom-12 -left-10 w-56 h-56 rounded-full bg-white/5" />
       <div className="relative">
