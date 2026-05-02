@@ -22,6 +22,7 @@ export default async function ContentLayout({ children }: { children: React.Reac
           <nav className="ml-auto flex gap-1 text-sm">
             <Link href="/admin/content/news" className="rounded-lg px-3 py-1.5 text-slate-700 hover:bg-slate-100">보험뉴스</Link>
             <Link href="/admin/content/cards" className="rounded-lg px-3 py-1.5 text-slate-700 hover:bg-slate-100">카드뉴스</Link>
+            <Link href="/admin/content/blog" className="rounded-lg px-3 py-1.5 text-slate-700 hover:bg-slate-100">블로그</Link>
             <Link href="/admin/content/billing" className="rounded-lg px-3 py-1.5 text-slate-700 hover:bg-slate-100">💰 비용</Link>
           </nav>
         </div>

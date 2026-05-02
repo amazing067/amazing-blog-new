@@ -247,8 +247,8 @@ export default async function AdminDashboardPage() {
             </div>
           </Link>
 
-          {/* 자동 콘텐츠 트랙 — 보험뉴스 + 카드뉴스 컴팩트 2단 */}
-          <div className="grid md:grid-cols-2 gap-4 mt-6">
+          {/* 자동 콘텐츠 트랙 — 보험뉴스 + 카드뉴스 + 블로그 3단 */}
+          <div className="grid md:grid-cols-3 gap-4 mt-6">
             {/* 보험뉴스 */}
             <Link
               href="/admin/content/news"
@@ -286,11 +286,34 @@ export default async function AdminDashboardPage() {
                   <h3 className="text-lg font-bold">인스타 카드뉴스</h3>
                 </div>
                 <p className="text-violet-100 text-xs mb-3 leading-relaxed">
-                  매일 KST 08:00 자동 · 본문 5장 + 심의필 1장 PNG zip
+                  매일 KST 08:00 · 본문 5장 + 심의필 PNG zip
                 </p>
                 <div className="flex items-center justify-between">
-                  <span className="text-xs text-violet-100">🎴 5장 · 🖼️ PNG · 🛡️ 심의</span>
+                  <span className="text-xs text-violet-100">🎴 PNG · 🛡️ 심의</span>
                   <span className="text-xs font-semibold bg-white/20 rounded-full px-2.5 py-1 group-hover:bg-white group-hover:text-violet-700 transition">검수 →</span>
+                </div>
+              </div>
+            </Link>
+
+            {/* 블로그 */}
+            <Link
+              href="/admin/content/blog"
+              className="block bg-gradient-to-br from-blue-600 to-indigo-600 rounded-2xl shadow-lg p-5 text-white hover:shadow-xl transition-all hover:scale-[1.01] relative overflow-hidden group"
+            >
+              <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -translate-y-12 translate-x-12 group-hover:scale-110 transition-transform" />
+              <div className="relative z-10">
+                <div className="flex items-center gap-3 mb-2">
+                  <div className="bg-white/20 p-2 rounded-xl backdrop-blur-sm">
+                    <FileText className="w-5 h-5 text-yellow-200" />
+                  </div>
+                  <h3 className="text-lg font-bold">블로그 자동 생성</h3>
+                </div>
+                <p className="text-blue-100 text-xs mb-3 leading-relaxed">
+                  매일 KST 08:00 · 3,000~5,000자 SEO 톤 · HTML/MD
+                </p>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-blue-100">📝 SEO · 🛡️ 심의 · 📋 심의필</span>
+                  <span className="text-xs font-semibold bg-white/20 rounded-full px-2.5 py-1 group-hover:bg-white group-hover:text-blue-700 transition">검수 →</span>
                 </div>
               </div>
             </Link>

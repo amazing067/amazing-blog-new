@@ -5,6 +5,7 @@
 // 추후 보험뉴스도 적용하고 싶으면 news를 true로 바꾸기만 하면 됨.
 
 export const LINT_ENABLED = {
-  news: false,  // 보험뉴스 (카페 게시용)
-  card: true,   // 카드뉴스 (인스타 게시용)
+  news: false,  // 보험뉴스 (카페 게시용 — 심의 면제)
+  card: true,   // 카드뉴스 (인스타 게시용 — 광고심의 대상)
+  blog: true,   // 블로그 (티스토리·네이버 등 — 광고심의 대상)
 } as const;
