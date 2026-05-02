@@ -64,7 +64,7 @@ const F = {
   pointBigStat: 'text-[14cqw] font-black leading-none tracking-tight',          // ~151px (보조 시각)
   pointStatLab: 'text-[3.4cqw] font-bold uppercase tracking-wide',              // ~37px
   pointBody:    'text-[4.2cqw] leading-[1.45]',                                 // ~45px (보조 설명)
-  closingTitle: 'text-[9.4cqw] font-black leading-[1.1]',                       // ~102px
+  closingTitle: 'text-[7.5cqw] font-black leading-[1.1]',                       // ~81px (1줄에 들어가게)
   closingItem:  'text-[5cqw] font-bold leading-tight',                          // ~54px (한 줄에 들어가게)
   closingItemNum:'text-[4.4cqw] font-black',                                    // ~48px
   footer:       'text-[2.4cqw]',                                                // ~26px
@@ -163,12 +163,13 @@ export function HybridStyle({ slide, index, total }: Props) {
   return (
     <div style={containerStyle} className={`${CARD_BASE} ${t.bg} ${t.ink}`}>
       {BgDeco}{PageBadge}
-      <div className="relative h-full flex flex-col px-[7%] py-[7%]">
-        <div className="flex items-center justify-between">
-          <div className={`${F.eyebrow} ${t.sub}`}>📌 SUMMARY</div>
-          <div className={`flex-none ${t.soft} rounded-full p-[3%] backdrop-blur-sm`}>
-            <Icon style={{ width: '8cqw', height: '8cqw' }} className={t.ink} strokeWidth={2.5} />
+      <div className="relative h-full flex flex-col px-[5%] py-[5%]">
+        {/* SUMMARY 라벨 — 좌측 정렬, 우측 아이콘 박스는 PageBadge와 겹쳐 제거 */}
+        <div className={`flex items-center gap-[2cqw]`}>
+          <div className={`${t.soft} rounded-full p-[2.5%] backdrop-blur-sm`}>
+            <Icon style={{ width: '6cqw', height: '6cqw' }} className={t.ink} strokeWidth={2.5} />
           </div>
+          <div className={`${F.eyebrow} ${t.sub}`}>📌 SUMMARY</div>
         </div>
 
         <h3 className={`mt-[5%] ${F.closingTitle} whitespace-normal break-keep`}>
