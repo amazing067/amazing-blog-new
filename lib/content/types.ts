@@ -33,3 +33,43 @@ export type GeneratedSummary = {
   title: string;
   body_md: string;
 };
+
+// 카드뉴스 5장 슬라이드 — cover + point×3 + closing
+export type CardIconKey =
+  | 'sparkles' | 'shield'
+  | 'trendingDown' | 'alert'
+  | 'gift' | 'stethoscope'
+  | 'calculator' | 'baby'
+  | 'search' | 'clipboard'
+  | 'zap' | 'arrow';
+
+export type CardSlide =
+  | {
+      kind: 'cover';
+      eyebrow: string;
+      title: string;
+      bigStat: string;
+      bigStatLabel: string;
+      iconKey: CardIconKey;
+    }
+  | {
+      kind: 'point';
+      number: string;
+      bigStat: string;
+      bigStatLabel: string;
+      title: string;
+      body: string;
+      iconKey: CardIconKey;
+    }
+  | {
+      kind: 'closing';
+      title: string;
+      items: string[];
+      footer: string;
+      iconKey: CardIconKey;
+    };
+
+export type GeneratedCardSet = {
+  title: string;          // 콘텐츠 제목 (slide[0].title 사용 가능)
+  slides: CardSlide[];    // 정확히 5장
+};

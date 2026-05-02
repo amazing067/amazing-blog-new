@@ -2,41 +2,23 @@
 // 한 카드 = 한 메시지. 거대 통계/헤딩 + 짧은 보조 텍스트만. 시각 hierarchy 명확.
 
 import {
-  TrendingDown, AlertTriangle, Baby, Sparkles, ClipboardCheck, Zap,
+  TrendingDown, AlertTriangle, Gift, Shield, Sparkles,
+  Stethoscope, Calculator, Baby, ArrowRight, Search,
+  ClipboardCheck, Zap,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
+import type { CardSlide, CardIconKey } from '@/lib/content/types';
 
-export type CardSlide =
-  | {
-      kind: 'cover';
-      eyebrow: string;
-      title: string;
-      bigStat: string;        // "30% ↓" 거대 통계 — 메인 시각 포인트
-      bigStatLabel: string;   // "월 보험료 인하 추정"
-      iconKey: keyof typeof ICONS;
-    }
-  | {
-      kind: 'point';
-      number: string;
-      bigStat: string;        // 큰 숫자/% 거대하게 (메인)
-      bigStatLabel: string;   // 통계 라벨
-      title: string;          // 짧은 헤딩 (1줄)
-      body: string;           // 짧은 본문 1~2문장
-      iconKey: keyof typeof ICONS;
-    }
-  | {
-      kind: 'closing';
-      title: string;
-      items: string[];        // 짧은 항목 3개
-      footer: string;
-      iconKey: keyof typeof ICONS;
-    };
+export type { CardSlide };
 
-const ICONS = {
-  sparkles: Sparkles,
+const ICONS: Record<CardIconKey, LucideIcon> = {
+  sparkles: Sparkles, shield: Shield,
   trendingDown: TrendingDown, alert: AlertTriangle,
-  baby: Baby, clipboard: ClipboardCheck, zap: Zap,
-} satisfies Record<string, LucideIcon>;
+  gift: Gift, stethoscope: Stethoscope,
+  calculator: Calculator, baby: Baby,
+  search: Search, clipboard: ClipboardCheck,
+  zap: Zap, arrow: ArrowRight,
+};
 
 type Props = { slide: CardSlide; index: number; total: number };
 

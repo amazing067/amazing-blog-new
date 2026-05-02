@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
-import { Shield, LogOut, UserCheck, UserX, Sparkles, BarChart3, FileText, Lock, ClipboardCheck, Newspaper } from 'lucide-react'
+import { Shield, LogOut, UserCheck, UserX, Sparkles, BarChart3, FileText, Lock, ClipboardCheck, Newspaper, Images } from 'lucide-react'
 import Link from 'next/link'
 
 export default async function AdminDashboardPage() {
@@ -285,6 +285,49 @@ export default async function AdminDashboardPage() {
               <div className="mt-6 flex items-center gap-3">
                 <div className="px-5 py-2 bg-white text-emerald-700 font-bold rounded-xl inline-flex items-center gap-2 group-hover:scale-110 transition-transform text-sm">
                   검수 대기열 열기 →
+                </div>
+              </div>
+            </div>
+          </Link>
+
+          {/* 카드뉴스 카드 */}
+          <Link
+            href="/admin/content/cards"
+            className="block mt-6 bg-gradient-to-br from-violet-600 via-fuchsia-600 to-pink-600 rounded-3xl shadow-2xl p-10 text-white hover:shadow-3xl transition-all transform hover:scale-[1.02] relative overflow-hidden group"
+          >
+            <div className="absolute top-0 right-0 w-72 h-72 bg-white/10 rounded-full -translate-y-32 translate-x-32 group-hover:scale-110 transition-transform"></div>
+            <div className="relative z-10">
+              <div className="flex items-center gap-4 mb-4">
+                <div className="bg-white/20 p-4 rounded-2xl backdrop-blur-sm">
+                  <Images className="w-10 h-10 text-yellow-200" />
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black mb-1">인스타 카드뉴스 자동 발행</h2>
+                  <p className="text-violet-100 text-base">
+                    매일 KST 08:30 5장 시리즈 자동 생성 → AI 사실 검증 → PNG zip 다운로드
+                  </p>
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-3 mt-6">
+                <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3">
+                  <div className="text-2xl mb-1">🎴</div>
+                  <div className="font-semibold text-sm">5장 시리즈</div>
+                  <div className="text-xs text-violet-100 mt-1">표지 + 포인트 3장 + 마무리</div>
+                </div>
+                <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3">
+                  <div className="text-2xl mb-1">🖼️</div>
+                  <div className="font-semibold text-sm">1080×1080 PNG</div>
+                  <div className="text-xs text-violet-100 mt-1">zip 일괄 다운로드 후 업로드</div>
+                </div>
+                <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3">
+                  <div className="text-2xl mb-1">🛡️</div>
+                  <div className="font-semibold text-sm">광고심의 검수</div>
+                  <div className="text-xs text-violet-100 mt-1">보험사명·상품명·금지표현</div>
+                </div>
+              </div>
+              <div className="mt-6 flex items-center gap-3">
+                <div className="px-5 py-2 bg-white text-violet-700 font-bold rounded-xl inline-flex items-center gap-2 group-hover:scale-110 transition-transform text-sm">
+                  카드뉴스 검수 →
                 </div>
               </div>
             </div>
