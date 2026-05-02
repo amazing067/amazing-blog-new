@@ -10,7 +10,7 @@ const STYLES: Record<string, { bg: string; ring: string; text: string; iconBg: s
   warn:   { bg: 'bg-rose-50/80',      ring: 'ring-rose-100',      text: 'text-rose-950',      iconBg: 'bg-rose-100',     iconColor: 'text-rose-700',     Icon: AlertTriangle, label: '주의' },
   check:  { bg: 'bg-emerald-50/80',   ring: 'ring-emerald-100',   text: 'text-emerald-950',   iconBg: 'bg-emerald-100',  iconColor: 'text-emerald-700',  Icon: CheckSquare,  label: '체크리스트' },
   summary:{ bg: 'bg-indigo-50/80',    ring: 'ring-indigo-100',    text: 'text-indigo-950',    iconBg: 'bg-indigo-100',   iconColor: 'text-indigo-700',   Icon: Pin,          label: '핵심 요약' },
-  example:{ bg: 'bg-sky-50/80',       ring: 'ring-sky-100',       text: 'text-sky-950',       iconBg: 'bg-sky-100',      iconColor: 'text-sky-700',      Icon: MessageCircle,label: '실제 사례' },
+  example:{ bg: 'bg-sky-50/80',       ring: 'ring-sky-100',       text: 'text-sky-950',       iconBg: 'bg-sky-100',      iconColor: 'text-sky-700',      Icon: MessageCircle,label: '예시 사례' },
 };
 
 const PATTERNS: { regex: RegExp; key: keyof typeof STYLES }[] = [
@@ -18,7 +18,7 @@ const PATTERNS: { regex: RegExp; key: keyof typeof STYLES }[] = [
   { regex: /^[\s\n]*⚠️\s*\[?\s*(주의|warn|WARN)?\s*\]?[:.\s]*/i, key: 'warn' },
   { regex: /^[\s\n]*✅\s*\[?\s*(체크리스트|체크|check|CHECK)?\s*\]?[:.\s]*/i, key: 'check' },
   { regex: /^[\s\n]*📌\s*\[?\s*(핵심\s*요약|요약|summary|SUMMARY|핵심\s*포인트)?\s*\]?[:.\s]*/i, key: 'summary' },
-  { regex: /^[\s\n]*💬\s*\[?\s*(실제\s*사례|사례|example|EXAMPLE)?\s*\]?[:.\s]*/i, key: 'example' },
+  { regex: /^[\s\n]*💬\s*\[?\s*(예시\s*사례|실제\s*사례|사례|example|EXAMPLE)?\s*\]?[:.\s]*/i, key: 'example' },
 ];
 
 function extractRaw(children: ReactNode): string {

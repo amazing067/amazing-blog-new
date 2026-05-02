@@ -12,6 +12,8 @@ export const COMPARISON_PATTERNS: { pattern: RegExp; label: string }[] = [
   { pattern: /업계\s*(최저|최고|최초|유일|1위)/g, label: '업계 최상급' },
   { pattern: /국내\s*(최저|최고|최초|유일|1위)/g, label: '국내 최상급' },
   { pattern: /(보다|대비)\s*(더\s*)?(저렴|싼|싸고|좋고|우수)/g, label: '비교 우위' },
+  // "실제 사례"는 개인정보·검증 측면에서 광고심의 위험 — "예시 사례"로 표기 권장
+  { pattern: /실제\s*사례/g, label: '실제사례 (예시사례로 표기 권장)' },
 ];
 
 export const GUARANTEE_TERMS = [
