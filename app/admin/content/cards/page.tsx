@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { adminClient } from '@/lib/admin/guard';
 import { HybridStyle } from '../card-preview/CardStyles';
-import { Inbox, Clock, CheckCircle2, XCircle, AlertTriangle, Images } from 'lucide-react';
+import { Inbox, Clock, CheckCircle2, XCircle, AlertTriangle, Images, ChevronRight } from 'lucide-react';
 import type { CardSlide } from '@/lib/content/types';
 
 const STATUSES = [
@@ -20,6 +20,13 @@ const STATUS_BADGE: Record<string, string> = {
   failed:    'bg-red-100 text-red-800 border-red-200',
 };
 
+function riskTone(score: number | null | undefined) {
+  if (score == null) return 'text-slate-400';
+  if (score >= 60) return 'text-red-700';
+  if (score >= 30) return 'text-amber-700';
+  return 'text-emerald-700';
+}
+
 export default async function CardsListPage({
   searchParams,
 }: { searchParams?: Promise<{ status?: string }> }) {
@@ -28,8 +35,8 @@ export default async function CardsListPage({
 
   const supa = adminClient();
   let q = supa.from('content_items')
-    .select('id, title, status, source_refs, created_at, card_slides')
-    .eq('type', 'card').order('created_at', { ascending: false }).limit(60);
+    .select('id, title, status, source_refs, created_at, card_slides, publish_url, total_cost_usd')
+    .eq('type', 'card').order('created_at', { ascending: false }).limit(200);
   if (status !== 'all') q = q.eq('status', status);
   const { data: items } = await q;
 
@@ -38,6 +45,17 @@ export default async function CardsListPage({
   for (const r of counts ?? []) statusCount[r.status] = (statusCount[r.status] ?? 0) + 1;
   statusCount.all = (counts ?? []).length;
 
+  const ids = (items ?? []).map((r: { id: string }) => r.id);
+  const lintMap = new Map<string, number>();
+  if (ids.length) {
+    const { data: lints } = await supa.from('compliance_lints')
+      .select('content_id, risk_score, created_at')
+      .in('content_id', ids).order('created_at', { ascending: false });
+    for (const l of lints ?? []) {
+      if (!lintMap.has(l.content_id)) lintMap.set(l.content_id, l.risk_score);
+    }
+  }
+
   return (
     <div>
       <div className="mb-6">
@@ -45,7 +63,7 @@ export default async function CardsListPage({
           <Images className="w-6 h-6 text-violet-600" />
           카드뉴스 검수 대기열
         </h2>
-        <p className="mt-1 text-sm text-slate-500">매일 KST 08:30 자동 생성 · 5장 시리즈 · 1080×1080 PNG 다운로드</p>
+        <p className="mt-1 text-sm text-slate-500">매일 KST 08:30 자동 생성 · 5장 시리즈 + 심의필 = 6장 PNG zip</p>
       </div>
 
       <div className="mb-6 flex flex-wrap gap-2">
@@ -71,45 +89,60 @@ export default async function CardsListPage({
           <Images className="mx-auto w-12 h-12 text-slate-300" />
           <h3 className="mt-4 text-lg font-semibold text-slate-700">생성된 카드뉴스가 없습니다</h3>
           <p className="mt-2 text-sm text-slate-500">
-            매일 KST 08:30 자동 생성됩니다.<br />
-            지금 즉시 만들려면 cron을 수동으로 한 번 실행하세요.
+            매일 KST 08:30 자동 생성됩니다.
           </p>
         </div>
       ) : (
-        <div className="grid gap-6 grid-cols-1 md:grid-cols-2">
-          {(items ?? []).map((row: { id: string; title: string; status: string; created_at: string; card_slides: CardSlide[] | null; source_refs: { category?: string }[] | null }) => {
-            const slides = row.card_slides ?? [];
-            const cover = slides[0];
-            const category = row.source_refs?.[0]?.category;
-            return (
-              <Link key={row.id} href={`/admin/content/cards/${row.id}`}
-                className="group block rounded-2xl border border-slate-200 bg-white p-4 hover:border-violet-400 hover:shadow-lg transition">
-                <div className="flex items-center gap-2 mb-3">
-                  {category && (
-                    <span className="inline-flex items-center rounded-full bg-violet-50 px-2.5 py-0.5 text-xs font-medium text-violet-700 border border-violet-200">
-                      🎴 {category}
-                    </span>
-                  )}
-                  <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${STATUS_BADGE[row.status] ?? 'bg-slate-100 text-slate-700'}`}>
-                    {STATUSES.find(s => s.key === row.status)?.label ?? row.status}
-                  </span>
-                  <span className="ml-auto text-xs text-slate-400">{new Date(row.created_at).toLocaleString('ko-KR')}</span>
-                </div>
-                <h3 className="font-semibold text-slate-900 leading-snug mb-3 line-clamp-2 group-hover:text-violet-700 transition">
-                  {row.title}
-                </h3>
-                {cover && (
-                  <div className="aspect-square">
-                    <HybridStyle slide={cover} index={0} total={slides.length} />
-                  </div>
-                )}
-                <div className="mt-3 text-xs text-slate-500 flex items-center justify-between">
-                  <span>{slides.length}장 시리즈</span>
-                  <span className="text-violet-600 group-hover:translate-x-1 transition">상세 →</span>
-                </div>
-              </Link>
-            );
-          })}
+        <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden shadow-sm">
+          <ul className="divide-y divide-slate-100">
+            {(items ?? []).map((row: { id: string; title: string; status: string; created_at: string; card_slides: CardSlide[] | null; source_refs: { category?: string }[] | null; total_cost_usd: number | null }) => {
+              const slides = row.card_slides ?? [];
+              const cover = slides[0];
+              const category = row.source_refs?.[0]?.category;
+              const score = lintMap.get(row.id);
+              return (
+                <li key={row.id}>
+                  <Link href={`/admin/content/cards/${row.id}`}
+                    className="flex items-center gap-4 px-4 py-3 hover:bg-violet-50/50 transition group">
+                    {/* 작은 썸네일 (90px) */}
+                    <div className="flex-none w-[90px] h-[90px]">
+                      {cover ? (
+                        <HybridStyle slide={cover} index={0} total={slides.length} />
+                      ) : (
+                        <div className="w-full h-full rounded-xl bg-slate-100" />
+                      )}
+                    </div>
+                    {/* 메인 정보 */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1.5">
+                        {category && (
+                          <span className="inline-flex items-center rounded-full bg-violet-50 px-2 py-0.5 text-[11px] font-medium text-violet-700 border border-violet-200">
+                            🎴 {category}
+                          </span>
+                        )}
+                        <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${STATUS_BADGE[row.status] ?? 'bg-slate-100 text-slate-700'}`}>
+                          {STATUSES.find(s => s.key === row.status)?.label ?? row.status}
+                        </span>
+                      </div>
+                      <h3 className="font-semibold text-slate-900 leading-snug line-clamp-1 group-hover:text-violet-700 transition">
+                        {row.title}
+                      </h3>
+                      <div className="mt-1 flex items-center gap-3 text-[11px] text-slate-500">
+                        <span>{new Date(row.created_at).toLocaleString('ko-KR', { dateStyle: 'short', timeStyle: 'short' })}</span>
+                        {score != null && (
+                          <span className={`font-mono font-semibold ${riskTone(score)}`}>위험도 {score}</span>
+                        )}
+                        {row.total_cost_usd != null && (
+                          <span className="font-mono text-slate-400">${row.total_cost_usd.toFixed(3)}</span>
+                        )}
+                      </div>
+                    </div>
+                    <ChevronRight className="flex-none w-5 h-5 text-slate-300 group-hover:text-violet-600 group-hover:translate-x-0.5 transition" />
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
         </div>
       )}
     </div>
