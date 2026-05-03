@@ -46,3 +46,4 @@ data/sheets/*.csv
 /test-images/
 /test-results/
 /*.zip
+.vercel
