@@ -134,10 +134,13 @@ function SourceFields({ source, onChange }: { source?: SlideSource; onChange: (s
         )}
       </div>
       <p className="text-[10px] text-amber-800 leading-relaxed">
-        cover/point 통계는 권위 있는 공식 기관(국립암센터·금감원·통계청 등)의 자료여야 심의 통과.
+        통계는 다음 중 하나의 출처여야 심의 통과:<br />
+        • <strong>공공기관</strong>: 국립암센터·통계청·심평원·건보공단·금감원·보험연구원<br />
+        • <strong>의학 학회</strong>: 대한암학회·대한심장학회·대한당뇨병학회 등<br />
+        • <strong>대학병원</strong>: 서울대·세브란스·삼성서울·아산·고려대·가톨릭 등 보도자료·연구실적
       </p>
-      <Field label="기관명 (예: 국립암센터)" value={s.organization} onChange={v => update({ organization: v })} />
-      <Field label="자료명 (예: 국가암등록통계 2024)" value={s.name} onChange={v => update({ name: v })} />
+      <Field label="기관명 (예: 국립암센터, 서울대학교병원)" value={s.organization} onChange={v => update({ organization: v })} />
+      <Field label="자료명 (예: 국가암등록통계 2024, 보도자료 2026.03)" value={s.name} onChange={v => update({ name: v })} />
       <div>
         <label className={labelCls}>다운로드/원본 URL (https://...)</label>
         <input
