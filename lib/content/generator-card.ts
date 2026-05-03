@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import type { GeneratedCardSet, CardSlide, Topic, CardIconKey } from './types';
+import type { GeneratedCardSet, CardSlide, Topic, CardIconKey, SlideSource } from './types';
 
 const ICON_KEYS: CardIconKey[] = [
   'sparkles', 'shield', 'trendingDown', 'alert',
@@ -46,6 +46,7 @@ const STRUCTURE = `
    - bigStat: 표지의 거대 통계, **반드시 6자 이내** (예: "30% ↓", "약 2배", "NEW", "비급여 ↓", "1점 차이")
    - bigStatLabel: 통계의 의미, **반드시 12자 이내, 한 줄에 들어가는 짧은 표현** (예: "월 보험료 인하", "임신·출산 보장")
    - iconKey: 주제에 맞는 아이콘 키 (sparkles 등)
+   - **source (필수, 통계 있을 때)**: { organization, name, url } — 아래 출처 규칙 참조
 
 2. **point (3장)**: 핵심 포인트 3개
    - number: "01", "02", "03" 순
@@ -54,12 +55,47 @@ const STRUCTURE = `
    - title: 짧은 헤딩 (15~24자, 한 줄에 들어가야 함)
    - body: 본문 1~2문장 (45~70자, 짧고 명확)
    - iconKey: 주제 맞는 아이콘
+   - **source (필수, 통계 있을 때)**: { organization, name, url }
 
 3. **closing (1장)**: 마무리 체크리스트
    - title: 헤딩 (12~18자, 예: "결정 전 체크 3가지")
    - items: 3개 항목 (각 12~18자, **반드시 한 줄에 들어가는 길이**)
    - footer: 면책 한 줄 ("본 콘텐츠는 정보 제공 목적이며, 보장은 약관에 따릅니다." 권장)
    - iconKey: clipboard 또는 sparkles
+`;
+
+// 광고심의 통과를 위한 출처 규칙 — 이게 핵심
+const SOURCE_RULES = `
+**🔴 출처 규칙 (광고심의 통과 필수)**
+
+cover/point의 bigStat에 **숫자·% 등 구체적 수치**가 들어가면 반드시 \`source\` 필드 작성.
+(예: "37%", "약 30%", "2.4배", "5년" → source 필요)
+**개념어/일반표현은 source 불필요** (예: "NEW", "비급여 ↓", "면책", "갱신").
+
+source 객체 형식:
+\`\`\`json
+"source": {
+  "organization": "권위 있는 공식 기관명",
+  "name": "자료 제목 (보고서명·연도 포함)",
+  "url": "https://..."
+}
+\`\`\`
+
+**organization** — 반드시 다음 중 하나 (또는 동급의 공식 기관):
+- 국립암센터 / 보건복지부 / 통계청 / 건강보험심사평가원 / 국민건강보험공단
+- 금융감독원 / 보험연구원 / 손해보험협회 / 생명보험협회
+- WHO / 대한의학회 산하 학회 (예: 대한암학회)
+
+**url** — 다운로드 가능한 PDF/보고서 페이지 URL. 못 찾으면 해당 기관의 통계 검색 페이지 URL 라도.
+- 좋은 예: "https://www.ncc.re.kr/main.ncc?uri=manage01_4" (국립암센터 통계 페이지)
+- 좋은 예: "https://kosis.kr/statHtml/statHtml.do?orgId=117&tblId=DT_117N_A0011" (KOSIS 직접 링크)
+
+**🚫 절대 금지:**
+- 출처 못 찾으면서 그럴듯한 숫자 만들어내기 → 이 경우 bigStat을 개념어("NEW", "주의", "확인 필수")로 바꾸고 source 생략
+- 가짜 URL/존재하지 않는 보고서 만들기 (검수자가 클릭해서 확인함)
+- "약 30%" 같은 적당한 추정 → 출처 없으면 "변동 가능", "확인 필수" 같은 정성 표현으로
+
+**확신 안 서면 통계 빼고 일반 메시지로 가세요. 가짜 통계가 가장 큰 광고심의 위험입니다.**
 `;
 
 const ICON_GUIDE = `
@@ -91,6 +127,8 @@ ${ANONYMIZATION_RULES}
 
 ${STRUCTURE}
 
+${SOURCE_RULES}
+
 ${ICON_GUIDE}
 
 **문체**:
@@ -103,16 +141,33 @@ ${ICON_GUIDE}
 {
   "title": "전체 콘텐츠 제목 (표지 title과 동일하거나 비슷)",
   "slides": [
-    { "kind":"cover", "eyebrow":"...", "title":"...", "bigStat":"...", "bigStatLabel":"...", "iconKey":"sparkles" },
-    { "kind":"point", "number":"01", "bigStat":"...", "bigStatLabel":"...", "title":"...", "body":"...", "iconKey":"trendingDown" },
-    { "kind":"point", "number":"02", "bigStat":"...", "bigStatLabel":"...", "title":"...", "body":"...", "iconKey":"alert" },
-    { "kind":"point", "number":"03", "bigStat":"...", "bigStatLabel":"...", "title":"...", "body":"...", "iconKey":"baby" },
+    { "kind":"cover", "eyebrow":"...", "title":"...", "bigStat":"...", "bigStatLabel":"...", "iconKey":"sparkles", "source": {"organization":"국립암센터", "name":"국가암등록통계 2024", "url":"https://..."} },
+    { "kind":"point", "number":"01", "bigStat":"...", "bigStatLabel":"...", "title":"...", "body":"...", "iconKey":"trendingDown", "source": {"organization":"...", "name":"...", "url":"https://..."} },
+    { "kind":"point", "number":"02", "bigStat":"...", "bigStatLabel":"...", "title":"...", "body":"...", "iconKey":"alert", "source": {"organization":"...", "name":"...", "url":"https://..."} },
+    { "kind":"point", "number":"03", "bigStat":"...", "bigStatLabel":"...", "title":"...", "body":"...", "iconKey":"baby", "source": {"organization":"...", "name":"...", "url":"https://..."} },
     { "kind":"closing", "title":"...", "items":["...","...","..."], "footer":"본 콘텐츠는 정보 제공 목적이며, 보장은 약관에 따릅니다.", "iconKey":"clipboard" }
   ]
-}`;
+}
+
+bigStat이 개념어(NEW/주의/확인 필수)면 source 필드 생략 가능. 숫자·%이면 source 필수.`;
 
 function isValidIconKey(k: unknown): k is CardIconKey {
   return typeof k === 'string' && ICON_KEYS.includes(k as CardIconKey);
+}
+
+function parseSource(raw: unknown): SlideSource | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const r = raw as Record<string, unknown>;
+  const organization = String(r.organization ?? '').trim();
+  const name = String(r.name ?? '').trim();
+  const url = String(r.url ?? '').trim();
+  // organization과 name 둘 다 있어야 유효한 출처
+  if (!organization || !name) return undefined;
+  return {
+    organization,
+    name,
+    url: url && /^https?:\/\//.test(url) ? url : undefined,
+  };
 }
 
 function validateSlides(slides: unknown): CardSlide[] {
@@ -135,6 +190,7 @@ function validateSlides(slides: unknown): CardSlide[] {
         bigStat: String(s.bigStat ?? ''),
         bigStatLabel: String(s.bigStatLabel ?? ''),
         iconKey,
+        source: parseSource(s.source),
       });
     } else if (s.kind === 'point') {
       result.push({
@@ -145,6 +201,7 @@ function validateSlides(slides: unknown): CardSlide[] {
         title: String(s.title ?? ''),
         body: String(s.body ?? ''),
         iconKey,
+        source: parseSource(s.source),
       });
     } else {
       const items = Array.isArray(s.items) ? s.items.map(String).slice(0, 3) : [];

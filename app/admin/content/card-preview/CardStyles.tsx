@@ -7,7 +7,13 @@ import {
   ClipboardCheck, Zap,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import type { CardSlide, CardIconKey, ComplianceInfo } from '@/lib/content/types';
+import type { CardSlide, CardIconKey, ComplianceInfo, CardStyleKey } from '@/lib/content/types';
+import { MagazineStyle } from './styles/Magazine';
+import { PastelStyle } from './styles/Pastel';
+import { DarkPremiumStyle } from './styles/DarkPremium';
+import { DataReportStyle } from './styles/DataReport';
+import { Y2KRetroStyle } from './styles/Y2KRetro';
+import { SourceLine } from './styles/_SourceLine';
 
 export type { CardSlide, ComplianceInfo };
 
@@ -20,7 +26,7 @@ const ICONS: Record<CardIconKey, LucideIcon> = {
   zap: Zap, arrow: ArrowRight,
 };
 
-type Props = {
+export type Props = {
   slide: CardSlide;
   index: number;
   total: number;
@@ -101,6 +107,7 @@ export function HybridStyle({ slide, index, total, compliance }: Props) {
                    style={{ fontSize: `clamp(8cqw, ${Math.max(8, 80 / Math.max(slide.bigStat.length, 1))}cqw, 20cqw)` }}>
                 {slide.bigStat}
               </div>
+              <SourceLine source={slide.source} className={`mt-[1.5cqw] text-[2.2cqw] ${t.sub}`} />
             </div>
             <div className={`flex-none ${t.soft} rounded-full p-[4%] backdrop-blur-sm`}>
               <Icon style={{ width: '13cqw', height: '13cqw' }} className={t.ink} strokeWidth={2.5} />
@@ -144,6 +151,7 @@ export function HybridStyle({ slide, index, total, compliance }: Props) {
 
           {/* 본문 — 부연 설명 (가장 작은 글자, 흐림) */}
           <p className={`mt-auto ${F.pointBody} ${t.sub}`}>{slide.body}</p>
+          <SourceLine source={slide.source} className={`mt-[1.5cqw] text-[2.2cqw] ${t.sub}`} />
         </div>
       </div>
     );
@@ -205,4 +213,30 @@ export function HybridStyle({ slide, index, total, compliance }: Props) {
       </div>
     </div>
   );
+}
+
+// ============================================
+// 6개 디자인 스타일 라우터 — card_style 값에 따라 디스패치
+// ============================================
+// 월=A(BoldColor=HybridStyle), 화=B(Magazine), 수=C(Pastel),
+// 목=D(DarkPremium), 금=E(DataReport), 토=F(Y2KRetro), 일=쉼
+
+export function CardStyleRouter({
+  cardStyle = 'A',
+  slide,
+  index,
+  total,
+  compliance,
+}: Props & { cardStyle?: CardStyleKey | null }) {
+  const key = (cardStyle ?? 'A') as CardStyleKey;
+  switch (key) {
+    case 'B': return <MagazineStyle slide={slide} index={index} total={total} />;
+    case 'C': return <PastelStyle slide={slide} index={index} total={total} />;
+    case 'D': return <DarkPremiumStyle slide={slide} index={index} total={total} />;
+    case 'E': return <DataReportStyle slide={slide} index={index} total={total} />;
+    case 'F': return <Y2KRetroStyle slide={slide} index={index} total={total} />;
+    case 'A':
+    default:
+      return <HybridStyle slide={slide} index={index} total={total} compliance={compliance} />;
+  }
 }

@@ -6,6 +6,7 @@ import { generateCardSet } from '@/lib/content/generator-card';
 import { factCheckArticle } from '@/lib/content/fact-check';
 import { lintContent } from '@/lib/content/compliance-lint';
 import { calcCost } from '@/lib/content/billing';
+import { pickCardStyle } from '@/lib/content/style-picker';
 import type { CardSlide, EnforcementMode } from '@/lib/content/types';
 
 const DAILY_LIMIT = 1;
@@ -69,11 +70,14 @@ export async function GET(req: Request) {
       const genCost = calcCost('claude-haiku-4-5', genIn, genOut);
       const fcCost = calcCost('gemini-2.5-flash', fcIn, fcOut);
 
+      const cardStyle = pickCardStyle();   // 요일별 자동 매핑 (월=A 화=B...토=F)
+
       const { data: inserted, error } = await supa.from('content_items').insert({
         type: 'card',
         title: set.title,
         body_md: fullText,
         card_slides: set.slides,
+        card_style: cardStyle,
         source_refs: [{
           topic_slug: topic.slug,
           category: topic.category,

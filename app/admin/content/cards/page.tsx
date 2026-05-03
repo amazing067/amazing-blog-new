@@ -1,8 +1,17 @@
 import Link from 'next/link';
 import { adminClient } from '@/lib/admin/guard';
-import { HybridStyle } from '../card-preview/CardStyles';
+import { CardStyleRouter } from '../card-preview/CardStyles';
 import { Inbox, Clock, CheckCircle2, XCircle, AlertTriangle, Images, ChevronRight } from 'lucide-react';
-import type { CardSlide } from '@/lib/content/types';
+import type { CardSlide, CardStyleKey } from '@/lib/content/types';
+
+const STYLE_BADGE: Record<CardStyleKey, { name: string; cls: string }> = {
+  A: { name: 'A·Bold',     cls: 'bg-blue-100    text-blue-800    border-blue-200' },
+  B: { name: 'B·Magazine', cls: 'bg-stone-100   text-stone-800   border-stone-200' },
+  C: { name: 'C·Pastel',   cls: 'bg-orange-100  text-orange-800  border-orange-200' },
+  D: { name: 'D·Premium',  cls: 'bg-neutral-900 text-amber-200   border-neutral-700' },
+  E: { name: 'E·Report',   cls: 'bg-emerald-100 text-emerald-800 border-emerald-200' },
+  F: { name: 'F·Y2K',      cls: 'bg-fuchsia-100 text-fuchsia-800 border-fuchsia-200' },
+};
 
 const STATUSES = [
   { key: 'review',    label: '검토 대기', icon: Clock },
@@ -97,19 +106,21 @@ export default async function CardsListPage({
       ) : (
         <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden shadow-sm">
           <ul className="divide-y divide-slate-100">
-            {(items ?? []).map((row: { id: string; title: string; status: string; created_at: string; card_slides: CardSlide[] | null; source_refs: { category?: string }[] | null; total_cost_usd: number | null }) => {
+            {(items ?? []).map((row: { id: string; title: string; status: string; created_at: string; card_slides: CardSlide[] | null; source_refs: { category?: string }[] | null; total_cost_usd: number | null; card_style: CardStyleKey | null }) => {
               const slides = row.card_slides ?? [];
               const cover = slides[0];
               const category = row.source_refs?.[0]?.category;
               const score = lintMap.get(row.id);
+              const styleKey = (row.card_style ?? 'A') as CardStyleKey;
+              const styleInfo = STYLE_BADGE[styleKey];
               return (
                 <li key={row.id}>
                   <Link href={`/admin/content/cards/${row.id}`}
                     className="flex items-center gap-4 px-4 py-3 hover:bg-violet-50/50 transition group">
-                    {/* 작은 썸네일 (90px) */}
+                    {/* 작은 썸네일 (90px) — 해당 디자인 그대로 */}
                     <div className="flex-none w-[90px] h-[90px]">
                       {cover ? (
-                        <HybridStyle slide={cover} index={0} total={slides.length} />
+                        <CardStyleRouter cardStyle={styleKey} slide={cover} index={0} total={slides.length} />
                       ) : (
                         <div className="w-full h-full rounded-xl bg-slate-100" />
                       )}
@@ -117,6 +128,9 @@ export default async function CardsListPage({
                     {/* 메인 정보 */}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1.5">
+                        <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-bold ${styleInfo.cls}`} title="요일별 디자인">
+                          {styleInfo.name}
+                        </span>
                         {category && (
                           <span className="inline-flex items-center rounded-full bg-violet-50 px-2 py-0.5 text-[11px] font-medium text-violet-700 border border-violet-200">
                             🎴 {category}

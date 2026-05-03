@@ -3,7 +3,16 @@ import { notFound } from 'next/navigation';
 import { adminClient, requireAdmin } from '@/lib/admin/guard';
 import { ArrowLeft, Images } from 'lucide-react';
 import CardsDetailClient from './CardsDetailClient';
-import type { CardSlide, ComplianceInfo } from '@/lib/content/types';
+import type { CardSlide, ComplianceInfo, CardStyleKey } from '@/lib/content/types';
+
+const STYLE_LABEL: Record<CardStyleKey, { name: string; cls: string }> = {
+  A: { name: 'A · Bold Color (월)',     cls: 'bg-blue-100   text-blue-800   border-blue-200' },
+  B: { name: 'B · Magazine (화)',       cls: 'bg-stone-100  text-stone-800  border-stone-200' },
+  C: { name: 'C · Pastel (수)',         cls: 'bg-orange-100 text-orange-800 border-orange-200' },
+  D: { name: 'D · Dark Premium (목)',   cls: 'bg-neutral-900 text-amber-200  border-neutral-700' },
+  E: { name: 'E · Data Report (금)',    cls: 'bg-emerald-100 text-emerald-800 border-emerald-200' },
+  F: { name: 'F · Y2K Retro (토)',      cls: 'bg-fuchsia-100 text-fuchsia-800 border-fuchsia-200' },
+};
 
 const STATUS_LABEL: Record<string, { label: string; cls: string }> = {
   review:    { label: '검토 대기', cls: 'bg-amber-100 text-amber-800 border-amber-200' },
@@ -25,6 +34,8 @@ export default async function CardsDetailPage({ params }: { params: Promise<{ id
   const slides = (item.card_slides ?? []) as CardSlide[];
   const statusInfo = STATUS_LABEL[item.status] ?? { label: item.status, cls: 'bg-slate-100 text-slate-700 border-slate-200' };
   const factCheck = item.fact_check as { passed: boolean; issues: { claim: string; reason: string; severity: 'high'|'medium'|'low' }[] } | null;
+  const cardStyle = ((item.card_style as CardStyleKey | null) ?? 'A') as CardStyleKey;
+  const styleInfo = STYLE_LABEL[cardStyle];
 
   return (
     <div>
@@ -35,6 +46,9 @@ export default async function CardsDetailPage({ params }: { params: Promise<{ id
         <div className="flex items-center gap-2">
           <span className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2.5 py-1 text-xs font-medium text-violet-700 border border-violet-200">
             <Images className="w-3 h-3" /> 카드뉴스
+          </span>
+          <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-bold ${styleInfo.cls}`} title="요일별 디자인 로테이션">
+            {styleInfo.name}
           </span>
           <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium ${statusInfo.cls}`}>
             {statusInfo.label}
@@ -58,6 +72,7 @@ export default async function CardsDetailPage({ params }: { params: Promise<{ id
         compliance={(item.compliance as ComplianceInfo | null) ?? null}
         lint={lint}
         factCheck={factCheck}
+        cardStyle={cardStyle}
       />
     </div>
   );

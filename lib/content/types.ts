@@ -1,5 +1,9 @@
 export type EnforcementMode = 'open' | 'strict';
 
+// 카드뉴스 디자인 스타일 — 요일별 로테이션 (월=A 화=B 수=C 목=D 금=E 토=F, 일=쉼)
+// A=BoldColor(현재), B=Magazine, C=Pastel, D=DarkPremium, E=DataReport, F=Y2KRetro
+export type CardStyleKey = 'A' | 'B' | 'C' | 'D' | 'E' | 'F';
+
 export type Topic = {
   slug: string;              // 안정적 식별자 (중복 차단용)
   category: TopicCategory;
@@ -49,6 +53,14 @@ export type CardIconKey =
   | 'search' | 'clipboard'
   | 'zap' | 'arrow';
 
+// 광고심의 통과를 위한 통계 출처 — bigStat 옆에 표시되고 검수자가 검증
+export type SlideSource = {
+  organization: string;   // 권위 있는 공식 기관 (예: "국립암센터", "금감원", "통계청")
+  name: string;           // 자료 제목 (예: "암통계 연례보고서 2024")
+  url?: string;           // 다운로드/원본 페이지 URL (https://) — 검수자가 클릭해서 검증
+  retrieved_at?: string;  // 조회 일자 (YYYY-MM-DD)
+};
+
 export type CardSlide =
   | {
       kind: 'cover';
@@ -57,6 +69,7 @@ export type CardSlide =
       bigStat: string;
       bigStatLabel: string;
       iconKey: CardIconKey;
+      source?: SlideSource;     // 표지의 거대 통계 출처
     }
   | {
       kind: 'point';
@@ -66,6 +79,7 @@ export type CardSlide =
       title: string;
       body: string;
       iconKey: CardIconKey;
+      source?: SlideSource;     // 각 포인트의 통계 출처
     }
   | {
       kind: 'closing';

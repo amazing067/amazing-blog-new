@@ -5,10 +5,10 @@ import { useRouter } from 'next/navigation';
 import { domToBlob } from 'modern-screenshot';
 import JSZip from 'jszip';
 import { Download, CheckCircle2, X, Trash2, Loader2, Shield, Search, Pencil, Save } from 'lucide-react';
-import { HybridStyle } from '../../card-preview/CardStyles';
+import { CardStyleRouter } from '../../card-preview/CardStyles';
 import { ComplianceSlide } from '../../card-preview/ComplianceSlide';
 import SlideEditor from './SlideEditor';
-import type { CardSlide, ComplianceInfo } from '@/lib/content/types';
+import type { CardSlide, ComplianceInfo, CardStyleKey } from '@/lib/content/types';
 
 type Props = {
   id: string;
@@ -28,6 +28,7 @@ type Props = {
     product_mentions: string[] | null;
   } | null;
   factCheck: { passed: boolean; issues: { claim: string; reason: string; severity: 'high'|'medium'|'low' }[] } | null;
+  cardStyle: CardStyleKey;
 };
 
 const SEV: Record<string, { bg: string; label: string }> = {
@@ -46,7 +47,7 @@ function riskTone(score: number) {
 const LS_REG = (uid: string) => `insurance_registration_number_${uid}`;
 const LS_BRANCH = (uid: string) => `insurance_branch_name_${uid}`;
 
-export default function CardsDetailClient({ id, userId, defaultDesigner, title, status, publishUrl, slides: initialSlides, compliance, lint, factCheck }: Props) {
+export default function CardsDetailClient({ id, userId, defaultDesigner, title, status, publishUrl, slides: initialSlides, compliance, lint, factCheck, cardStyle }: Props) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
   const [url, setUrl] = useState(publishUrl);
@@ -290,7 +291,7 @@ export default function CardsDetailClient({ id, userId, defaultDesigner, title, 
                     </div>
                     <div className="aspect-square">
                       <div data-slide-capture data-slide-index={i} className="w-full h-full">
-                        <HybridStyle slide={s} index={i} total={total} compliance={comp} />
+                        <CardStyleRouter cardStyle={cardStyle} slide={s} index={i} total={total} compliance={comp} />
                       </div>
                     </div>
                   </div>
@@ -319,7 +320,7 @@ export default function CardsDetailClient({ id, userId, defaultDesigner, title, 
               {slides.map((s, i) => (
                 <div key={i} className="aspect-square">
                   <div data-slide-capture data-slide-index={i} className="w-full h-full">
-                    <HybridStyle slide={s} index={i} total={total} compliance={comp} />
+                    <CardStyleRouter cardStyle={cardStyle} slide={s} index={i} total={total} compliance={comp} />
                   </div>
                 </div>
               ))}

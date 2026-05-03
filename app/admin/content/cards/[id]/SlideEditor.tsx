@@ -1,6 +1,6 @@
 'use client';
 
-import type { CardSlide, CardIconKey } from '@/lib/content/types';
+import type { CardSlide, CardIconKey, SlideSource } from '@/lib/content/types';
 
 const ICON_OPTIONS: { key: CardIconKey; label: string; emoji: string }[] = [
   { key: 'sparkles',     label: '반짝 (표지·신상품)',      emoji: '✨' },
@@ -43,6 +43,7 @@ export default function SlideEditor({ slide, index, onChange }: Props) {
             <Field label="제목 (15~22자)" value={slide.title} onChange={v => onChange({ ...slide, title: v })} />
             <Field label="거대 통계 (6자 이내)" value={slide.bigStat} onChange={v => onChange({ ...slide, bigStat: v })} />
             <Field label="통계 라벨 (12자 이내)" value={slide.bigStatLabel} onChange={v => onChange({ ...slide, bigStatLabel: v })} />
+            <SourceFields source={slide.source} onChange={src => onChange({ ...slide, source: src })} />
           </>
         )}
 
@@ -58,6 +59,7 @@ export default function SlideEditor({ slide, index, onChange }: Props) {
               onChange={v => onChange({ ...slide, body: v })}
               flex
             />
+            <SourceFields source={slide.source} onChange={src => onChange({ ...slide, source: src })} />
           </>
         )}
 
@@ -107,6 +109,46 @@ function TextArea({ label, value, onChange, flex }: { label: string; value: stri
         rows={flex ? undefined : 3}
         style={flex ? { minHeight: 0 } : undefined}
       />
+    </div>
+  );
+}
+
+function SourceFields({ source, onChange }: { source?: SlideSource; onChange: (s: SlideSource | undefined) => void }) {
+  const s = source ?? { organization: '', name: '', url: '' };
+  const update = (patch: Partial<SlideSource>) => {
+    const next = { ...s, ...patch };
+    // 둘 다 비어있으면 source 제거
+    if (!next.organization.trim() && !next.name.trim() && !(next.url ?? '').trim()) {
+      onChange(undefined);
+    } else {
+      onChange(next);
+    }
+  };
+  const urlValid = !s.url || /^https?:\/\//.test(s.url);
+  return (
+    <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-3 space-y-2">
+      <div className="flex items-center justify-between">
+        <span className="text-[11px] font-bold text-amber-900">📋 통계 출처 (광고심의 검증용)</span>
+        {source && (
+          <button type="button" onClick={() => onChange(undefined)} className="text-[10px] text-amber-700 hover:underline">제거</button>
+        )}
+      </div>
+      <p className="text-[10px] text-amber-800 leading-relaxed">
+        cover/point 통계는 권위 있는 공식 기관(국립암센터·금감원·통계청 등)의 자료여야 심의 통과.
+      </p>
+      <Field label="기관명 (예: 국립암센터)" value={s.organization} onChange={v => update({ organization: v })} />
+      <Field label="자료명 (예: 국가암등록통계 2024)" value={s.name} onChange={v => update({ name: v })} />
+      <div>
+        <label className={labelCls}>다운로드/원본 URL (https://...)</label>
+        <input
+          type="url"
+          value={s.url ?? ''}
+          onChange={e => update({ url: e.target.value })}
+          className={`${inputCls} ${s.url && !urlValid ? 'border-red-400' : ''}`}
+          placeholder="https://www.ncc.re.kr/..."
+        />
+        {s.url && !urlValid && <span className="text-[10px] text-red-600">URL은 http:// 또는 https://로 시작</span>}
+      </div>
     </div>
   );
 }

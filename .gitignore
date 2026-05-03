@@ -47,3 +47,4 @@ data/sheets/*.csv
 /test-results/
 /*.zip
 .vercel
+.superpowers/
