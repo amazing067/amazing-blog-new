@@ -9,6 +9,7 @@ import { CardStyleRouter } from '../../card-preview/CardStyles';
 import { ComplianceSlide } from '../../card-preview/ComplianceSlide';
 import SlideEditor from './SlideEditor';
 import type { CardSlide, ComplianceInfo, CardStyleKey } from '@/lib/content/types';
+import { buildCaption } from '@/lib/content/caption-builder';
 
 type Props = {
   id: string;
@@ -29,6 +30,7 @@ type Props = {
   } | null;
   factCheck: { passed: boolean; issues: { claim: string; reason: string; severity: 'high'|'medium'|'low' }[] } | null;
   cardStyle: CardStyleKey;
+  category?: string | null;
 };
 
 const SEV: Record<string, { bg: string; label: string }> = {
@@ -47,7 +49,7 @@ function riskTone(score: number) {
 const LS_REG = (uid: string) => `insurance_registration_number_${uid}`;
 const LS_BRANCH = (uid: string) => `insurance_branch_name_${uid}`;
 
-export default function CardsDetailClient({ id, userId, defaultDesigner, title, status, publishUrl, slides: initialSlides, compliance, lint, factCheck, cardStyle }: Props) {
+export default function CardsDetailClient({ id, userId, defaultDesigner, title, status, publishUrl, slides: initialSlides, compliance, lint, factCheck, cardStyle, category }: Props) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
   const [url, setUrl] = useState(publishUrl);
@@ -199,6 +201,13 @@ export default function CardsDetailClient({ id, userId, defaultDesigner, title, 
       if (successCount === 0) {
         throw new Error('모든 슬라이드 캡처가 실패했습니다.');
       }
+
+      // 인스타 캡션 + 해시태그 + 광고심의 메모를 한 .txt로 동봉.
+      // 협회 반송 사유: "캡션·해시태그도 준법심의 대상이라 압축파일에 포함해야 함" 대응.
+      // BOM을 붙여 메모장이 UTF-8로 자동 인식하게 한다.
+      const captionText = buildCaption({ title, slides, compliance: comp, category });
+      const captionWithBom = '﻿' + captionText;
+      folder.file('instagram_caption.txt', captionWithBom);
 
       const archive = await zip.generateAsync({ type: 'blob' });
       const a = document.createElement('a');
@@ -409,10 +418,10 @@ export default function CardsDetailClient({ id, userId, defaultDesigner, title, 
 
         {/* PNG 다운로드 */}
         <div className="rounded-2xl border border-violet-200 bg-violet-50 p-5">
-          <h3 className="font-bold text-violet-900 mb-3">PNG 다운로드</h3>
+          <h3 className="font-bold text-violet-900 mb-3">PNG + 캡션 다운로드</h3>
           <p className="text-[11px] text-violet-700 mb-2">
-            본문 5장 + 심의필 1장 = <strong>총 6장</strong> (심의 정보 입력 시) <br />
-            심의 정보 비어있으면 본문 5장만.
+            본문 5장 + 심의필 1장 = <strong>총 6장 PNG</strong> (심의 정보 입력 시) <br />
+            + <strong>instagram_caption.txt</strong> (캡션·해시태그·심의 메모)
           </p>
           <button
             disabled={!!busy}
@@ -420,10 +429,11 @@ export default function CardsDetailClient({ id, userId, defaultDesigner, title, 
             className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 hover:bg-slate-800 px-4 py-3 text-sm font-bold text-white shadow-sm disabled:opacity-50 transition"
           >
             {busy === 'download' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-            PNG zip 다운로드
+            zip 다운로드
           </button>
-          <p className="mt-2 text-xs text-violet-700">
-            인스타그램 새 게시글 → 캐러셀로 업로드하세요. (마지막 슬라이드 = 심의필)
+          <p className="mt-2 text-xs text-violet-700 leading-relaxed">
+            인스타 새 게시글 → 캐러셀로 PNG 업로드, <strong>caption.txt 내용을 더보기 본문에 붙여넣기</strong>.
+            캡션·해시태그도 준법심의 대상이므로 협회 제출 시 zip 통째로 첨부하세요.
           </p>
         </div>
 

@@ -2,6 +2,7 @@
 // B · Magazine — 매거진 에디토리얼 (흰 배경 + 시리프 헤딩 + 빨강 액센트)
 import type { CardSlide } from '@/lib/content/types';
 import { SourceLine } from './_SourceLine';
+import { bigStatFontStyle } from './_bigStat';
 
 type Props = { slide: CardSlide; index: number; total: number };
 
@@ -31,11 +32,14 @@ export function MagazineStyle({ slide, index, total }: Props) {
           </h2>
           <div className="w-[18%] h-[3px] bg-red-600 my-[5%]" />
           <p className="text-[3.4cqw] leading-[1.5] text-neutral-700 max-w-[85%]">{slide.eyebrow}</p>
-          <div className="mt-auto flex items-baseline gap-[2cqw]">
-            <div style={{ fontFamily: SERIF }} className="text-red-600 text-[22cqw] font-black leading-none">
+          <div className="mt-auto flex items-baseline gap-[2cqw] overflow-hidden">
+            <div
+              style={{ fontFamily: SERIF, ...bigStatFontStyle(slide.bigStat, { max: 16, divisor: 60 }) }}
+              className="text-red-600 font-black leading-none break-keep flex-1 min-w-0"
+            >
               {slide.bigStat}
             </div>
-            <div className="text-[2.8cqw] font-bold text-neutral-500 uppercase tracking-[.15em] flex flex-col gap-[.4cqw]">
+            <div className="text-[2.8cqw] font-bold text-neutral-500 uppercase tracking-[.15em] flex flex-col gap-[.4cqw] flex-none max-w-[40%] break-keep">
               <div>Recurrence</div>
               <div className="text-neutral-950">{slide.bigStatLabel}</div>
             </div>
@@ -59,11 +63,14 @@ export function MagazineStyle({ slide, index, total }: Props) {
           <p style={{ fontFamily: SERIF }} className="italic text-[4.2cqw] leading-[1.4] text-neutral-700 pl-[4%] border-l-[3px] border-red-600 max-w-[90%]">
             &ldquo;{slide.body}&rdquo;
           </p>
-          <div className="mt-auto flex items-baseline gap-[2cqw]">
-            <div style={{ fontFamily: SERIF }} className="text-red-600 text-[22cqw] font-black leading-none">
+          <div className="mt-auto flex items-baseline gap-[2cqw] overflow-hidden">
+            <div
+              style={{ fontFamily: SERIF, ...bigStatFontStyle(slide.bigStat, { max: 14, divisor: 56 }) }}
+              className="text-red-600 font-black leading-none break-keep flex-1 min-w-0"
+            >
               {slide.bigStat}
             </div>
-            <div className="text-[2.7cqw] font-bold text-neutral-500 uppercase tracking-[.15em]">{slide.bigStatLabel}</div>
+            <div className="text-[2.7cqw] font-bold text-neutral-500 uppercase tracking-[.15em] flex-none max-w-[45%] break-keep">{slide.bigStatLabel}</div>
           </div>
           <SourceLine source={slide.source} className="mt-[1.5cqw] text-[2.2cqw] italic text-neutral-500" />
         </div>

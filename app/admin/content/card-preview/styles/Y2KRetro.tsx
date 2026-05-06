@@ -2,6 +2,7 @@
 // F · Y2K Retro — 그라데이션 + 별 + 굵은 폰트 (트렌디 SNS)
 import type { CardSlide } from '@/lib/content/types';
 import { SourceLine } from './_SourceLine';
+import { bigStatFontStyle } from './_bigStat';
 
 type Props = { slide: CardSlide; index: number; total: number };
 
@@ -54,12 +55,15 @@ export function Y2KRetroStyle({ slide, index, total }: Props) {
           <h2 className="mt-[8%] text-[11cqw] font-black leading-[1.05] tracking-tight whitespace-normal break-keep" style={{ textShadow: TITLE_SHADOW }}>
             {slide.title.replace(/\n/g, ' ')}
           </h2>
-          <div className="mt-auto flex items-end justify-between">
-            <div>
-              <div className="text-[24cqw] font-black leading-none" style={{ textShadow: STAT_SHADOW, WebkitTextStroke: '2px black' }}>
+          <div className="mt-auto flex items-end justify-between overflow-hidden">
+            <div className="flex-1 min-w-0">
+              <div
+                className="font-black leading-none break-keep"
+                style={{ ...bigStatFontStyle(slide.bigStat, { max: 18, divisor: 70 }), textShadow: STAT_SHADOW, WebkitTextStroke: '2px black' }}
+              >
                 {slide.bigStat}
               </div>
-              <div className="text-[3cqw] font-extrabold pt-[2%]" style={{ textShadow: '1px 1px 0 rgba(0,0,0,.5)' }}>
+              <div className="text-[3cqw] font-extrabold pt-[2%] break-keep" style={{ textShadow: '1px 1px 0 rgba(0,0,0,.5)' }}>
                 {slide.bigStatLabel}
               </div>
               <SourceLine source={slide.source} className="mt-[1cqw] text-[2.2cqw] font-bold text-white/85" />
@@ -88,17 +92,20 @@ export function Y2KRetroStyle({ slide, index, total }: Props) {
           <p className="mt-[4%] text-[3.6cqw] font-bold leading-[1.4]" style={{ textShadow: '1px 1px 0 rgba(0,0,0,.4)' }}>
             {slide.body}
           </p>
-          <div className="mt-auto flex items-end justify-between">
-            <div>
-              <div className="text-[18cqw] font-black leading-none" style={{ textShadow: '3px 3px 0 rgba(0,0,0,.35)', WebkitTextStroke: '1.5px black' }}>
+          <div className="mt-auto flex items-end justify-between gap-[3cqw] overflow-hidden">
+            <div className="flex-1 min-w-0">
+              <div
+                className="font-black leading-none break-keep"
+                style={{ ...bigStatFontStyle(slide.bigStat, { max: 14, divisor: 56 }), textShadow: '3px 3px 0 rgba(0,0,0,.35)', WebkitTextStroke: '1.5px black' }}
+              >
                 {slide.bigStat}
               </div>
-              <div className="text-[3cqw] font-extrabold pt-[2%]" style={{ textShadow: '1px 1px 0 rgba(0,0,0,.5)' }}>
+              <div className="text-[3cqw] font-extrabold pt-[2%] break-keep" style={{ textShadow: '1px 1px 0 rgba(0,0,0,.5)' }}>
                 {slide.bigStatLabel}
               </div>
               <SourceLine source={slide.source} className="mt-[1cqw] text-[2.2cqw] font-bold text-white/85" />
             </div>
-            <div className="bg-yellow-300 text-black px-[2.5%] py-[1%] border-2 border-black font-black text-[3.4cqw] -rotate-2" style={{ boxShadow: '3px 3px 0 black' }}>
+            <div className="bg-yellow-300 text-black px-[2.5%] py-[1%] border-2 border-black font-black text-[3.4cqw] -rotate-2 flex-none" style={{ boxShadow: '3px 3px 0 black' }}>
               {POINT_STICKERS[idx] ?? '⭐ 핵심'}
             </div>
           </div>

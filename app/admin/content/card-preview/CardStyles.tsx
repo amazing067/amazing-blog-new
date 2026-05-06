@@ -14,6 +14,7 @@ import { DarkPremiumStyle } from './styles/DarkPremium';
 import { DataReportStyle } from './styles/DataReport';
 import { Y2KRetroStyle } from './styles/Y2KRetro';
 import { SourceLine } from './styles/_SourceLine';
+import { bigStatFontStyle } from './styles/_bigStat';
 
 export type { CardSlide, ComplianceInfo };
 
@@ -141,12 +142,15 @@ export function HybridStyle({ slide, index, total, compliance }: Props) {
             {slide.title.replace(/\n/g, ' ')}
           </h3>
 
-          {/* 거대 숫자 — 보조 시각 임팩트 (헤딩의 핵심을 한 번 더 강조) */}
-          <div className={`mt-[6%] flex items-baseline gap-[2cqw]`}>
-            <div className={`${F.pointBigStat} ${t.accentText}`}>
+          {/* 거대 숫자 — 보조 시각 임팩트 (헤딩의 핵심을 한 번 더 강조). 글자 길이로 폰트 자동 축소. */}
+          <div className={`mt-[6%] flex items-baseline gap-[2cqw] overflow-hidden`}>
+            <div
+              className={`${t.accentText} font-black leading-none tracking-tight break-keep flex-1 min-w-0`}
+              style={bigStatFontStyle(slide.bigStat, { max: 14, divisor: 56 })}
+            >
               {slide.bigStat}
             </div>
-            <div className={`${F.pointStatLab} ${t.sub} pb-[2cqw]`}>{slide.bigStatLabel}</div>
+            <div className={`${F.pointStatLab} ${t.sub} pb-[2cqw] flex-none max-w-[45%]`}>{slide.bigStatLabel}</div>
           </div>
 
           {/* 본문 — 부연 설명 (가장 작은 글자, 흐림) */}

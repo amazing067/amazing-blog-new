@@ -2,6 +2,7 @@
 // D · Dark Premium — 검정 + 골드 + 시리프 (자산관리 고급감)
 import type { CardSlide } from '@/lib/content/types';
 import { SourceLine } from './_SourceLine';
+import { bigStatFontStyle } from './_bigStat';
 
 type Props = { slide: CardSlide; index: number; total: number };
 
@@ -41,11 +42,14 @@ export function DarkPremiumStyle({ slide, index }: Props) {
           <h2 style={{ fontFamily: SERIF }} className="text-[9.5cqw] font-bold leading-[1.1] tracking-tight whitespace-normal break-keep">
             {slide.title.replace(/\n/g, ' ')}
           </h2>
-          <div className="mt-auto pt-[5%] border-t border-amber-300/30">
-            <div style={{ fontFamily: SERIF }} className="text-amber-300 text-[22cqw] font-bold leading-none">
+          <div className="mt-auto pt-[5%] border-t border-amber-300/30 overflow-hidden">
+            <div
+              style={{ fontFamily: SERIF, ...bigStatFontStyle(slide.bigStat, { max: 16, divisor: 60 }) }}
+              className="text-amber-300 font-bold leading-none break-keep"
+            >
               {slide.bigStat}
             </div>
-            <div className="text-[2.6cqw] tracking-[.15em] uppercase opacity-70 mt-[1.5cqw]">{slide.bigStatLabel}</div>
+            <div className="text-[2.6cqw] tracking-[.15em] uppercase opacity-70 mt-[1.5cqw] break-keep">{slide.bigStatLabel}</div>
             <SourceLine source={slide.source} className="mt-[1.5cqw] text-[2.2cqw] italic text-amber-300/70" />
           </div>
         </div>
@@ -65,11 +69,14 @@ export function DarkPremiumStyle({ slide, index }: Props) {
             {slide.title.replace(/\n/g, ' ')}
           </h3>
           <p className="mt-[4%] text-[3.4cqw] leading-[1.55] opacity-80 max-w-[85%]">{slide.body}</p>
-          <div className="mt-auto pt-[5%] border-t border-amber-300/30">
-            <div style={{ fontFamily: SERIF }} className="text-amber-300 text-[16cqw] font-bold leading-none">
+          <div className="mt-auto pt-[5%] border-t border-amber-300/30 overflow-hidden">
+            <div
+              style={{ fontFamily: SERIF, ...bigStatFontStyle(slide.bigStat, { max: 13, divisor: 52 }) }}
+              className="text-amber-300 font-bold leading-none break-keep"
+            >
               {slide.bigStat}
             </div>
-            <div className="text-[2.6cqw] tracking-[.15em] uppercase opacity-70 mt-[1.5cqw]">{slide.bigStatLabel}</div>
+            <div className="text-[2.6cqw] tracking-[.15em] uppercase opacity-70 mt-[1.5cqw] break-keep">{slide.bigStatLabel}</div>
             <SourceLine source={slide.source} className="mt-[1.5cqw] text-[2.2cqw] italic text-amber-300/70" />
           </div>
         </div>

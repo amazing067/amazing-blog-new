@@ -2,6 +2,7 @@
 // E · Data Report — 통계청/금감원 리포트 무드 (베이지 + 차트 + 표)
 import type { CardSlide } from '@/lib/content/types';
 import { SourceLine } from './_SourceLine';
+import { bigStatFontStyle } from './_bigStat';
 
 type Props = { slide: CardSlide; index: number; total: number };
 
@@ -48,12 +49,17 @@ export function DataReportStyle({ slide, index, total }: Props) {
               <Bar key={i} pct={p} hl={i === COVER_BARS.length - 1} label={`${p === 78 ? '37%' : `${Math.round(p / 2)}%`}`} />
             ))}
           </div>
-          <div className="mt-auto flex items-baseline justify-between pt-[3%] border-t-2 border-neutral-900">
-            <div>
-              <div className="text-[2.4cqw] font-bold uppercase tracking-[.15em] text-neutral-600">{slide.bigStatLabel}</div>
-              <div className="text-[14cqw] font-black text-emerald-600 leading-none">{slide.bigStat}</div>
+          <div className="mt-auto flex items-baseline justify-between gap-[3cqw] pt-[3%] border-t-2 border-neutral-900 overflow-hidden">
+            <div className="flex-1 min-w-0">
+              <div className="text-[2.4cqw] font-bold uppercase tracking-[.15em] text-neutral-600 break-keep">{slide.bigStatLabel}</div>
+              <div
+                style={bigStatFontStyle(slide.bigStat, { max: 13, divisor: 52 })}
+                className="font-black text-emerald-600 leading-none break-keep"
+              >
+                {slide.bigStat}
+              </div>
             </div>
-            <SourceLine source={slide.source} className="text-[2cqw] italic text-neutral-500 self-end max-w-[55%] text-right" />
+            <SourceLine source={slide.source} className="text-[2cqw] italic text-neutral-500 self-end max-w-[45%] text-right flex-none" />
           </div>
         </div>
         <FooterBar />
@@ -62,9 +68,8 @@ export function DataReportStyle({ slide, index, total }: Props) {
   }
 
   if (slide.kind === 'point') {
-    // donut chart로 강조
-    const num = parseInt(slide.bigStat.replace(/[^0-9]/g, '')) || 50;
-    const angle = Math.min(360, num * 3.6);
+    // bigStat이 개념어로 바뀐 정책에 따라 도넛은 시각 데코로만 사용 (절반 채움 고정).
+    const angle = 180;
     return (
       <div style={containerStyle} className={CARD_BASE}>
         <Header left={`Figure ${slide.number}`} index={index} total={total} />
@@ -73,19 +78,27 @@ export function DataReportStyle({ slide, index, total }: Props) {
           <h3 className="mt-[3%] text-[6.8cqw] font-black leading-[1.2] tracking-tight whitespace-normal break-keep">
             {slide.title.replace(/\n/g, ' ')}
           </h3>
-          <div className="mt-[5%] flex gap-[5%] items-center bg-white rounded p-[5%] border border-stone-300">
+          <div className="mt-[5%] flex gap-[5%] items-center bg-white rounded p-[5%] border border-stone-300 overflow-hidden">
             <div
-              className="w-[28%] aspect-square rounded-full relative"
+              className="w-[28%] aspect-square rounded-full relative flex-none"
               style={{ background: `conic-gradient(#16a34a 0deg ${angle}deg, #d4d4d8 ${angle}deg 360deg)` }}
             >
               <div className="absolute inset-[18%] bg-white rounded-full" />
-              <div className="absolute inset-0 flex items-center justify-center text-[5cqw] font-black text-emerald-600">
+              <div
+                className="absolute inset-[18%] flex items-center justify-center font-black text-emerald-600 break-keep text-center px-[8%]"
+                style={bigStatFontStyle(slide.bigStat, { max: 5, divisor: 22, min: 2.5 })}
+              >
                 {slide.bigStat}
               </div>
             </div>
             <div className="flex-1 min-w-0">
-              <div className="text-[14cqw] font-black text-emerald-600 leading-none">{slide.bigStat}</div>
-              <div className="text-[2.6cqw] font-bold uppercase tracking-[.15em] text-neutral-600 mt-[1cqw]">{slide.bigStatLabel}</div>
+              <div
+                style={bigStatFontStyle(slide.bigStat, { max: 12, divisor: 50 })}
+                className="font-black text-emerald-600 leading-none break-keep"
+              >
+                {slide.bigStat}
+              </div>
+              <div className="text-[2.6cqw] font-bold uppercase tracking-[.15em] text-neutral-600 mt-[1cqw] break-keep">{slide.bigStatLabel}</div>
             </div>
           </div>
           <p className="mt-[4%] text-[3.4cqw] leading-[1.55] text-neutral-700">{slide.body}</p>

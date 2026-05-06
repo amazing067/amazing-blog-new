@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { GeneratedCardSet, CardSlide, Topic, CardIconKey, SlideSource } from './types';
+import { findVerifiedSource } from './verified-stats';
 
 const ICON_KEYS: CardIconKey[] = [
   'sparkles', 'shield', 'trendingDown', 'alert',
@@ -17,94 +18,75 @@ const ANONYMIZATION_RULES = `
 - 보장 단정 금지: "보장됩니다", "확실히" → "약관에 따라", "조건 충족 시"
 - "실제 사례" 금지 → 가상 케이스 필요시 "예시 사례"로
 
-**💰 금액 표현 절대 금지 (어떤 형태든 X):**
-- **추상 액수 X**: "수백만 원", "수천만 원", "수억", "몇십만 원"
-- **구체 액수 X**: "30만 원", "월 5만 원", "1억 원", "5,000원", "100만원"
-- **단위만이라도 X**: "○○만", "○○억", "○○천만" — 숫자+화폐단위 조합 모두 금지
-- **돈을 떠올리게 하는 어떤 표현도 쓰지 마세요.**
+**💰 금액·단위 유추 표현 절대 금지 (반송 1순위 사유):**
+- ❌ 구체 액수: "30만 원", "월 5만 원", "1억 원", "5,000원", "100만원", "약 50만원"
+- ❌ 추상 액수: "수백만 원", "수천만 원", "수억", "몇십만 원", "수십만"
+- ❌ 단위만이라도: "○○만 원", "○○억", "XX원", "약 XX원", "[약XX원]"
+- ❌ 보험료 차액 유추: "보험료가 X원 싸진다", "월 X만원 절감", "연 X원 차이"
+- ❌ 단위 빈칸 placeholder: "약 □만원", "X원 차이"
+- 모든 텍스트(title·body·eyebrow·bigStatLabel·items·footer)에서 **숫자+원/만/억/천 조합 일절 사용 금지**.
+- 보험료 비교가 필요하면 "보험료 차이 큼", "절감 효과", "구간별 차이" 같은 정성 표현으로.
+`;
 
-대신 다음만 사용:
-- **상대 비율**: "약 30% ↓", "약 2배", "절반"
-- **횟수·기간**: "연 1회", "최대 3회", "30일 이내"
-- **등급·점수**: "CDR 1점", "1등급"
-- **개념어**: "NEW", "비급여 ↓", "면책", "갱신"
-- **단계 차이**: "1점 차이", "한 단계"
+// bigStat 정책 — 수치 환각이 광고심의 반송 1순위라서 prompt 차원에서 원천 차단.
+// 검증된 통계 카탈로그(verified-stats.ts)에 등록된 항목만 통계 인용 가능.
+// 그 외 모든 카드는 bigStat을 개념어로만 작성.
+const BIG_STAT_RULES = `
+**🚫 bigStat 절대 규칙 (광고심의 통과 핵심):**
 
-bigStat 예시:
-- ✅ OK: "30% ↓", "약 2배", "NEW", "비급여 ↓", "1점 차이", "최대 3회", "연 1회"
-- ❌ NO: "수백만 원", "월 30만 원", "1억", "30만 원", "5만원짜리", "○○억"
+bigStat에 **숫자/% 환각**은 광고심의 반송 1순위입니다.
+당신은 통계 자료를 직접 검증할 수 없으므로, **모든 수치 표현을 사용하지 마세요.**
 
-body·title·bigStatLabel·items — **모든 텍스트에서 금액 단어 일절 사용 금지**.
+**❌ 절대 금지 (어떤 형태든 X):**
+- "30%", "약 30%", "37%", "2배", "약 2배", "1.5배", "2.4배"
+- "5년", "10년", "30일", "연 1회", "최대 3회", "1점 차이", "3개월"
+- "절반", "1/3", "두 배", "세 배" — 비율 표현 모두 X
+- 숫자가 들어간 어떤 표현도 금지
+
+**✅ 오직 다음 카테고리의 개념어만 허용 (6자 이내):**
+- 변화 방향: "한도 ↑", "한도 ↓", "비급여 ↓", "월보험료 ↓", "보장 ↑"
+- 신호 라벨: "NEW", "주의", "확인 필수", "갱신", "면책", "추가"
+- 비교 라벨: "차이 큼", "추가 한도", "비교 필요", "별도 한도", "구간 차이"
+- 상태 라벨: "갱신형", "비갱신", "표준형", "선택형", "유의"
+
+**bigStatLabel(12자 이내)도 마찬가지로 숫자 0개.**
+- ✅ OK: "월 보험료 인하", "임신·출산 보장", "IRP 추가 한도", "비급여 항목"
+- ❌ NO: "30만원 차이", "5년 갱신주기", "월 1회 청구"
+
+body·title·items도 가능하면 정성 표현 우선. 숫자가 꼭 필요하면 약관·법령에 명시된 표현(예: "약관에 따라")으로 일반화.
+
+**source 필드는 비워두세요(생략).** 검증된 출처는 시스템에서 자동으로 매핑합니다.
 `;
 
 const STRUCTURE = `
 **카드뉴스 구조 — 정확히 5장:**
 
 1. **cover (1장)**: 표지
-   - eyebrow: 카테고리 또는 키워드 (예: "5세대 실손보험")
-   - title: 핵심 질문 또는 메시지 (15~22자, 짧고 후킹)
-   - bigStat: 표지의 거대 통계, **반드시 6자 이내** (예: "30% ↓", "약 2배", "NEW", "비급여 ↓", "1점 차이")
-   - bigStatLabel: 통계의 의미, **반드시 12자 이내, 한 줄에 들어가는 짧은 표현** (예: "월 보험료 인하", "임신·출산 보장")
-   - iconKey: 주제에 맞는 아이콘 키 (sparkles 등)
-   - **source (필수, 통계 있을 때)**: { organization, name, url } — 아래 출처 규칙 참조
+   - eyebrow: 카테고리 키워드 (예: "5세대 실손보험")
+   - title: 핵심 질문/메시지 (15~22자, 짧고 후킹)
+   - bigStat: **개념어만** (6자 이내, 숫자 0개) — 위 BIG_STAT_RULES 참조
+   - bigStatLabel: 의미 라벨 (12자 이내, 숫자 0개)
+   - iconKey: 주제 맞는 아이콘
+   - source: 생략 (시스템 자동 매핑)
 
 2. **point (3장)**: 핵심 포인트 3개
-   - number: "01", "02", "03" 순
-   - bigStat: 거대 숫자/% **6자 이내** (예: "약 30%", "비급여 ↓", "NEW", "1점 차이")
-   - bigStatLabel: 라벨 **12자 이내, 한 줄 짧은 표현** (예: "월 보험료", "도수·영양 보장")
-   - title: 짧은 헤딩 (15~24자, 한 줄에 들어가야 함)
+   - number: "01", "02", "03"
+   - bigStat: **개념어만** (6자 이내, 숫자 0개)
+   - bigStatLabel: 라벨 (12자 이내, 숫자 0개)
+   - title: 짧은 헤딩 (15~24자)
    - body: 본문 1~2문장 (45~70자, 짧고 명확)
    - iconKey: 주제 맞는 아이콘
-   - **source (필수, 통계 있을 때)**: { organization, name, url }
+   - source: 생략
 
 3. **closing (1장)**: 마무리 체크리스트
    - title: 헤딩 (12~18자, 예: "결정 전 체크 3가지")
-   - items: 3개 항목 (각 12~18자, **반드시 한 줄에 들어가는 길이**)
+   - items: 3개 (각 12~18자, 한 줄에 들어가는 길이)
    - footer: 면책 한 줄 ("본 콘텐츠는 정보 제공 목적이며, 보장은 약관에 따릅니다." 권장)
    - iconKey: clipboard 또는 sparkles
 `;
 
-// 광고심의 통과를 위한 출처 규칙 — 이게 핵심
-const SOURCE_RULES = `
-**🔴 출처 규칙 (광고심의 통과 필수)**
-
-cover/point의 bigStat에 **숫자·% 등 구체적 수치**가 들어가면 반드시 \`source\` 필드 작성.
-(예: "37%", "약 30%", "2.4배", "5년" → source 필요)
-**개념어/일반표현은 source 불필요** (예: "NEW", "비급여 ↓", "면책", "갱신").
-
-source 객체 형식:
-\`\`\`json
-"source": {
-  "organization": "권위 있는 공식 기관명",
-  "name": "자료 제목 (보고서명·연도 포함)",
-  "url": "https://..."
-}
-\`\`\`
-
-**organization** — 반드시 다음 중 하나 (또는 동급의 공식 기관):
-- **공공기관**: 국립암센터 / 보건복지부 / 통계청 / 건강보험심사평가원 / 국민건강보험공단
-- **금융 공공**: 금융감독원 / 보험연구원 / 손해보험협회 / 생명보험협회
-- **의학 학회**: 대한의학회 산하 학회 (예: 대한암학회·대한심장학회·대한당뇨병학회 등)
-- **상급종합병원/대학병원**: 서울대학교병원 / 세브란스병원(연세의료원) / 삼성서울병원 / 서울아산병원 / 가톨릭대학교 서울성모병원 / 고려대학교병원 / 한양대학교병원 / 경희대학교병원 등
-  · 대학병원의 공식 보도자료·연구센터 보고서·진료 통계만 인정 (개인 의사 블로그 X)
-- **국제기관**: WHO / OECD Health Statistics
-
-**url** — 다운로드 가능한 PDF/보고서 페이지 URL. 못 찾으면 해당 기관의 통계·뉴스 검색 페이지 URL.
-- 좋은 예: "https://www.ncc.re.kr/main.ncc?uri=manage01_4" (국립암센터 통계 페이지)
-- 좋은 예: "https://kosis.kr/statHtml/statHtml.do?orgId=117&tblId=DT_117N_A0011" (KOSIS 직접 링크)
-- 좋은 예: "https://www.snuh.org/board/B003/list.do" (서울대병원 보도자료)
-- 좋은 예: "https://sev.iseverance.com/dept_clinic/research/" (세브란스 연구실적)
-
-**🚫 절대 금지:**
-- 출처 못 찾으면서 그럴듯한 숫자 만들어내기 → 이 경우 bigStat을 개념어("NEW", "주의", "확인 필수")로 바꾸고 source 생략
-- 가짜 URL/존재하지 않는 보고서 만들기 (검수자가 클릭해서 확인함)
-- "약 30%" 같은 적당한 추정 → 출처 없으면 "변동 가능", "확인 필수" 같은 정성 표현으로
-
-**확신 안 서면 통계 빼고 일반 메시지로 가세요. 가짜 통계가 가장 큰 광고심의 위험입니다.**
-`;
-
 const ICON_GUIDE = `
-**아이콘 키 (iconKey) 선택 가이드 — 주제에 가장 맞는 것:**
+**iconKey 선택 가이드:**
 - sparkles: 표지·신상품·신규
 - shield: 보장·안전
 - trendingDown: 가격 인하·축소·절감
@@ -130,48 +112,104 @@ ${topic.outline.map((o, i) => `${i + 1}. ${o}`).join('\n')}
 
 ${ANONYMIZATION_RULES}
 
-${STRUCTURE}
+${BIG_STAT_RULES}
 
-${SOURCE_RULES}
+${STRUCTURE}
 
 ${ICON_GUIDE}
 
 **문체**:
 - 친근한 존댓말 ("~예요", "~네요", "~해보세요")
 - 한 카드 = 한 메시지. 짧고 명확.
-- 수치는 신중하게 — 확실하지 않은 구체 수치는 "약", "추정" 등으로
-- 출처 일반화 인용 권장: "금감원 자료에 따르면", "약관에 따라" 등 신뢰 기관
+- 수치 대신 비교 구조·체크리스트·NEW/주의 라벨로 후킹.
 
 **출력 형식 (반드시 이 JSON 한 객체만, 코드블록·설명·앞뒤 텍스트 없이):**
 {
-  "title": "전체 콘텐츠 제목 (표지 title과 동일하거나 비슷)",
+  "title": "전체 콘텐츠 제목",
   "slides": [
-    { "kind":"cover", "eyebrow":"...", "title":"...", "bigStat":"...", "bigStatLabel":"...", "iconKey":"sparkles", "source": {"organization":"국립암센터", "name":"국가암등록통계 2024", "url":"https://..."} },
-    { "kind":"point", "number":"01", "bigStat":"...", "bigStatLabel":"...", "title":"...", "body":"...", "iconKey":"trendingDown", "source": {"organization":"...", "name":"...", "url":"https://..."} },
-    { "kind":"point", "number":"02", "bigStat":"...", "bigStatLabel":"...", "title":"...", "body":"...", "iconKey":"alert", "source": {"organization":"...", "name":"...", "url":"https://..."} },
-    { "kind":"point", "number":"03", "bigStat":"...", "bigStatLabel":"...", "title":"...", "body":"...", "iconKey":"baby", "source": {"organization":"...", "name":"...", "url":"https://..."} },
+    { "kind":"cover", "eyebrow":"...", "title":"...", "bigStat":"NEW", "bigStatLabel":"...", "iconKey":"sparkles" },
+    { "kind":"point", "number":"01", "bigStat":"한도 ↑", "bigStatLabel":"...", "title":"...", "body":"...", "iconKey":"trendingDown" },
+    { "kind":"point", "number":"02", "bigStat":"주의", "bigStatLabel":"...", "title":"...", "body":"...", "iconKey":"alert" },
+    { "kind":"point", "number":"03", "bigStat":"확인 필수", "bigStatLabel":"...", "title":"...", "body":"...", "iconKey":"search" },
     { "kind":"closing", "title":"...", "items":["...","...","..."], "footer":"본 콘텐츠는 정보 제공 목적이며, 보장은 약관에 따릅니다.", "iconKey":"clipboard" }
   ]
 }
 
-bigStat이 개념어(NEW/주의/확인 필수)면 source 필드 생략 가능. 숫자·%이면 source 필수.`;
+bigStat·bigStatLabel은 절대 숫자를 포함하지 마세요. source는 비워두세요.`;
 
 function isValidIconKey(k: unknown): k is CardIconKey {
   return typeof k === 'string' && ICON_KEYS.includes(k as CardIconKey);
 }
 
-function parseSource(raw: unknown): SlideSource | undefined {
-  if (!raw || typeof raw !== 'object') return undefined;
+// 숫자/% 등 수치 표현이 들어왔는지 검사. AI가 prompt를 어겨도 후방에서 잡는 안전망.
+const NUMERIC_PATTERN = /[0-9０-９]|[일이삼사오육칠팔구십백천만억]\s*(?:[%％]|배|년|일|주|월|회|점|건|명|호|차|단계|개|개월)/;
+
+function stripNumericBigStat(value: string, fallback: string): string {
+  const v = value.trim();
+  if (!v) return fallback;
+  if (NUMERIC_PATTERN.test(v)) return fallback;
+  return v.length > 8 ? fallback : v;
+}
+
+// 본문(body·title·items·eyebrow·footer 등)에서 금액·단위 유추 표현을 정성 표현으로 자동 치환.
+// 광고심의 반송 1순위가 "약 XX원" 같은 보험료 차액 표현이라 prompt 강화에 더해 후방에서도 잡는다.
+const MONEY_REPLACERS: Array<[RegExp, string]> = [
+  // [약 XX원], (약 5만원) 같은 괄호 둘러싼 placeholder/실숫자
+  [/[\[\(（［]\s*(?:약|월|연)?\s*[\dxX○*□Xx＿_\s]+\s*[천만억]?\s*원\s*[\]\)）］]/g, '보험료'],
+  // "약 30만원", "월 5만원", "연 30만원", "약 XX원"
+  [/(?:약|월|연)\s*[\dxX○*□＿_]+\s*(?:[천만억]\s*)?원/g, '보험료'],
+  // 단순 "30만원", "5,000원", "1억원", "100만 원"
+  [/[\d,]+\s*(?:[천만억]\s*)?원/g, '보험료'],
+  // 추상 액수: "수백만원", "수천만원", "수억원", "수십만"
+  [/수\s*(?:백|천|만|억|십)\s*만?\s*원?/g, '상당액'],
+  [/몇\s*(?:백|천|만|억|십)\s*만?\s*원?/g, '상당액'],
+  // 단위 placeholder: "○○만원", "XX원", "□□만원"
+  [/[○xX□＿_]{1,3}\s*(?:[천만억]\s*)?원/g, '보험료'],
+  // 잔여 정리: 연속 공백·"보험료 보험료" 중복
+  [/\s+/g, ' '],
+  [/(보험료\s*){2,}/g, '보험료 '],
+  [/(상당액\s*){2,}/g, '상당액 '],
+];
+
+function sanitizeMoney(text: string): string {
+  let v = text;
+  for (const [pat, rep] of MONEY_REPLACERS) {
+    v = v.replace(pat, rep);
+  }
+  return v.trim();
+}
+
+function sanitizeMoneyArray(items: string[]): string[] {
+  return items.map(sanitizeMoney);
+}
+
+// AI가 만든 source는 카탈로그(verified-stats.ts)에 등록된 항목만 통과.
+// 그 외엔 undefined → 슬라이드에 출처 표시 안 됨 → 가짜 출처 차단.
+function parseSource(raw: unknown, contextText: string): SlideSource | undefined {
+  if (!raw || typeof raw !== 'object') {
+    // AI가 source 안 줘도, 컨텍스트로 카탈로그 매칭 시도
+    const matched = findVerifiedSource({ context: contextText });
+    if (matched) {
+      return {
+        organization: matched.source.organization,
+        name: matched.source.name,
+        url: matched.source.url,
+        retrieved_at: matched.retrieved_at,
+      };
+    }
+    return undefined;
+  }
   const r = raw as Record<string, unknown>;
   const organization = String(r.organization ?? '').trim();
   const name = String(r.name ?? '').trim();
-  const url = String(r.url ?? '').trim();
-  // organization과 name 둘 다 있어야 유효한 출처
-  if (!organization || !name) return undefined;
+  if (!organization && !name) return undefined;
+  const matched = findVerifiedSource({ organization, name, context: contextText });
+  if (!matched) return undefined; // 카탈로그 미등록 출처는 폐기 (환각 차단)
   return {
-    organization,
-    name,
-    url: url && /^https?:\/\//.test(url) ? url : undefined,
+    organization: matched.source.organization,
+    name: matched.source.name,
+    url: matched.source.url,
+    retrieved_at: matched.retrieved_at,
   };
 }
 
@@ -188,34 +226,44 @@ function validateSlides(slides: unknown): CardSlide[] {
     }
     const iconKey = isValidIconKey(s.iconKey) ? s.iconKey : 'sparkles';
     if (s.kind === 'cover') {
+      const rawStat = String(s.bigStat ?? '');
+      const rawLabel = String(s.bigStatLabel ?? '');
+      const bigStat = stripNumericBigStat(rawStat, '확인 필수');
+      const bigStatLabel = stripNumericBigStat(rawLabel, '핵심 포인트');
+      const ctx = `${s.title ?? ''} ${rawLabel} ${rawStat}`;
       result.push({
         kind: 'cover',
-        eyebrow: String(s.eyebrow ?? ''),
-        title: String(s.title ?? ''),
-        bigStat: String(s.bigStat ?? ''),
-        bigStatLabel: String(s.bigStatLabel ?? ''),
+        eyebrow: sanitizeMoney(String(s.eyebrow ?? '')),
+        title: sanitizeMoney(String(s.title ?? '')),
+        bigStat: sanitizeMoney(bigStat),
+        bigStatLabel: sanitizeMoney(bigStatLabel),
         iconKey,
-        source: parseSource(s.source),
+        source: parseSource(s.source, ctx),
       });
     } else if (s.kind === 'point') {
+      const rawStat = String(s.bigStat ?? '');
+      const rawLabel = String(s.bigStatLabel ?? '');
+      const bigStat = stripNumericBigStat(rawStat, '주의');
+      const bigStatLabel = stripNumericBigStat(rawLabel, '핵심 포인트');
+      const ctx = `${s.title ?? ''} ${s.body ?? ''} ${rawLabel} ${rawStat}`;
       result.push({
         kind: 'point',
         number: String(s.number ?? `0${i}`),
-        bigStat: String(s.bigStat ?? ''),
-        bigStatLabel: String(s.bigStatLabel ?? ''),
-        title: String(s.title ?? ''),
-        body: String(s.body ?? ''),
+        bigStat: sanitizeMoney(bigStat),
+        bigStatLabel: sanitizeMoney(bigStatLabel),
+        title: sanitizeMoney(String(s.title ?? '')),
+        body: sanitizeMoney(String(s.body ?? '')),
         iconKey,
-        source: parseSource(s.source),
+        source: parseSource(s.source, ctx),
       });
     } else {
-      const items = Array.isArray(s.items) ? s.items.map(String).slice(0, 3) : [];
-      while (items.length < 3) items.push('');
+      const rawItems = Array.isArray(s.items) ? s.items.map(String).slice(0, 3) : [];
+      while (rawItems.length < 3) rawItems.push('');
       result.push({
         kind: 'closing',
-        title: String(s.title ?? ''),
-        items,
-        footer: String(s.footer ?? '본 콘텐츠는 정보 제공 목적이며, 보장은 약관에 따릅니다.'),
+        title: sanitizeMoney(String(s.title ?? '')),
+        items: sanitizeMoneyArray(rawItems),
+        footer: sanitizeMoney(String(s.footer ?? '본 콘텐츠는 정보 제공 목적이며, 보장은 약관에 따릅니다.')),
         iconKey,
       });
     }

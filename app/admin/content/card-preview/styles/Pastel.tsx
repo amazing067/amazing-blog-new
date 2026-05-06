@@ -2,6 +2,7 @@
 // C · Soft Pastel — 친근한 메모 (파스텔 + 둥근 + 이모지)
 import type { CardSlide } from '@/lib/content/types';
 import { SourceLine } from './_SourceLine';
+import { bigStatFontStyle } from './_bigStat';
 
 type Props = { slide: CardSlide; index: number; total: number };
 
@@ -56,13 +57,18 @@ export function PastelStyle({ slide, index, total }: Props) {
             <span className="absolute -top-[8px] left-[16%] w-[14px] h-[14px] bg-white rotate-45" />
             &ldquo;{slide.eyebrow}&rdquo; 🥺
           </div>
-          <div className="mt-auto flex items-end justify-between">
-            <div>
-              <div className={`text-[17cqw] font-black ${t.pad} leading-none`}>{slide.bigStat}</div>
-              <div className={`text-[3cqw] font-bold ${t.pad} opacity-85`}>{slide.bigStatLabel}</div>
+          <div className="mt-auto flex items-end justify-between gap-[3cqw] overflow-hidden">
+            <div className="flex-1 min-w-0">
+              <div
+                style={bigStatFontStyle(slide.bigStat, { max: 15, divisor: 60 })}
+                className={`font-black ${t.pad} leading-none break-keep`}
+              >
+                {slide.bigStat}
+              </div>
+              <div className={`text-[3cqw] font-bold ${t.pad} opacity-85 break-keep`}>{slide.bigStatLabel}</div>
               <SourceLine source={slide.source} className={`mt-[1cqw] text-[2.2cqw] ${t.pad} opacity-70`} />
             </div>
-            <div className="text-[8.5cqw]">💗</div>
+            <div className="text-[8.5cqw] flex-none">💗</div>
           </div>
         </div>
       </div>
@@ -86,13 +92,18 @@ export function PastelStyle({ slide, index, total }: Props) {
             <span className="absolute -top-[8px] left-[16%] w-[14px] h-[14px] bg-white rotate-45" />
             {slide.body}
           </div>
-          <div className="mt-auto flex items-end justify-between">
-            <div>
-              <div className={`text-[15cqw] font-black ${t.pad} leading-none`}>{slide.bigStat}</div>
-              <div className={`text-[3cqw] font-bold ${t.pad} opacity-85`}>{slide.bigStatLabel}</div>
+          <div className="mt-auto flex items-end justify-between gap-[3cqw] overflow-hidden">
+            <div className="flex-1 min-w-0">
+              <div
+                style={bigStatFontStyle(slide.bigStat, { max: 13, divisor: 54 })}
+                className={`font-black ${t.pad} leading-none break-keep`}
+              >
+                {slide.bigStat}
+              </div>
+              <div className={`text-[3cqw] font-bold ${t.pad} opacity-85 break-keep`}>{slide.bigStatLabel}</div>
               <SourceLine source={slide.source} className={`mt-[1cqw] text-[2.2cqw] ${t.pad} opacity-70`} />
             </div>
-            <div className="text-[7.5cqw]">{POINT_HEARTS[idx] ?? '💗'}</div>
+            <div className="text-[7.5cqw] flex-none">{POINT_HEARTS[idx] ?? '💗'}</div>
           </div>
         </div>
       </div>

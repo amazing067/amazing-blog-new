@@ -36,6 +36,9 @@ export default async function CardsDetailPage({ params }: { params: Promise<{ id
   const factCheck = item.fact_check as { passed: boolean; issues: { claim: string; reason: string; severity: 'high'|'medium'|'low' }[] } | null;
   const cardStyle = ((item.card_style as CardStyleKey | null) ?? 'A') as CardStyleKey;
   const styleInfo = STYLE_LABEL[cardStyle];
+  // 해시태그 카테고리 매핑용 — daily-card cron이 source_refs에 category를 넣어둠
+  const sourceRefs = (item.source_refs ?? []) as Array<{ category?: string | null }>;
+  const category = sourceRefs[0]?.category ?? null;
 
   return (
     <div>
@@ -73,6 +76,7 @@ export default async function CardsDetailPage({ params }: { params: Promise<{ id
         lint={lint}
         factCheck={factCheck}
         cardStyle={cardStyle}
+        category={category}
       />
     </div>
   );
