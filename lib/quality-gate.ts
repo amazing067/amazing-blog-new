@@ -449,7 +449,7 @@ export function gateAnswer(
 
 // ── 댓글 스레드 게이트 ──
 export function gateThread(
-  messages: Array<{ role: string; content: string }>,
+  messages: Array<{ role: string; content: string; step?: number }>,
   options?: { forbiddenPatterns?: string[] }
 ): GateResult {
   const failures: string[] = []
@@ -460,10 +460,13 @@ export function gateThread(
   }
 
   // role 흐름: customer → agent 교대
-  for (let i = 0; i < messages.length; i++) {
+  // 후기성 댓글(step >= 1999)은 마지막 agent 직후에 customer로 끼어들도록 설계됐기 때문에
+  // 교대 검증에서 제외한다. 안 그러면 customer-customer 연속이 발생해 thread_role_break (30일 43건) 오탐.
+  const conversationOnly = messages.filter(m => m.step == null || m.step < 1999)
+  for (let i = 0; i < conversationOnly.length; i++) {
     const expectedRole = i % 2 === 0 ? 'customer' : 'agent'
-    if (messages[i].role !== expectedRole) {
-      failures.push(`댓글 ${i + 1}: role 흐름 이상 (예상: ${expectedRole}, 실제: ${messages[i].role})`)
+    if (conversationOnly[i].role !== expectedRole) {
+      failures.push(`댓글 ${i + 1}: role 흐름 이상 (예상: ${expectedRole}, 실제: ${conversationOnly[i].role})`)
       score -= 20
     }
   }
@@ -633,13 +636,15 @@ export function gateEvidenceConsistency(
   const agentTexts = thread.filter(m => m.role === 'agent').map(m => m.content).join(' ')
   const allAnswerText = `${answer} ${agentTexts}`
 
-  // evidence에 없는 단정적 표현 감지
+  // evidence에 없는 단정적 표현 감지.
+  // "비갱신형"은 일반 상품 구조 표기라 단독 등장만으로는 단정 아님 (false positive 30일 33건).
+  // → "비갱신형이라 보험료 안 오른다" 같은 약속/보장 단정 결합형만 잡는다.
   const assertivePatterns = [
     /반드시\s*\d+만원/,
     /\d+%\s*할인/,
     /비흡연자?\s*할인/,
     /\d+세까지\s*보장/,
-    /비갱신형/,
+    /비갱신형(?:이라|이고|이니|이며|이어서)?\s*[^.]{0,40}?(?:보험료|가격|금액)\s*[^.]{0,15}?(?:안\s*오|변하지\s*않|동결|평생|영구)/,
   ]
 
   if (options?.answerFacts) {

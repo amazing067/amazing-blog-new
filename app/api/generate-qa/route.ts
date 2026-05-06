@@ -3750,6 +3750,15 @@ export async function POST(request: NextRequest) {
     }
 
     if (finalQuestionContent) {
+      // gate 직전 안전망 — Step 1 미경유 경로(사용자가 questionContent 직접 제공 등)에서
+      // 자동 문단 분리가 안 걸린 케이스를 잡는다. body_no_paragraph 경고 (30일 77건) 대응.
+      if (finalQuestionContent.length >= 200 && !/\n\s*\n/.test(finalQuestionContent)) {
+        const beforeSplit = finalQuestionContent
+        finalQuestionContent = autoSplitQuestionParagraphs(finalQuestionContent)
+        if (finalQuestionContent !== beforeSplit) {
+          console.log('[Q&A 생성] [품질 게이트] 본문 직전 문단 자동 분리 적용')
+        }
+      }
       const bodyGate = gateQuestionBody(finalQuestionContent, { forbiddenPatterns: forbiddenPats })
       gateResults.push(bodyGate)
       if (!bodyGate.passed) {
