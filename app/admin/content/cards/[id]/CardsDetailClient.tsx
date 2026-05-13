@@ -49,6 +49,38 @@ function riskTone(score: number) {
 const LS_REG = (uid: string) => `insurance_registration_number_${uid}`;
 const LS_BRANCH = (uid: string) => `insurance_branch_name_${uid}`;
 
+// 4명 돌아가며 광고심의받는 운영 — 설계사별 협회등록번호 캐시
+const DESIGNERS = ['김성민', '고준하', '양창대', '윤준민'] as const;
+type DesignerName = typeof DESIGNERS[number];
+const LS_REG_BY_DESIGNER = (name: string) => `compliance_reg_by_designer_${name}`;
+const isKnownDesigner = (s: string | undefined | null): s is DesignerName =>
+  !!s && (DESIGNERS as readonly string[]).includes(s);
+
+// 고정 등록번호 — 운영 확정값. 빈 문자열은 아직 미입력 상태 (localStorage 캐시로 대체됨)
+const DESIGNER_REG_DEFAULTS: Record<DesignerName, string> = {
+  '김성민': '20201014201039',
+  '고준하': '',
+  '양창대': '',
+  '윤준민': '20230920003295',
+};
+
+function todayKst(): string {
+  // 한국 시각 기준 YYYY-MM-DD — 브라우저 TZ에 무관하게 Asia/Seoul로 포맷
+  // (sv-SE 로케일은 YYYY-MM-DD 형식 보장)
+  return new Intl.DateTimeFormat('sv-SE', {
+    timeZone: 'Asia/Seoul',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date());
+}
+// 광고심의 유효기간: 시작일로부터 1년 - 1일 (예: 2026-05-13 → 2027-05-12)
+function oneYearMinusOneDay(yyyyMmDd: string): string {
+  const [y, m, d] = yyyyMmDd.split('-').map(Number);
+  const next = new Date(Date.UTC(y + 1, m - 1, d - 1));
+  return next.toISOString().slice(0, 10);
+}
+
 export default function CardsDetailClient({ id, userId, defaultDesigner, title, status, publishUrl, slides: initialSlides, compliance, lint, factCheck, cardStyle, category }: Props) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
@@ -99,27 +131,66 @@ export default function CardsDetailClient({ id, userId, defaultDesigner, title, 
     include_warning: compliance?.include_warning ?? true,
   });
 
-  // 최초 마운트 시 localStorage에서 default 채우기 (사용자가 BlogGenerator에서 한 번 입력했다면 자동)
+  // 최초 마운트 시 localStorage에서 default 채우기 + 빈 날짜는 오늘/+1년 자동 세팅
   useEffect(() => {
     if (typeof window === 'undefined' || !userId) return;
-    const storedReg = localStorage.getItem(LS_REG(userId)) || '';
     const storedBranch = localStorage.getItem(LS_BRANCH(userId)) || '';
-    setComp(prev => ({
-      ...prev,
-      branch: prev.branch || storedBranch,
-      registration: prev.registration || storedReg,
-    }));
+    setComp(prev => {
+      // 설계사명이 4명 중 하나면: 고정값 우선 → LS 캐시 → 빈값
+      const regFromDesigner = isKnownDesigner(prev.designer)
+        ? (DESIGNER_REG_DEFAULTS[prev.designer]
+            || localStorage.getItem(LS_REG_BY_DESIGNER(prev.designer))
+            || '')
+        : '';
+      const regFromUser = localStorage.getItem(LS_REG(userId)) || '';
+      const start = prev.start_date || todayKst();
+      const end = prev.end_date || oneYearMinusOneDay(start);
+      return {
+        ...prev,
+        branch: prev.branch || storedBranch,
+        registration: prev.registration || regFromDesigner || regFromUser,
+        start_date: start,
+        end_date: end,
+      };
+    });
   }, [userId]);
 
   function updateComp<K extends keyof ComplianceInfo>(field: K, value: ComplianceInfo[K]) {
     setComp(prev => {
       const next = { ...prev, [field]: value };
-      // localStorage 동기화 (BlogGenerator와 공유)
+      // 시작일 변경 시 종료일을 +1년-1일로 자동 재계산
+      if (field === 'start_date' && typeof value === 'string' && value) {
+        next.end_date = oneYearMinusOneDay(value);
+      }
       if (typeof window !== 'undefined' && userId) {
-        if (field === 'registration') localStorage.setItem(LS_REG(userId), String(value ?? ''));
         if (field === 'branch') localStorage.setItem(LS_BRANCH(userId), String(value ?? ''));
+        if (field === 'registration') {
+          // 4명 중 하나면 그 사람 캐시에, 아니면 기존 사용자별 키에 저장
+          if (isKnownDesigner(next.designer)) {
+            localStorage.setItem(LS_REG_BY_DESIGNER(next.designer), String(value ?? ''));
+          } else {
+            localStorage.setItem(LS_REG(userId), String(value ?? ''));
+          }
+        }
       }
       return next;
+    });
+  }
+
+  // 4명 칩 클릭 — 설계사명 + 그 사람의 등록번호를 한 번에 채움
+  // 우선순위: 고정 DEFAULTS → LS 캐시 → 현재값 유지(미설정 시 직접 입력 유도)
+  function pickDesigner(name: DesignerName) {
+    setComp(prev => {
+      const def = DESIGNER_REG_DEFAULTS[name];
+      const cached = typeof window !== 'undefined'
+        ? localStorage.getItem(LS_REG_BY_DESIGNER(name)) || ''
+        : '';
+      const reg = def || cached;
+      return {
+        ...prev,
+        designer: name,
+        registration: reg || prev.registration,
+      };
     });
   }
 
@@ -218,6 +289,57 @@ export default function CardsDetailClient({ id, userId, defaultDesigner, title, 
       console.log(`[capture] ${successCount}장 다운로드 완료`);
     } catch (e) {
       alert('PNG 다운로드 실패: ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  // 협회 승인 후 심의필번호만 채워 6번째 카드 한 장만 다시 받고 싶을 때 사용.
+  // zip 전체 재다운로드를 피하기 위해 분리된 흐름.
+  async function downloadCompliancePng() {
+    setBusy('compliance-download');
+    try {
+      const safeTitle = title.replace(/[\\/:*?"<>|]/g, '_').slice(0, 40);
+      const el = document.querySelector<HTMLElement>(
+        `[data-slide-capture][data-slide-index="${slides.length}"]`
+      );
+      if (!el) {
+        throw new Error('심의필 슬라이드를 찾지 못했습니다. 심의 정보를 먼저 저장하세요.');
+      }
+
+      const clone = el.cloneNode(true) as HTMLElement;
+      clone.style.width = '1080px';
+      clone.style.height = '1080px';
+      clone.style.position = 'fixed';
+      clone.style.left = '-99999px';
+      clone.style.top = '0';
+      clone.style.zIndex = '-1';
+      document.body.appendChild(clone);
+
+      await document.fonts.ready;
+      await new Promise(r => setTimeout(r, 300));
+
+      try {
+        const blob = await domToBlob(clone, {
+          width: 1080,
+          height: 1080,
+          scale: 1,
+          backgroundColor: '#ffffff',
+          type: 'image/png',
+          quality: 1,
+        });
+        if (!blob) throw new Error('blob null');
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `${safeTitle}_심의필.png`;
+        a.click();
+        URL.revokeObjectURL(a.href);
+        console.log('[capture] 심의필 슬라이드 1장 다운로드 완료');
+      } finally {
+        document.body.removeChild(clone);
+      }
+    } catch (e) {
+      alert('심의필 PNG 다운로드 실패: ' + (e instanceof Error ? e.message : String(e)));
     } finally {
       setBusy(null);
     }
@@ -352,8 +474,34 @@ export default function CardsDetailClient({ id, userId, defaultDesigner, title, 
           <h3 className="font-bold text-amber-900 mb-1">📋 광고심의필 정보</h3>
           <p className="text-[11px] text-amber-800 mb-3 leading-relaxed">
             협회 심의 통과 후 받은 정보를 입력하면 마지막 카드 하단에 즉시 반영됩니다.
-            등록번호·지점명은 블로그 생성기와 공유됩니다.
+            지점명은 블로그 생성기와 공유됩니다.
           </p>
+          {/* 4명 돌아가며 광고심의 — 빠른 전환 칩 (설계사명 + 협회등록번호 동시 교체) */}
+          <div className="mb-3">
+            <label className="text-[11px] font-medium text-amber-900 block mb-1.5">빠른 전환</label>
+            <div className="flex flex-wrap gap-1.5">
+              {DESIGNERS.map(name => {
+                const active = comp.designer === name;
+                return (
+                  <button
+                    key={name}
+                    type="button"
+                    onClick={() => pickDesigner(name)}
+                    className={`px-2.5 py-1 rounded-full text-[11px] font-semibold border transition ${
+                      active
+                        ? 'bg-amber-600 text-white border-amber-600 shadow-sm'
+                        : 'bg-white text-amber-900 border-amber-300 hover:bg-amber-100'
+                    }`}
+                  >
+                    {name}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="mt-1.5 text-[10px] text-amber-700 leading-relaxed">
+              누르면 설계사명·협회등록번호가 그 사람 값으로 바뀝니다. 등록번호를 직접 입력하면 자동 저장되어 다음에 같은 사람을 누를 때 복원됩니다.
+            </p>
+          </div>
           <div className="space-y-2.5">
             <div>
               <label className="text-[11px] font-medium text-slate-600 block mb-1">회사명</label>
@@ -429,12 +577,35 @@ export default function CardsDetailClient({ id, userId, defaultDesigner, title, 
             className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 hover:bg-slate-800 px-4 py-3 text-sm font-bold text-white shadow-sm disabled:opacity-50 transition"
           >
             {busy === 'download' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-            zip 다운로드
+            zip 다운로드 (전체)
           </button>
           <p className="mt-2 text-xs text-violet-700 leading-relaxed">
             인스타 새 게시글 → 캐러셀로 PNG 업로드, <strong>caption.txt 내용을 더보기 본문에 붙여넣기</strong>.
             캡션·해시태그도 준법심의 대상이므로 협회 제출 시 zip 통째로 첨부하세요.
           </p>
+
+          {/* 협회 승인 후 심의필번호만 채워 6번째 카드 한 장만 다시 받기 */}
+          {(() => {
+            const hasCompliance = !!(comp.number || comp.start_date || comp.end_date || comp.designer || comp.registration);
+            return (
+              <div className="mt-4 pt-4 border-t border-violet-200">
+                <p className="text-[11px] text-violet-800 mb-2 leading-relaxed">
+                  협회 승인 후 <strong>심의필번호만 추가</strong>로 받았다면, 6번째 카드 한 장만 따로 받기:
+                </p>
+                <button
+                  disabled={!!busy || !hasCompliance}
+                  onClick={downloadCompliancePng}
+                  className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-amber-600 hover:bg-amber-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm disabled:opacity-40 disabled:cursor-not-allowed transition"
+                >
+                  {busy === 'compliance-download' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                  심의필 카드만 PNG
+                </button>
+                {!hasCompliance && (
+                  <p className="mt-1.5 text-[11px] text-amber-700">심의 정보를 먼저 저장하세요.</p>
+                )}
+              </div>
+            );
+          })()}
         </div>
 
         {/* 발행 마킹 */}

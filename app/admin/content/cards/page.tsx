@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { adminClient } from '@/lib/admin/guard';
 import { CardStyleRouter } from '../card-preview/CardStyles';
 import { Inbox, Clock, CheckCircle2, XCircle, AlertTriangle, Images, ChevronRight } from 'lucide-react';
-import type { CardSlide, CardStyleKey } from '@/lib/content/types';
+import type { CardSlide, CardStyleKey, ComplianceInfo } from '@/lib/content/types';
 
 const STYLE_BADGE: Record<CardStyleKey, { name: string; cls: string }> = {
   A: { name: 'A·Bold',     cls: 'bg-blue-100    text-blue-800    border-blue-200' },
@@ -28,6 +28,9 @@ const STATUS_BADGE: Record<string, string> = {
   expired:   'bg-gray-100 text-gray-600 border-gray-200',
   failed:    'bg-red-100 text-red-800 border-red-200',
 };
+
+// status='review'이지만 협회 심의번호가 채워진 행은 별도 배지로 구분.
+const APPROVED_BADGE_CLS = 'bg-emerald-50 text-emerald-700 border-emerald-300';
 
 function riskTone(score: number | null | undefined) {
   if (score == null) return 'text-slate-400';
@@ -106,13 +109,16 @@ export default async function CardsListPage({
       ) : (
         <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden shadow-sm">
           <ul className="divide-y divide-slate-100">
-            {(items ?? []).map((row: { id: string; title: string; status: string; created_at: string; card_slides: CardSlide[] | null; source_refs: { category?: string }[] | null; total_cost_usd: number | null; card_style: CardStyleKey | null }) => {
+            {(items ?? []).map((row: { id: string; title: string; status: string; created_at: string; card_slides: CardSlide[] | null; source_refs: { category?: string }[] | null; total_cost_usd: number | null; card_style: CardStyleKey | null; compliance: ComplianceInfo | null }) => {
               const slides = row.card_slides ?? [];
               const cover = slides[0];
               const category = row.source_refs?.[0]?.category;
               const score = lintMap.get(row.id);
               const styleKey = (row.card_style ?? 'A') as CardStyleKey;
               const styleInfo = STYLE_BADGE[styleKey];
+              const approved = row.status === 'review' && !!row.compliance?.number?.trim();
+              const badgeCls = approved ? APPROVED_BADGE_CLS : (STATUS_BADGE[row.status] ?? 'bg-slate-100 text-slate-700');
+              const badgeLabel = approved ? '심의 완료' : (STATUSES.find(s => s.key === row.status)?.label ?? row.status);
               return (
                 <li key={row.id}>
                   <Link href={`/admin/content/cards/${row.id}`}
@@ -136,8 +142,9 @@ export default async function CardsListPage({
                             🎴 {category}
                           </span>
                         )}
-                        <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${STATUS_BADGE[row.status] ?? 'bg-slate-100 text-slate-700'}`}>
-                          {STATUSES.find(s => s.key === row.status)?.label ?? row.status}
+                        <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${badgeCls}`}>
+                          {approved && <CheckCircle2 className="w-3 h-3 mr-0.5" />}
+                          {badgeLabel}
                         </span>
                       </div>
                       <h3 className="font-semibold text-slate-900 leading-snug line-clamp-1 group-hover:text-violet-700 transition">

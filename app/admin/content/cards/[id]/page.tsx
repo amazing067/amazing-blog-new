@@ -32,7 +32,12 @@ export default async function CardsDetailPage({ params }: { params: Promise<{ id
     .select('*').eq('content_id', id).order('created_at', { ascending: false }).limit(1).maybeSingle();
 
   const slides = (item.card_slides ?? []) as CardSlide[];
-  const statusInfo = STATUS_LABEL[item.status] ?? { label: item.status, cls: 'bg-slate-100 text-slate-700 border-slate-200' };
+  const compliance = (item.compliance as ComplianceInfo | null) ?? null;
+  // 협회 심의번호가 채워졌으면 status='review'여도 "심의 완료" 표시
+  const approved = item.status === 'review' && !!compliance?.number?.trim();
+  const statusInfo = approved
+    ? { label: '심의 완료', cls: 'bg-emerald-50 text-emerald-700 border-emerald-300' }
+    : (STATUS_LABEL[item.status] ?? { label: item.status, cls: 'bg-slate-100 text-slate-700 border-slate-200' });
   const factCheck = item.fact_check as { passed: boolean; issues: { claim: string; reason: string; severity: 'high'|'medium'|'low' }[] } | null;
   const cardStyle = ((item.card_style as CardStyleKey | null) ?? 'A') as CardStyleKey;
   const styleInfo = STYLE_LABEL[cardStyle];
@@ -72,7 +77,7 @@ export default async function CardsDetailPage({ params }: { params: Promise<{ id
         status={item.status}
         publishUrl={item.publish_url ?? ''}
         slides={slides}
-        compliance={(item.compliance as ComplianceInfo | null) ?? null}
+        compliance={compliance}
         lint={lint}
         factCheck={factCheck}
         cardStyle={cardStyle}
