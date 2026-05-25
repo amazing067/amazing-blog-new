@@ -1,8 +1,10 @@
 'use client';
-// 리쿠르팅 전용 카드 스타일 v2 — 보험 카드(A~F)와 완전히 다른, 밝고 그래픽 강한 트렌디 룩.
-// 피드백 반영: ① 너무 어두움 → 카드마다 비비드 컬러 변주 ② 변별력·후킹 약함 → 색 변주 + 그래픽
-// ③ 그림 없음 → 아이콘 배지 + 거대 배경 번호 + 하프톤 도트 + 데코 링 + 회전 스티커.
-// 색은 슬라이드 index 기반으로 변주(7장이 전부 다른 색). containerType:size + cqw 로 썸네일·미리보기·1080 PNG 모두 정확히 스케일.
+// 리쿠르팅 전용 카드 스타일 v3 — "텍스트만 허전" 피드백 + 딥서치 반영.
+// 딥서치 핵심: 허전함의 해법은 사진이 아니라 "큰 그래픽 요소 1개 + 구조화 + 색 2~3개".
+//  - 거대 아이콘/번호 워터마크를 배경 그래픽으로(빈 공간 채움)
+//  - 컬러블록 도형(가장자리서 잘리게 → 스와이프 유도), 하프톤 도트, 스텝 진행 인디케이터
+//  - 슬라이드 index별 비비드 컬러 변주(7색), Black Han Sans 포스터 타이포
+// 색·그래픽만으로 채우므로 외부 이미지/API 불필요. containerType:size + cqw → 썸네일·미리보기·1080 PNG 동일 스케일.
 import {
   TrendingDown, AlertTriangle, Gift, Shield, Sparkles,
   Stethoscope, Calculator, Baby, ArrowRight, Search, ClipboardCheck, Zap,
@@ -24,43 +26,49 @@ const SANS = "'Pretendard', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif";
 const containerStyle = { containerType: 'size' } as React.CSSProperties;
 
 type Theme = { bg: string; ink: string; sub: string; pop: string; chipBg: string; chipInk: string };
-// 비비드 팔레트 — 슬라이드별 변주 (어둡지 않게, 고채도 포스터 컬러)
 const PALETTE: Theme[] = [
-  { bg: '#FFD23D', ink: '#1a1206', sub: 'rgba(26,18,6,.66)',  pop: '#FF3D7F', chipBg: '#1a1206', chipInk: '#FFD23D' }, // 0 노랑
+  { bg: '#FFD23D', ink: '#1a1206', sub: 'rgba(26,18,6,.66)',     pop: '#FF3D7F', chipBg: '#1a1206', chipInk: '#FFD23D' }, // 0 노랑
   { bg: '#FF5A4D', ink: '#ffffff', sub: 'rgba(255,255,255,.85)', pop: '#FFE34D', chipBg: '#ffffff', chipInk: '#FF5A4D' }, // 1 코랄
   { bg: '#2D6BFF', ink: '#ffffff', sub: 'rgba(255,255,255,.85)', pop: '#C6F000', chipBg: '#C6F000', chipInk: '#11224d' }, // 2 블루
-  { bg: '#C6F000', ink: '#0b0b09', sub: 'rgba(11,11,9,.62)',  pop: '#FF3D7F', chipBg: '#0b0b09', chipInk: '#C6F000' }, // 3 라임
+  { bg: '#C6F000', ink: '#0b0b09', sub: 'rgba(11,11,9,.62)',     pop: '#FF3D7F', chipBg: '#0b0b09', chipInk: '#C6F000' }, // 3 라임
   { bg: '#9B5CFF', ink: '#ffffff', sub: 'rgba(255,255,255,.86)', pop: '#FFD23D', chipBg: '#FFD23D', chipInk: '#2a0a5c' }, // 4 바이올렛
-  { bg: '#FF7A1A', ink: '#1a0a02', sub: 'rgba(26,10,2,.62)',  pop: '#ffffff', chipBg: '#1a0a02', chipInk: '#FF7A1A' }, // 5 오렌지
+  { bg: '#FF7A1A', ink: '#1a0a02', sub: 'rgba(26,10,2,.62)',     pop: '#ffffff', chipBg: '#1a0a02', chipInk: '#FF7A1A' }, // 5 오렌지
   { bg: '#FF3D7F', ink: '#ffffff', sub: 'rgba(255,255,255,.86)', pop: '#FFE34D', chipBg: '#ffffff', chipInk: '#FF3D7F' }, // 6 핫핑크(CTA)
 ];
 const theme = (i: number): Theme => PALETTE[i % PALETTE.length];
-
 const CARD = 'relative w-full h-full overflow-hidden rounded-2xl';
+
+// 큰 아이콘 워터마크 — 빈 공간을 채우는 핵심 그래픽 (딥서치: 큰 요소 자체를 그래픽으로)
+function IconWatermark({ k, t }: { k: CardIconKey; t: Theme }) {
+  const Icon = ICONS[k] ?? Sparkles;
+  return (
+    <Icon className="absolute -bottom-[12%] -right-[10%] z-0 pointer-events-none"
+      style={{ width: '70cqw', height: '70cqw', color: t.ink, opacity: 0.1 }} strokeWidth={1.6} />
+  );
+}
 
 function Deco({ t }: { t: Theme }) {
   return (
     <>
-      {/* 데코 링 — 큰 외곽선 원 */}
-      <div className="absolute -top-[14%] -right-[12%] w-[52%] aspect-square rounded-full pointer-events-none"
-        style={{ border: `1.4cqw solid ${t.ink}`, opacity: 0.1 }} />
-      {/* 하프톤 도트 — 좌하단 그래픽 */}
-      <div className="absolute -bottom-[3%] -left-[3%] w-[40%] h-[26%] pointer-events-none"
-        style={{ backgroundImage: `radial-gradient(${t.pop} 26%, transparent 27%)`, backgroundSize: '4.2cqw 4.2cqw', opacity: 0.85 }} />
+      {/* 컬러블록 — 가장자리서 잘리는 굵은 pop 도형 (스와이프 유도) */}
+      <div className="absolute -top-[10%] -left-[8%] w-[34%] aspect-square rounded-full z-0 pointer-events-none" style={{ background: t.pop }} />
+      {/* 하프톤 도트 */}
+      <div className="absolute top-[3%] right-[4%] w-[26%] h-[16%] z-0 pointer-events-none"
+        style={{ backgroundImage: `radial-gradient(${t.ink} 24%, transparent 25%)`, backgroundSize: '4cqw 4cqw', opacity: 0.18 }} />
       {/* 그레인 */}
-      <div className="absolute inset-0 pointer-events-none" style={{ opacity: 0.05, mixBlendMode: 'multiply',
+      <div className="absolute inset-0 z-0 pointer-events-none" style={{ opacity: 0.05, mixBlendMode: 'multiply',
         backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\")" }} />
     </>
   );
 }
 
-function IconBadge({ k, t, size = 13 }: { k: CardIconKey; t: Theme; size?: number }) {
+function IconBadge({ k, t, size }: { k: CardIconKey; t: Theme; size: number }) {
   const Icon = ICONS[k] ?? Sparkles;
   return (
-    <div className="inline-flex items-center justify-center rounded-full flex-none"
+    <span className="inline-flex items-center justify-center rounded-full flex-none"
       style={{ width: `${size}cqw`, height: `${size}cqw`, background: t.ink }}>
-      <Icon style={{ width: `${size * 0.52}cqw`, height: `${size * 0.52}cqw`, color: t.bg }} strokeWidth={2.6} />
-    </div>
+      <Icon style={{ width: `${size * 0.54}cqw`, height: `${size * 0.54}cqw`, color: t.bg }} strokeWidth={2.6} />
+    </span>
   );
 }
 
@@ -73,28 +81,42 @@ function Sticker({ children, t }: { children: React.ReactNode; t: Theme }) {
   );
 }
 
-function PageBadge({ index, total, t }: { index: number; total: number; t: Theme }) {
+// 스텝 진행 인디케이터 — 현재 위치 표시 (캐러셀 맥락 + 그래픽 포인트)
+function StepDots({ index, total, t }: { index: number; total: number; t: Theme }) {
   return (
-    <div style={{ fontFamily: MONO, color: t.ink, opacity: 0.7 }} className="absolute top-[6%] right-[6.5%] text-[2.8cqw] tracking-[.2em] z-20">
-      {String(index + 1).padStart(2, '0')}/{String(total).padStart(2, '0')}
+    <div className="flex items-center gap-[1.4cqw]">
+      {Array.from({ length: total }).map((_, i) => (
+        <span key={i} className="rounded-full" style={{
+          width: i === index ? '7cqw' : '2.4cqw', height: '2.4cqw',
+          background: t.ink, opacity: i === index ? 1 : 0.32,
+        }} />
+      ))}
     </div>
   );
 }
 
 export function RecruitCardStyle({ slide, index, total }: Props) {
   const t = theme(index);
+  const TopRow = (
+    <div className="flex items-center justify-between">
+      <span style={{ fontFamily: MONO, color: t.ink, opacity: 0.72 }} className="text-[2.9cqw] tracking-[.16em] uppercase">
+        {slide.kind === 'point' ? `POINT ${slide.number}` : slide.kind === 'closing' ? 'LAST · 지금 바로' : (slide.eyebrow || 'RECRUIT')}
+      </span>
+      <span style={{ fontFamily: MONO, color: t.ink, opacity: 0.72 }} className="text-[2.8cqw] tracking-[.2em]">
+        {String(index + 1).padStart(2, '0')}/{String(total).padStart(2, '0')}
+      </span>
+    </div>
+  );
 
   if (slide.kind === 'cover') {
     return (
       <div style={{ ...containerStyle, background: t.bg, color: t.ink }} className={CARD}>
         <Deco t={t} />
-        <PageBadge index={index} total={total} t={t} />
-        <div className="relative z-10 h-full flex flex-col px-[7%] py-[7.5%]">
-          <div className="flex items-center gap-[3cqw]">
-            <IconBadge k={slide.iconKey} t={t} size={13} />
-            <span style={{ fontFamily: MONO, color: t.sub }} className="text-[3cqw] tracking-[.16em] uppercase">{slide.eyebrow || 'RECRUIT'}</span>
-          </div>
-          <h2 style={{ fontFamily: DISPLAY }} className="mt-[6%] text-[11.5cqw] leading-[0.98] tracking-tight break-keep">
+        <IconWatermark k={slide.iconKey} t={t} />
+        <div className="relative z-10 h-full flex flex-col px-[7%] py-[7%]">
+          {TopRow}
+          <div className="mt-[5%]"><IconBadge k={slide.iconKey} t={t} size={17} /></div>
+          <h2 style={{ fontFamily: DISPLAY }} className="mt-[5%] text-[11.5cqw] leading-[0.98] tracking-tight break-keep">
             {slide.title.replace(/\n/g, ' ')}
           </h2>
           <div className="mt-auto flex items-end justify-between gap-[3cqw]">
@@ -102,8 +124,9 @@ export function RecruitCardStyle({ slide, index, total }: Props) {
               <div className="text-[7cqw]"><Sticker t={t}>{slide.bigStat}</Sticker></div>
               <div style={{ fontFamily: MONO, color: t.sub }} className="mt-[3cqw] text-[2.9cqw] tracking-[.1em]">{slide.bigStatLabel}</div>
             </div>
-            <div style={{ fontFamily: DISPLAY, color: t.ink }} className="text-[4.6cqw] leading-none pb-[1cqw]">SWIPE →</div>
+            <div style={{ fontFamily: DISPLAY }} className="text-[4.4cqw] leading-none pb-[1cqw]">SWIPE →</div>
           </div>
+          <div className="mt-[4%]"><StepDots index={index} total={total} t={t} /></div>
         </div>
       </div>
     );
@@ -113,27 +136,25 @@ export function RecruitCardStyle({ slide, index, total }: Props) {
     return (
       <div style={{ ...containerStyle, background: t.bg, color: t.ink }} className={CARD}>
         <Deco t={t} />
-        <PageBadge index={index} total={total} t={t} />
-        {/* 거대 배경 번호 그래픽 */}
-        <div style={{ fontFamily: DISPLAY, color: t.ink, opacity: 0.12 }}
-          className="absolute -bottom-[6%] -right-[1%] text-[46cqw] leading-none z-0 pointer-events-none">
+        {/* 거대 번호 워터마크 — 핵심 그래픽 */}
+        <div style={{ fontFamily: DISPLAY, color: t.ink, opacity: 0.13 }}
+          className="absolute -bottom-[9%] -right-[2%] text-[52cqw] leading-none z-0 pointer-events-none">
           {slide.number}
         </div>
-        <div className="relative z-10 h-full flex flex-col px-[7%] py-[7.5%]">
-          <div className="flex items-center gap-[3cqw]">
-            <IconBadge k={slide.iconKey} t={t} size={11} />
-            <span style={{ fontFamily: MONO, color: t.sub }} className="text-[3cqw] tracking-[.2em] uppercase">POINT {slide.number}</span>
-          </div>
-          <h3 style={{ fontFamily: DISPLAY }} className="mt-[5%] text-[9cqw] leading-[1.04] tracking-tight break-keep">
+        <div className="relative z-10 h-full flex flex-col px-[7%] py-[7%]">
+          {TopRow}
+          <div className="mt-[5%]"><IconBadge k={slide.iconKey} t={t} size={14} /></div>
+          <h3 style={{ fontFamily: DISPLAY }} className="mt-[4.5%] text-[9cqw] leading-[1.04] tracking-tight break-keep">
             {slide.title.replace(/\n/g, ' ')}
           </h3>
-          <p style={{ fontFamily: SANS, color: t.sub }} className="mt-[4%] text-[3.7cqw] font-medium leading-[1.55] max-w-[92%]">
+          <p style={{ fontFamily: SANS, color: t.sub }} className="mt-[3.5%] text-[3.7cqw] font-medium leading-[1.5] max-w-[90%]">
             {slide.body}
           </p>
           <div className="mt-auto flex items-center gap-[3cqw] overflow-hidden">
             <div className="text-[4.8cqw] flex-none"><Sticker t={t}>{slide.bigStat}</Sticker></div>
-            <span style={{ fontFamily: MONO, color: t.sub }} className="text-[2.8cqw] tracking-[.08em] truncate">{slide.bigStatLabel}</span>
+            <span style={{ fontFamily: MONO, color: t.sub }} className="text-[2.7cqw] tracking-[.06em] truncate">{slide.bigStatLabel}</span>
           </div>
+          <div className="mt-[4%]"><StepDots index={index} total={total} t={t} /></div>
         </div>
       </div>
     );
@@ -143,12 +164,9 @@ export function RecruitCardStyle({ slide, index, total }: Props) {
   return (
     <div style={{ ...containerStyle, background: t.bg, color: t.ink }} className={CARD}>
       <Deco t={t} />
-      <PageBadge index={index} total={total} t={t} />
-      <div className="relative z-10 h-full flex flex-col px-[7%] py-[7.5%]">
-        <div className="flex items-center gap-[3cqw]">
-          <IconBadge k={slide.iconKey} t={t} size={12} />
-          <span style={{ fontFamily: MONO, color: t.sub }} className="text-[3cqw] tracking-[.18em] uppercase">LAST · 지금 바로</span>
-        </div>
+      <IconWatermark k={slide.iconKey} t={t} />
+      <div className="relative z-10 h-full flex flex-col px-[7%] py-[7%]">
+        {TopRow}
         <h3 style={{ fontFamily: DISPLAY }} className="mt-[5%] text-[8.2cqw] leading-[1.05] tracking-tight break-keep">
           {slide.title.replace(/\n/g, ' ')}
         </h3>
@@ -163,10 +181,12 @@ export function RecruitCardStyle({ slide, index, total }: Props) {
             </li>
           ))}
         </ul>
-        <div style={{ fontFamily: MONO, color: t.ink, borderColor: t.ink }}
-          className="mt-auto pt-[4%] border-t text-[2.9cqw] leading-[1.55]" >
-          <span style={{ background: t.chipBg, color: t.chipInk }} className="px-[1.5cqw] py-[0.5cqw] rounded-[1cqw]">📤 공유</span>
-          <span className="ml-[2cqw]">{slide.footer}</span>
+        <div className="mt-auto">
+          <div style={{ fontFamily: MONO, color: t.ink, borderColor: t.ink }} className="pt-[3.5%] border-t text-[2.9cqw] leading-[1.5]">
+            <span style={{ background: t.chipBg, color: t.chipInk }} className="px-[1.6cqw] py-[0.6cqw] rounded-[1cqw]">📤 공유</span>
+            <span className="ml-[2cqw]">{slide.footer}</span>
+          </div>
+          <div className="mt-[3.5%]"><StepDots index={index} total={total} t={t} /></div>
         </div>
       </div>
     </div>
