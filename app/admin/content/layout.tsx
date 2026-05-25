@@ -23,6 +23,7 @@ export default async function ContentLayout({ children }: { children: React.Reac
             <Link href="/admin/content/news" className="rounded-lg px-3 py-1.5 text-slate-700 hover:bg-slate-100">보험뉴스</Link>
             <Link href="/admin/content/cards" className="rounded-lg px-3 py-1.5 text-slate-700 hover:bg-slate-100">카드뉴스</Link>
             <Link href="/admin/content/blog" className="rounded-lg px-3 py-1.5 text-slate-700 hover:bg-slate-100">블로그</Link>
+            <Link href="/admin/content/recruit" className="rounded-lg px-3 py-1.5 font-medium text-lime-700 hover:bg-lime-50">🎯 리쿠르팅</Link>
             <Link href="/admin/content/billing" className="rounded-lg px-3 py-1.5 text-slate-700 hover:bg-slate-100">💰 비용</Link>
           </nav>
         </div>
