@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation';
 import { adminClient, requireAdmin } from '@/lib/admin/guard';
 import { ArrowLeft, Target } from 'lucide-react';
 import RecruitDetailClient from './RecruitDetailClient';
+import { recruitColorOffset } from '../../card-preview/styles/RecruitStyle';
 import type { CardSlide } from '@/lib/content/types';
 import type { RecruitLintResult } from '@/lib/content/recruit-lint';
 
@@ -66,6 +67,7 @@ export default async function RecruitDetailPage({ params }: { params: Promise<{ 
         publishUrl={item.publish_url ?? ''}
         slides={slides}
         lint={recruitLint}
+        colorOffset={recruitColorOffset(item.id)}
       />
     </div>
   );

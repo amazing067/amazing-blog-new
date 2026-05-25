@@ -3,11 +3,11 @@
 import type { RecruitPillar } from './types';
 
 const BY_PILLAR: Record<RecruitPillar, string[]> = {
-  'P1-empathy': ['taking-notes', 'work-from-home'],   // 현타·일상
-  'P2-system': ['presentation', 'video-call'],        // 교육·시스템
-  'P3-income': ['man-riding-a-rocket', 'success'],    // 성장·소득
-  'P4-lifestyle': ['remote-work', 'work-from-home'],  // 자유·디지털
-  'P5-story': ['freelancer', 'designer'],             // 후기·사람
+  'P1-empathy': ['taking-notes', 'work-from-home', 'freelancer', 'remote-work'],  // 현타·일상
+  'P2-system': ['presentation', 'video-call', 'designer', 'taking-notes'],        // 교육·시스템
+  'P3-income': ['man-riding-a-rocket', 'success', 'presentation'],                // 성장·소득
+  'P4-lifestyle': ['remote-work', 'work-from-home', 'freelancer', 'designer'],    // 자유·디지털
+  'P5-story': ['freelancer', 'designer', 'video-call', 'taking-notes'],           // 후기·사람
 };
 
 /** 기둥에 맞는 커버 일러스트 로컬 경로 반환. */

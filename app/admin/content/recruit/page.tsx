@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { adminClient } from '@/lib/admin/guard';
-import { RecruitCardStyle } from '../card-preview/styles/RecruitStyle';
+import { RecruitCardStyle, recruitColorOffset } from '../card-preview/styles/RecruitStyle';
 import { Inbox, Clock, CheckCircle2, XCircle, AlertTriangle, Target, ChevronRight } from 'lucide-react';
 import RecruitGenerateButton from './RecruitGenerateButton';
 import type { CardSlide } from '@/lib/content/types';
@@ -113,7 +113,7 @@ export default async function RecruitListPage({
                     className="flex items-center gap-4 px-4 py-3 hover:bg-lime-50/50 transition group">
                     <div className="flex-none w-[90px] h-[90px]">
                       {cover ? (
-                        <RecruitCardStyle slide={cover} index={0} total={slides.length} />
+                        <RecruitCardStyle slide={cover} index={0} total={slides.length} colorOffset={recruitColorOffset(row.id)} />
                       ) : (
                         <div className="w-full h-full rounded-xl bg-slate-100" />
                       )}

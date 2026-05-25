@@ -10,7 +10,14 @@ import {
 import type { LucideIcon } from 'lucide-react';
 import type { CardSlide, CardIconKey, RecruitCompare, RecruitGridItem } from '@/lib/content/types';
 
-type Props = { slide: CardSlide; index: number; total: number };
+type Props = { slide: CardSlide; index: number; total: number; colorOffset?: number };
+
+// 카드 세트마다 색 시작점을 회전시키기 위한 오프셋 — id 등 시드 문자열에서 결정적으로 산출.
+export function recruitColorOffset(seed: string): number {
+  let h = 0;
+  for (const ch of seed) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return h % PALETTE.length;
+}
 
 const ICONS: Record<CardIconKey, LucideIcon> = {
   sparkles: Sparkles, shield: Shield, trendingDown: TrendingDown, alert: AlertTriangle,
@@ -138,8 +145,8 @@ function GridBlock({ items, t }: { items: RecruitGridItem[]; t: Theme }) {
   );
 }
 
-export function RecruitCardStyle({ slide, index, total }: Props) {
-  const t = theme(index);
+export function RecruitCardStyle({ slide, index, total, colorOffset = 0 }: Props) {
+  const t = theme(index + colorOffset);
   const TopRow = (
     <div className="flex items-center justify-between flex-none">
       <span style={{ fontFamily: MONO, color: t.ink, opacity: 0.72 }} className="text-[2.9cqw] tracking-[.16em] uppercase">

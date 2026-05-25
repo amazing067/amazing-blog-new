@@ -17,6 +17,7 @@ type Props = {
   publishUrl: string;
   slides: CardSlide[];
   lint: RecruitLintResult | null;
+  colorOffset?: number;
 };
 
 // 리쿠르팅 인스타 캡션 — 심의 없음. 후킹 + CTA + 해시태그 5개(플레이북).
@@ -37,7 +38,7 @@ function buildRecruitCaption(title: string, slides: CardSlide[]): string {
   ].join('\n');
 }
 
-export default function RecruitDetailClient({ id, title, status, publishUrl, slides: initialSlides, lint }: Props) {
+export default function RecruitDetailClient({ id, title, status, publishUrl, slides: initialSlides, lint, colorOffset = 0 }: Props) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
   const [url, setUrl] = useState(publishUrl);
@@ -183,7 +184,7 @@ export default function RecruitDetailClient({ id, title, status, publishUrl, sli
                 </div>
                 <div className="aspect-square">
                   <div data-slide-capture data-slide-index={i} className="w-full h-full">
-                    <RecruitCardStyle slide={s} index={i} total={total} />
+                    <RecruitCardStyle slide={s} index={i} total={total} colorOffset={colorOffset} />
                   </div>
                 </div>
               </div>
