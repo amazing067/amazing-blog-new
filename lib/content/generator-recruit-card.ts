@@ -79,7 +79,8 @@ ${STRUCTURE}
 
 ${ICON_GUIDE}
 
-**문체**: 친근한 반말 섞인 존댓말 톤("~였어요", "~거든요", "~해보세요"), SNS 감성. 한 카드 = 한 메시지, 짧고 명확.
+**문체·분량 (중요)**: 친근한 SNS 톤("~였어요","~거든요"). **글 많으면 안 읽힙니다 — 한 카드 한 포인트, 최대한 짧게.**
+- 제목 12~18자 / body는 1문장 30~40자 이내(짧을수록 좋고, 없어도 되면 생략) / compare 항목 각 6~12자 / grid label 8자 이내 / closing 항목 12~18자.
 
 **출력 형식 (반드시 이 JSON 한 객체만, 코드블록·설명 없이):**
 {
@@ -145,8 +146,9 @@ function parseCompare(raw: unknown): RecruitCompare | undefined {
   const r = raw as Record<string, unknown>;
   const aTitle = sanitizeRecruit(String(r.aTitle ?? ''));
   const bTitle = sanitizeRecruit(String(r.bTitle ?? ''));
-  const aItems = Array.isArray(r.aItems) ? sanitizeArr(r.aItems.map(String)).slice(0, 3) : [];
-  const bItems = Array.isArray(r.bItems) ? sanitizeArr(r.bItems.map(String)).slice(0, 3) : [];
+  const cut = (x: string) => (x.length > 13 ? x.slice(0, 13).trim() : x);
+  const aItems = Array.isArray(r.aItems) ? sanitizeArr(r.aItems.map(String)).slice(0, 3).map(cut) : [];
+  const bItems = Array.isArray(r.bItems) ? sanitizeArr(r.bItems.map(String)).slice(0, 3).map(cut) : [];
   if (!aTitle || !bTitle || aItems.length < 2 || bItems.length < 2) return undefined;
   return { aTitle, aItems, bTitle, bItems };
 }
@@ -157,7 +159,7 @@ function parseGrid(raw: unknown): RecruitGridItem[] | undefined {
   for (const it of raw) {
     if (!it || typeof it !== 'object') continue;
     const o = it as Record<string, unknown>;
-    const label = sanitizeRecruit(String(o.label ?? '')).slice(0, 14);
+    const label = sanitizeRecruit(String(o.label ?? '')).slice(0, 10);
     if (!label) continue;
     items.push({ iconKey: isValidIconKey(o.iconKey) ? o.iconKey : 'sparkles', label });
   }
@@ -195,7 +197,7 @@ function validateRecruitSlides(slides: unknown): CardSlide[] {
         bigStat: clampBigStat(String(s.bigStat ?? ''), '확인'),
         bigStatLabel: clampBigStat(String(s.bigStatLabel ?? ''), '핵심 포인트'),
         title: sanitizeRecruit(String(s.title ?? '')),
-        body: sanitizeRecruit(String(s.body ?? '')),
+        body: sanitizeRecruit(String(s.body ?? '')).slice(0, 46),
         iconKey,
         layout,
         ...(compare ? { compare } : {}),
