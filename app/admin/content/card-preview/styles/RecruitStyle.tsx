@@ -97,7 +97,7 @@ function StepDots({ index, total, t }: { index: number; total: number; t: Theme 
 
 // Before/After 비교 인포그래픽
 function CompareBlock({ c, t }: { c: RecruitCompare; t: Theme }) {
-  const Col = ({ title, items, good }: { title: string; items: string[]; good: boolean }) => (
+  const col = (title: string, items: string[], good: boolean) => (
     <div className="flex-1 rounded-[2cqw] p-[3.4cqw] min-w-0"
       style={{ background: good ? t.ink : 'transparent', border: `0.5cqw solid ${t.ink}` }}>
       <div style={{ fontFamily: DISPLAY, color: good ? t.bg : t.ink }} className="text-[4.2cqw] leading-none mb-[2.6cqw]">{title}</div>
@@ -114,8 +114,8 @@ function CompareBlock({ c, t }: { c: RecruitCompare; t: Theme }) {
   );
   return (
     <div className="mt-[5%] flex gap-[2.6cqw] items-stretch">
-      <Col title={c.aTitle} items={c.aItems} good={false} />
-      <Col title={c.bTitle} items={c.bItems} good />
+      {col(c.aTitle, c.aItems, false)}
+      {col(c.bTitle, c.bItems, true)}
     </div>
   );
 }
@@ -151,6 +151,35 @@ export function RecruitCardStyle({ slide, index, total }: Props) {
   );
 
   if (slide.kind === 'cover') {
+    if (slide.bgImage) {
+      return (
+        <div style={{ ...containerStyle, background: t.bg, color: t.ink }} className={CARD}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={slide.bgImage} crossOrigin="anonymous" alt="" className="absolute inset-0 w-full h-full object-cover z-0" />
+          <div className="absolute inset-0 z-0" style={{ background: `linear-gradient(180deg, rgba(0,0,0,.30) 0%, ${t.bg}00 30%, ${t.bg}E0 66%, ${t.bg} 100%)` }} />
+          <div className="relative z-10 h-full flex flex-col px-[7%] py-[7%]">
+            <div className="flex items-center justify-between" style={{ textShadow: '0 0.3cqw 1cqw rgba(0,0,0,.45)' }}>
+              <span style={{ fontFamily: MONO, color: '#fff' }} className="text-[2.9cqw] tracking-[.16em] uppercase">{slide.eyebrow || 'RECRUIT'}</span>
+              <span style={{ fontFamily: MONO, color: '#fff', opacity: 0.85 }} className="text-[2.8cqw] tracking-[.2em]">{String(index + 1).padStart(2, '0')}/{String(total).padStart(2, '0')}</span>
+            </div>
+            <div className="mt-[5%]"><IconBadge k={slide.iconKey} t={t} size={15} /></div>
+            <div className="mt-auto">
+              <h2 style={{ fontFamily: DISPLAY }} className="text-[11.5cqw] leading-[0.98] tracking-tight break-keep">
+                {slide.title.replace(/\n/g, ' ')}
+              </h2>
+              <div className="mt-[4%] flex items-end justify-between gap-[3cqw]">
+                <div>
+                  <div className="text-[6.5cqw]"><Sticker t={t}>{slide.bigStat}</Sticker></div>
+                  <div style={{ fontFamily: MONO, color: t.sub }} className="mt-[3cqw] text-[2.9cqw] tracking-[.1em]">{slide.bigStatLabel}</div>
+                </div>
+                <div style={{ fontFamily: DISPLAY }} className="text-[4.4cqw] leading-none pb-[1cqw]">SWIPE →</div>
+              </div>
+              <div className="mt-[4%]"><StepDots index={index} total={total} t={t} /></div>
+            </div>
+          </div>
+        </div>
+      );
+    }
     return (
       <div style={{ ...containerStyle, background: t.bg, color: t.ink }} className={CARD}>
         <Deco t={t} />
