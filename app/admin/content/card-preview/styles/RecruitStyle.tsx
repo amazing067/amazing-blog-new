@@ -10,7 +10,7 @@ import {
   Stethoscope, Calculator, Baby, ArrowRight, Search, ClipboardCheck, Zap,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import type { CardSlide, CardIconKey } from '@/lib/content/types';
+import type { CardSlide, CardIconKey, RecruitCompare, RecruitGridItem } from '@/lib/content/types';
 
 type Props = { slide: CardSlide; index: number; total: number };
 
@@ -95,6 +95,48 @@ function StepDots({ index, total, t }: { index: number; total: number; t: Theme 
   );
 }
 
+// Before/After 비교 인포그래픽
+function CompareBlock({ c, t }: { c: RecruitCompare; t: Theme }) {
+  const Col = ({ title, items, good }: { title: string; items: string[]; good: boolean }) => (
+    <div className="flex-1 rounded-[2cqw] p-[3.4cqw] min-w-0"
+      style={{ background: good ? t.ink : 'transparent', border: `0.5cqw solid ${t.ink}` }}>
+      <div style={{ fontFamily: DISPLAY, color: good ? t.bg : t.ink }} className="text-[4.2cqw] leading-none mb-[2.6cqw]">{title}</div>
+      <ul className="space-y-[1.8cqw]">
+        {items.map((it, i) => (
+          <li key={i} className="flex items-start gap-[1.6cqw] text-[2.9cqw] font-medium leading-[1.3]"
+            style={{ fontFamily: SANS, color: good ? t.bg : t.ink, opacity: good ? 1 : 0.72 }}>
+            <span className="flex-none" style={{ color: good ? t.pop : t.ink }}>{good ? '✓' : '✕'}</span>
+            <span className="break-keep">{it}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+  return (
+    <div className="mt-[5%] flex gap-[2.6cqw] items-stretch">
+      <Col title={c.aTitle} items={c.aItems} good={false} />
+      <Col title={c.bTitle} items={c.bItems} good />
+    </div>
+  );
+}
+
+// 아이콘 그리드 인포그래픽 (2x2)
+function GridBlock({ items, t }: { items: RecruitGridItem[]; t: Theme }) {
+  return (
+    <div className="mt-[5%] grid grid-cols-2 gap-[2.6cqw]">
+      {items.slice(0, 4).map((g, i) => {
+        const Icon = ICONS[g.iconKey] ?? Sparkles;
+        return (
+          <div key={i} className="rounded-[2cqw] p-[3cqw] flex items-center gap-[2.4cqw] min-w-0" style={{ background: t.ink }}>
+            <Icon style={{ width: '6.4cqw', height: '6.4cqw', color: t.pop }} strokeWidth={2.6} className="flex-none" />
+            <span style={{ fontFamily: SANS, color: t.bg }} className="text-[3.1cqw] font-bold leading-[1.2] break-keep">{g.label}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export function RecruitCardStyle({ slide, index, total }: Props) {
   const t = theme(index);
   const TopRow = (
@@ -133,28 +175,52 @@ export function RecruitCardStyle({ slide, index, total }: Props) {
   }
 
   if (slide.kind === 'point') {
+    const layout = slide.layout ?? 'default';
+    const showCompare = layout === 'compare' && !!slide.compare;
+    const showGrid = layout === 'grid' && !!slide.gridItems;
+    const isInfo = showCompare || showGrid;
     return (
       <div style={{ ...containerStyle, background: t.bg, color: t.ink }} className={CARD}>
         <Deco t={t} />
-        {/* 거대 번호 워터마크 — 핵심 그래픽 */}
-        <div style={{ fontFamily: DISPLAY, color: t.ink, opacity: 0.13 }}
-          className="absolute -bottom-[9%] -right-[2%] text-[52cqw] leading-none z-0 pointer-events-none">
-          {slide.number}
-        </div>
+        {/* 인포그래픽이 아닐 때만 거대 번호 워터마크 */}
+        {!isInfo && (
+          <div style={{ fontFamily: DISPLAY, color: t.ink, opacity: 0.13 }}
+            className="absolute -bottom-[9%] -right-[2%] text-[52cqw] leading-none z-0 pointer-events-none">
+            {slide.number}
+          </div>
+        )}
         <div className="relative z-10 h-full flex flex-col px-[7%] py-[7%]">
           {TopRow}
-          <div className="mt-[5%]"><IconBadge k={slide.iconKey} t={t} size={14} /></div>
-          <h3 style={{ fontFamily: DISPLAY }} className="mt-[4.5%] text-[9cqw] leading-[1.04] tracking-tight break-keep">
-            {slide.title.replace(/\n/g, ' ')}
-          </h3>
-          <p style={{ fontFamily: SANS, color: t.sub }} className="mt-[3.5%] text-[3.7cqw] font-medium leading-[1.5] max-w-[90%]">
-            {slide.body}
-          </p>
-          <div className="mt-auto flex items-center gap-[3cqw] overflow-hidden">
-            <div className="text-[4.8cqw] flex-none"><Sticker t={t}>{slide.bigStat}</Sticker></div>
-            <span style={{ fontFamily: MONO, color: t.sub }} className="text-[2.7cqw] tracking-[.06em] truncate">{slide.bigStatLabel}</span>
-          </div>
-          <div className="mt-[4%]"><StepDots index={index} total={total} t={t} /></div>
+          {showCompare && slide.compare ? (
+            <>
+              <h3 style={{ fontFamily: DISPLAY }} className="mt-[4.5%] text-[7.4cqw] leading-[1.04] tracking-tight break-keep">
+                {slide.title.replace(/\n/g, ' ')}
+              </h3>
+              <CompareBlock c={slide.compare} t={t} />
+            </>
+          ) : showGrid && slide.gridItems ? (
+            <>
+              <h3 style={{ fontFamily: DISPLAY }} className="mt-[4.5%] text-[7.4cqw] leading-[1.04] tracking-tight break-keep">
+                {slide.title.replace(/\n/g, ' ')}
+              </h3>
+              <GridBlock items={slide.gridItems} t={t} />
+            </>
+          ) : (
+            <>
+              <div className="mt-[5%]"><IconBadge k={slide.iconKey} t={t} size={14} /></div>
+              <h3 style={{ fontFamily: DISPLAY }} className="mt-[4.5%] text-[9cqw] leading-[1.04] tracking-tight break-keep">
+                {slide.title.replace(/\n/g, ' ')}
+              </h3>
+              <p style={{ fontFamily: SANS, color: t.sub }} className="mt-[3.5%] text-[3.7cqw] font-medium leading-[1.5] max-w-[90%]">
+                {slide.body}
+              </p>
+              <div className="mt-[5%] flex items-center gap-[3cqw] overflow-hidden">
+                <div className="text-[4.8cqw] flex-none"><Sticker t={t}>{slide.bigStat}</Sticker></div>
+                <span style={{ fontFamily: MONO, color: t.sub }} className="text-[2.7cqw] tracking-[.06em] truncate">{slide.bigStatLabel}</span>
+              </div>
+            </>
+          )}
+          <div className="mt-auto pt-[4%]"><StepDots index={index} total={total} t={t} /></div>
         </div>
       </div>
     );

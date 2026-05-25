@@ -53,6 +53,15 @@ export type CardIconKey =
   | 'search' | 'clipboard'
   | 'zap' | 'arrow';
 
+// 리쿠르팅 인포그래픽 데이터
+export type RecruitCompare = {
+  aTitle: string;    // 예: "직장인" / "예전엔"
+  aItems: string[];  // 2~3개
+  bTitle: string;    // 예: "설계사" / "지금은"
+  bItems: string[];  // 2~3개
+};
+export type RecruitGridItem = { iconKey: CardIconKey; label: string };
+
 // 광고심의 통과를 위한 통계 출처 — bigStat 옆에 표시되고 검수자가 검증
 export type SlideSource = {
   organization: string;   // 권위 있는 공식 기관 (예: "국립암센터", "금감원", "통계청")
@@ -80,6 +89,10 @@ export type CardSlide =
       body: string;
       iconKey: CardIconKey;
       source?: SlideSource;     // 각 포인트의 통계 출처
+      // ↓ 리쿠르팅 전용 인포그래픽 레이아웃 (보험 카드는 미사용 — optional이라 영향 없음)
+      layout?: 'default' | 'compare' | 'grid';
+      compare?: RecruitCompare;        // layout='compare' 일 때
+      gridItems?: RecruitGridItem[];   // layout='grid' 일 때 (3~4개)
     }
   | {
       kind: 'closing';

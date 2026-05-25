@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import type { GeneratedCardSet, CardSlide, CardIconKey, RecruitTopic } from './types';
+import type { GeneratedCardSet, CardSlide, CardIconKey, RecruitTopic, RecruitCompare, RecruitGridItem } from './types';
 
 const ICON_KEYS: CardIconKey[] = [
   'sparkles', 'shield', 'trendingDown', 'alert',
@@ -38,10 +38,14 @@ const STRUCTURE = `
 1. **cover (1장)** — 후킹: 타깃의 현재 고통/욕구를 한 문장으로 찌르기
    - eyebrow: 짧은 키워드(예: "직장인 → 설계사")
    - title: 후킹 문장 (15~24자), bigStat(개념 라벨), bigStatLabel, iconKey
-2. **point 01 (2장)** — 공감/문제 확인: "이거 내 얘기다" 느끼게
-3. **point 02 (3장)** — 통념 깨기/전환점: "근데 다를 수 있다"
-4. **point 03 (4장)** — 강점·환경 증거 1 (교육/DB/시스템/자유/디지털 중 하나)
-5. **point 04 (5장)** — 강점·증거 2 또는 사람 증거 (가드레일 적용: 보장·럭셔리 금지)
+2. **point 01 (2장) — 비교 인포그래픽 (layout:"compare")**: "직장인 vs 설계사" 또는 "예전 vs 지금" 대비
+   - compare: { "aTitle":"직장인", "aItems":["..","..(2~3개, 각 8~16자)"], "bTitle":"설계사", "bItems":["..",".."] }
+   - title은 짧은 헤딩(예 "뭐가 다를까?"), body는 한 줄 보조
+3. **point 02 (3장)** — 통념 깨기/전환점 (layout:"default"): "근데 다를 수 있다"
+4. **point 03 (4장) — 아이콘 그리드 (layout:"grid")**: 어메이징 강점 4가지
+   - gridItems: 4개 [{ "iconKey":"shield", "label":"교육·멘토(10자 이내)" }, ...] (iconKey는 아래 가이드에서)
+   - title은 "이런 게 다릅니다" 류
+5. **point 04 (5장)** — 강점·증거 2 또는 사람 증거 (layout:"default", 가드레일: 보장·럭셔리 금지)
 6. **point 05 (6장)** — 중간 CTA: 결정 전 의심 해소 + "DM으로 하나만 물어봐도 됩니다"
    - title은 가벼운 질문형, body는 DM 유도, bigStat="DM"
 7. **closing (7장)** — 최종 CTA
@@ -82,9 +86,9 @@ ${ICON_GUIDE}
   "title": "전체 콘텐츠 제목",
   "slides": [
     { "kind":"cover", "eyebrow":"...", "title":"...", "bigStat":"퇴사각", "bigStatLabel":"...", "iconKey":"sparkles" },
-    { "kind":"point", "number":"01", "bigStat":"...", "bigStatLabel":"...", "title":"...", "body":"...", "iconKey":"alert" },
+    { "kind":"point", "number":"01", "layout":"compare", "compare":{"aTitle":"직장인","aItems":["출퇴근 고정","월급 천장"],"bTitle":"설계사","bItems":["시간 자율","성과만큼"]}, "bigStat":"비교", "bigStatLabel":"...", "title":"뭐가 다를까?", "body":"...", "iconKey":"arrow" },
     { "kind":"point", "number":"02", "bigStat":"...", "bigStatLabel":"...", "title":"...", "body":"...", "iconKey":"arrow" },
-    { "kind":"point", "number":"03", "bigStat":"...", "bigStatLabel":"...", "title":"...", "body":"...", "iconKey":"shield" },
+    { "kind":"point", "number":"03", "layout":"grid", "gridItems":[{"iconKey":"shield","label":"교육·멘토"},{"iconKey":"search","label":"고객 DB 제공"},{"iconKey":"zap","label":"디지털 툴"},{"iconKey":"calculator","label":"성과형 수수료"}], "bigStat":"강점", "bigStatLabel":"...", "title":"이런 게 다릅니다", "body":"...", "iconKey":"shield" },
     { "kind":"point", "number":"04", "bigStat":"...", "bigStatLabel":"...", "title":"...", "body":"...", "iconKey":"search" },
     { "kind":"point", "number":"05", "bigStat":"DM", "bigStatLabel":"...", "title":"...", "body":"...", "iconKey":"zap" },
     { "kind":"closing", "title":"...", "items":["DM으로 '어메이징' 보내기","프로필 링크 → 솔직 후기 블로그","나중에 볼 거면 저장"], "footer":"이 글 고민하는 친구에게 공유해주세요. 먼저 연락하지 않습니다.", "iconKey":"sparkles" }
@@ -135,6 +139,31 @@ function clampBigStat(value: string, fallback: string): string {
   return v.length > 8 ? fallback : v;
 }
 
+// 인포그래픽 데이터 파싱 — 누락/불량이면 undefined 반환 → 렌더는 default로 폴백.
+function parseCompare(raw: unknown): RecruitCompare | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const r = raw as Record<string, unknown>;
+  const aTitle = sanitizeRecruit(String(r.aTitle ?? ''));
+  const bTitle = sanitizeRecruit(String(r.bTitle ?? ''));
+  const aItems = Array.isArray(r.aItems) ? sanitizeArr(r.aItems.map(String)).slice(0, 3) : [];
+  const bItems = Array.isArray(r.bItems) ? sanitizeArr(r.bItems.map(String)).slice(0, 3) : [];
+  if (!aTitle || !bTitle || aItems.length < 2 || bItems.length < 2) return undefined;
+  return { aTitle, aItems, bTitle, bItems };
+}
+
+function parseGrid(raw: unknown): RecruitGridItem[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const items: RecruitGridItem[] = [];
+  for (const it of raw) {
+    if (!it || typeof it !== 'object') continue;
+    const o = it as Record<string, unknown>;
+    const label = sanitizeRecruit(String(o.label ?? '')).slice(0, 14);
+    if (!label) continue;
+    items.push({ iconKey: isValidIconKey(o.iconKey) ? o.iconKey : 'sparkles', label });
+  }
+  return items.length >= 3 ? items.slice(0, 4) : undefined;
+}
+
 function validateRecruitSlides(slides: unknown): CardSlide[] {
   if (!Array.isArray(slides) || slides.length !== 7) {
     throw new Error(`slides는 정확히 7개여야 하는데 ${Array.isArray(slides) ? slides.length : 'not array'}개`);
@@ -157,6 +186,9 @@ function validateRecruitSlides(slides: unknown): CardSlide[] {
         iconKey,
       });
     } else if (expectedKind === 'point') {
+      const compare = s.layout === 'compare' ? parseCompare(s.compare) : undefined;
+      const gridItems = s.layout === 'grid' ? parseGrid(s.gridItems) : undefined;
+      const layout: 'default' | 'compare' | 'grid' = compare ? 'compare' : gridItems ? 'grid' : 'default';
       result.push({
         kind: 'point',
         number: String(s.number ?? `0${i}`),
@@ -165,6 +197,9 @@ function validateRecruitSlides(slides: unknown): CardSlide[] {
         title: sanitizeRecruit(String(s.title ?? '')),
         body: sanitizeRecruit(String(s.body ?? '')),
         iconKey,
+        layout,
+        ...(compare ? { compare } : {}),
+        ...(gridItems ? { gridItems } : {}),
       });
     } else {
       const rawItems = Array.isArray(s.items) ? s.items.map(String) : [];
