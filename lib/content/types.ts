@@ -106,3 +106,30 @@ export type ComplianceInfo = {
   end_date?: string;        // 심의 종료일 (YYYY-MM-DD)
   include_warning?: boolean;// 경고 문구 포함 여부
 };
+
+// ============================================
+// 리쿠르팅(설계사 모집) 트랙 — 보험 콘텐츠와 별개
+// DB에선 content_items.type = 'recruit-card' / 'recruit-blog'로 분리.
+// 슬라이드는 기존 CardSlide(cover/point/closing) 재사용 → 렌더러 공용.
+// ============================================
+
+// 콘텐츠 기둥 5개 (플레이북 §3.2)
+export type RecruitPillar =
+  | 'P1-empathy'    // "왜 안 떠나?" 공감·자극 (유입)
+  | 'P2-system'     // "맨땅 영업 안 해도 됨" 교육·정착 + DB·리드
+  | 'P3-income'     // "여기선 이렇게 번다" 소득 (리프레이밍)
+  | 'P4-lifestyle'  // "이렇게 일한다" 자유근무 + 디지털 툴
+  | 'P5-story';     // "진짜 사람들" 후기·전환
+
+export type RecruitTone = 'empathy' | 'flex-reframed' | 'authentic';
+export type RecruitTarget = '2030-newbie' | 'career-changer' | 'side-job' | 'mix';
+
+export type RecruitTopic = {
+  slug: string;            // 안정적 식별자 (30일 중복 차단)
+  pillar: RecruitPillar;
+  tone: RecruitTone;
+  target: RecruitTarget;
+  title: string;           // 앵글 제목
+  hook: string;            // 커버 후킹 한 문장
+  beats: string[];         // 7장 흐름을 위한 핵심 비트 (공감→전환→강점→증거→CTA)
+};
