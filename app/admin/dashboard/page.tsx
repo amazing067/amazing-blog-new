@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
-import { Shield, LogOut, UserCheck, UserX, Sparkles, BarChart3, FileText, Lock, ClipboardCheck, Newspaper, Images } from 'lucide-react'
+import { Shield, LogOut, UserCheck, UserX, Sparkles, BarChart3, FileText, Lock, ClipboardCheck, Newspaper, Images, Target } from 'lucide-react'
 import Link from 'next/link'
 
 export default async function AdminDashboardPage() {
@@ -247,8 +247,8 @@ export default async function AdminDashboardPage() {
             </div>
           </Link>
 
-          {/* 자동 콘텐츠 트랙 — 보험뉴스 + 카드뉴스 + 블로그 3단 */}
-          <div className="grid md:grid-cols-3 gap-4 mt-6">
+          {/* 자동 콘텐츠 트랙 — 보험뉴스 + 카드뉴스 + 블로그 + 리쿠르팅 4단 */}
+          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4 mt-6">
             {/* 보험뉴스 */}
             <Link
               href="/admin/content/news"
@@ -314,6 +314,29 @@ export default async function AdminDashboardPage() {
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-blue-100">📝 SEO · 🛡️ 심의 · 📋 심의필</span>
                   <span className="text-xs font-semibold bg-white/20 rounded-full px-2.5 py-1 group-hover:bg-white group-hover:text-blue-700 transition">검수 →</span>
+                </div>
+              </div>
+            </Link>
+
+            {/* 리쿠르팅 */}
+            <Link
+              href="/admin/content/recruit"
+              className="block bg-gradient-to-br from-lime-500 to-green-600 rounded-2xl shadow-lg p-5 text-white hover:shadow-xl transition-all hover:scale-[1.01] relative overflow-hidden group"
+            >
+              <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -translate-y-12 translate-x-12 group-hover:scale-110 transition-transform" />
+              <div className="relative z-10">
+                <div className="flex items-center gap-3 mb-2">
+                  <div className="bg-white/20 p-2 rounded-xl backdrop-blur-sm">
+                    <Target className="w-5 h-5 text-yellow-100" />
+                  </div>
+                  <h3 className="text-lg font-bold">설계사 리쿠르팅</h3>
+                </div>
+                <p className="text-lime-50 text-xs mb-3 leading-relaxed">
+                  심의 면제 · 7장 캐러셀 · 수동 생성 → 검수
+                </p>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-lime-50">🎯 모집 · 🛡️ 가드레일</span>
+                  <span className="text-xs font-semibold bg-white/20 rounded-full px-2.5 py-1 group-hover:bg-white group-hover:text-green-700 transition">생성 →</span>
                 </div>
               </div>
             </Link>
