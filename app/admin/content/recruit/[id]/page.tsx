@@ -3,17 +3,8 @@ import { notFound } from 'next/navigation';
 import { adminClient, requireAdmin } from '@/lib/admin/guard';
 import { ArrowLeft, Target } from 'lucide-react';
 import RecruitDetailClient from './RecruitDetailClient';
-import type { CardSlide, CardStyleKey } from '@/lib/content/types';
+import type { CardSlide } from '@/lib/content/types';
 import type { RecruitLintResult } from '@/lib/content/recruit-lint';
-
-const STYLE_LABEL: Record<CardStyleKey, { name: string; cls: string }> = {
-  A: { name: 'A · Bold Color',    cls: 'bg-blue-100   text-blue-800   border-blue-200' },
-  B: { name: 'B · Magazine',      cls: 'bg-stone-100  text-stone-800  border-stone-200' },
-  C: { name: 'C · Pastel',        cls: 'bg-orange-100 text-orange-800 border-orange-200' },
-  D: { name: 'D · Dark Premium',  cls: 'bg-neutral-900 text-amber-200  border-neutral-700' },
-  E: { name: 'E · Data Report',   cls: 'bg-emerald-100 text-emerald-800 border-emerald-200' },
-  F: { name: 'F · Y2K Retro',     cls: 'bg-fuchsia-100 text-fuchsia-800 border-fuchsia-200' },
-};
 
 const STATUS_LABEL: Record<string, { label: string; cls: string }> = {
   review:    { label: '검토 대기', cls: 'bg-amber-100 text-amber-800 border-amber-200' },
@@ -39,8 +30,6 @@ export default async function RecruitDetailPage({ params }: { params: Promise<{ 
 
   const slides = (item.card_slides ?? []) as CardSlide[];
   const statusInfo = STATUS_LABEL[item.status] ?? { label: item.status, cls: 'bg-slate-100 text-slate-700 border-slate-200' };
-  const cardStyle = ((item.card_style as CardStyleKey | null) ?? 'A') as CardStyleKey;
-  const styleInfo = STYLE_LABEL[cardStyle];
   const sourceRefs = (item.source_refs ?? []) as Array<{ pillar?: string | null; tone?: string | null }>;
   const pillar = sourceRefs[0]?.pillar ?? null;
 
@@ -59,9 +48,6 @@ export default async function RecruitDetailPage({ params }: { params: Promise<{ 
               {PILLAR_LABEL[pillar] ?? pillar}
             </span>
           )}
-          <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-bold ${styleInfo.cls}`}>
-            {styleInfo.name}
-          </span>
           <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium ${statusInfo.cls}`}>
             {statusInfo.label}
           </span>
@@ -70,7 +56,7 @@ export default async function RecruitDetailPage({ params }: { params: Promise<{ 
 
       <div className="mb-6">
         <h1 className="text-3xl font-bold text-slate-900 leading-tight">{item.title}</h1>
-        <p className="mt-2 text-sm text-slate-500">7장 캐러셀 · 생성 {new Date(item.created_at).toLocaleString('ko-KR')}</p>
+        <p className="mt-2 text-sm text-slate-500">7장 캐러셀 · 전용 트렌디 디자인 · 생성 {new Date(item.created_at).toLocaleString('ko-KR')}</p>
       </div>
 
       <RecruitDetailClient
@@ -79,7 +65,6 @@ export default async function RecruitDetailPage({ params }: { params: Promise<{ 
         status={item.status}
         publishUrl={item.publish_url ?? ''}
         slides={slides}
-        cardStyle={cardStyle}
         lint={recruitLint}
       />
     </div>

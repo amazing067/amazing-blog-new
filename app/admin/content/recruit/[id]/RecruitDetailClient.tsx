@@ -5,9 +5,9 @@ import { useRouter } from 'next/navigation';
 import { domToBlob } from 'modern-screenshot';
 import JSZip from 'jszip';
 import { Download, CheckCircle2, X, Trash2, Loader2, ShieldCheck, ShieldAlert, Pencil, Save } from 'lucide-react';
-import { CardStyleRouter } from '../../card-preview/CardStyles';
+import { RecruitCardStyle } from '../../card-preview/styles/RecruitStyle';
 import SlideEditor from '../../cards/[id]/SlideEditor';
-import type { CardSlide, CardStyleKey } from '@/lib/content/types';
+import type { CardSlide } from '@/lib/content/types';
 import type { RecruitLintResult } from '@/lib/content/recruit-lint';
 
 type Props = {
@@ -16,7 +16,6 @@ type Props = {
   status: string;
   publishUrl: string;
   slides: CardSlide[];
-  cardStyle: CardStyleKey;
   lint: RecruitLintResult | null;
 };
 
@@ -38,7 +37,7 @@ function buildRecruitCaption(title: string, slides: CardSlide[]): string {
   ].join('\n');
 }
 
-export default function RecruitDetailClient({ id, title, status, publishUrl, slides: initialSlides, cardStyle, lint }: Props) {
+export default function RecruitDetailClient({ id, title, status, publishUrl, slides: initialSlides, lint }: Props) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
   const [url, setUrl] = useState(publishUrl);
@@ -184,7 +183,7 @@ export default function RecruitDetailClient({ id, title, status, publishUrl, sli
                 </div>
                 <div className="aspect-square">
                   <div data-slide-capture data-slide-index={i} className="w-full h-full">
-                    <CardStyleRouter cardStyle={cardStyle} slide={s} index={i} total={total} />
+                    <RecruitCardStyle slide={s} index={i} total={total} />
                   </div>
                 </div>
               </div>
@@ -195,7 +194,7 @@ export default function RecruitDetailClient({ id, title, status, publishUrl, sli
             {slides.map((s, i) => (
               <div key={i} className="aspect-square">
                 <div data-slide-capture data-slide-index={i} className="w-full h-full">
-                  <CardStyleRouter cardStyle={cardStyle} slide={s} index={i} total={total} />
+                  <RecruitCardStyle slide={s} index={i} total={total} />
                 </div>
               </div>
             ))}

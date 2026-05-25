@@ -1,18 +1,9 @@
 import Link from 'next/link';
 import { adminClient } from '@/lib/admin/guard';
-import { CardStyleRouter } from '../card-preview/CardStyles';
+import { RecruitCardStyle } from '../card-preview/styles/RecruitStyle';
 import { Inbox, Clock, CheckCircle2, XCircle, AlertTriangle, Target, ChevronRight } from 'lucide-react';
 import RecruitGenerateButton from './RecruitGenerateButton';
-import type { CardSlide, CardStyleKey } from '@/lib/content/types';
-
-const STYLE_BADGE: Record<CardStyleKey, { name: string; cls: string }> = {
-  A: { name: 'A·Bold',     cls: 'bg-blue-100    text-blue-800    border-blue-200' },
-  B: { name: 'B·Magazine', cls: 'bg-stone-100   text-stone-800   border-stone-200' },
-  C: { name: 'C·Pastel',   cls: 'bg-orange-100  text-orange-800  border-orange-200' },
-  D: { name: 'D·Premium',  cls: 'bg-neutral-900 text-amber-200   border-neutral-700' },
-  E: { name: 'E·Report',   cls: 'bg-emerald-100 text-emerald-800 border-emerald-200' },
-  F: { name: 'F·Y2K',      cls: 'bg-fuchsia-100 text-fuchsia-800 border-fuchsia-200' },
-};
+import type { CardSlide } from '@/lib/content/types';
 
 const PILLAR_LABEL: Record<string, string> = {
   'P1-empathy': '공감', 'P2-system': '시스템', 'P3-income': '소득', 'P4-lifestyle': '일상', 'P5-story': '스토리',
@@ -77,7 +68,7 @@ export default async function RecruitListPage({
             <Target className="w-6 h-6 text-lime-600" />
             리쿠르팅 카드 검수
           </h2>
-          <p className="mt-1 text-sm text-slate-500">설계사 모집 · 7장 캐러셀 · 심의 면제(가드레일 자동 적용) · 수동 생성 → 검수 → PNG</p>
+          <p className="mt-1 text-sm text-slate-500">설계사 모집 · 7장 캐러셀 · 전용 트렌디 디자인 · 심의 면제(가드레일 자동) · 수동 생성 → 검수 → PNG</p>
         </div>
         <RecruitGenerateButton />
       </div>
@@ -109,13 +100,11 @@ export default async function RecruitListPage({
       ) : (
         <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden shadow-sm">
           <ul className="divide-y divide-slate-100">
-            {(items ?? []).map((row: { id: string; title: string; status: string; created_at: string; card_slides: CardSlide[] | null; source_refs: { pillar?: string }[] | null; total_cost_usd: number | null; card_style: CardStyleKey | null }) => {
+            {(items ?? []).map((row: { id: string; title: string; status: string; created_at: string; card_slides: CardSlide[] | null; source_refs: { pillar?: string }[] | null; total_cost_usd: number | null }) => {
               const slides = row.card_slides ?? [];
               const cover = slides[0];
               const pillar = row.source_refs?.[0]?.pillar;
               const score = lintMap.get(row.id);
-              const styleKey = (row.card_style ?? 'A') as CardStyleKey;
-              const styleInfo = STYLE_BADGE[styleKey];
               const badgeCls = STATUS_BADGE[row.status] ?? 'bg-slate-100 text-slate-700';
               const badgeLabel = STATUSES.find(s => s.key === row.status)?.label ?? row.status;
               return (
@@ -124,16 +113,13 @@ export default async function RecruitListPage({
                     className="flex items-center gap-4 px-4 py-3 hover:bg-lime-50/50 transition group">
                     <div className="flex-none w-[90px] h-[90px]">
                       {cover ? (
-                        <CardStyleRouter cardStyle={styleKey} slide={cover} index={0} total={slides.length} />
+                        <RecruitCardStyle slide={cover} index={0} total={slides.length} />
                       ) : (
                         <div className="w-full h-full rounded-xl bg-slate-100" />
                       )}
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1.5">
-                        <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-bold ${styleInfo.cls}`} title="디자인 스타일">
-                          {styleInfo.name}
-                        </span>
                         {pillar && (
                           <span className="inline-flex items-center rounded-full bg-lime-50 px-2 py-0.5 text-[11px] font-medium text-lime-700 border border-lime-200">
                             🎯 {PILLAR_LABEL[pillar] ?? pillar}
