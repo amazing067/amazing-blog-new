@@ -12,13 +12,6 @@ import type { CardSlide, CardIconKey, RecruitCompare, RecruitGridItem } from '@/
 
 type Props = { slide: CardSlide; index: number; total: number; colorOffset?: number };
 
-// 카드 세트마다 색 시작점을 회전시키기 위한 오프셋 — id 등 시드 문자열에서 결정적으로 산출.
-export function recruitColorOffset(seed: string): number {
-  let h = 0;
-  for (const ch of seed) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-  return h % PALETTE.length;
-}
-
 const ICONS: Record<CardIconKey, LucideIcon> = {
   sparkles: Sparkles, shield: Shield, trendingDown: TrendingDown, alert: AlertTriangle,
   gift: Gift, stethoscope: Stethoscope, calculator: Calculator, baby: Baby,

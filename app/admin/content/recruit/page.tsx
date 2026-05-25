@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { adminClient } from '@/lib/admin/guard';
-import { RecruitCardStyle, recruitColorOffset } from '../card-preview/styles/RecruitStyle';
+import { RecruitCardStyle } from '../card-preview/styles/RecruitStyle';
+import { recruitColorOffset } from '@/lib/content/recruit-color';
 import { Inbox, Clock, CheckCircle2, XCircle, AlertTriangle, Target, ChevronRight } from 'lucide-react';
 import RecruitGenerateButton from './RecruitGenerateButton';
 import type { CardSlide } from '@/lib/content/types';
