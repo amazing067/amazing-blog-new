@@ -4,7 +4,7 @@ import { pickFreshRecruitTopics, RECRUIT_TOPIC_POOL } from '@/lib/content/recrui
 import { generateRecruitCardSet } from '@/lib/content/generator-recruit-card';
 import { lintRecruit } from '@/lib/content/recruit-lint';
 import { calcCost } from '@/lib/content/billing';
-import { fetchPexelsImageUrl, recruitImageQuery } from '@/lib/content/pexels';
+import { recruitIllustration } from '@/lib/content/recruit-illust';
 import type { CardSlide, CardStyleKey } from '@/lib/content/types';
 
 const GENERATOR_MODEL = 'claude-haiku-4-5';
@@ -42,12 +42,9 @@ export async function POST(req: Request) {
   try {
     const set = await generateRecruitCardSet(topic);
 
-    // 커버 배경 사진 (Pexels) — 키 없거나 실패 시 null → 비비드 커버로 폴백
-    try {
-      const bg = await fetchPexelsImageUrl(recruitImageQuery(topic.pillar));
-      const cover = set.slides[0];
-      if (bg && cover && cover.kind === 'cover') cover.bgImage = bg;
-    } catch { /* 사진 없이 진행 */ }
+    // 커버 일러스트 (로컬 번들, 기둥별) — 실사 사진 대신
+    const cover = set.slides[0];
+    if (cover && cover.kind === 'cover') cover.bgImage = recruitIllustration(topic.pillar);
 
     const flat = flatten(set.slides);
     const lint = lintRecruit(flat);

@@ -154,27 +154,26 @@ export function RecruitCardStyle({ slide, index, total }: Props) {
     if (slide.bgImage) {
       return (
         <div style={{ ...containerStyle, background: t.bg, color: t.ink }} className={CARD}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={slide.bgImage} crossOrigin="anonymous" alt="" className="absolute inset-0 w-full h-full object-cover z-0" />
-          <div className="absolute inset-0 z-0" style={{ background: `linear-gradient(180deg, rgba(0,0,0,.30) 0%, ${t.bg}00 30%, ${t.bg}E0 66%, ${t.bg} 100%)` }} />
+          <Deco t={t} />
           <div className="relative z-10 h-full flex flex-col px-[7%] py-[7%]">
-            <div className="flex items-center justify-between" style={{ textShadow: '0 0.3cqw 1cqw rgba(0,0,0,.45)' }}>
-              <span style={{ fontFamily: MONO, color: '#fff' }} className="text-[2.9cqw] tracking-[.16em] uppercase">{slide.eyebrow || 'RECRUIT'}</span>
-              <span style={{ fontFamily: MONO, color: '#fff', opacity: 0.85 }} className="text-[2.8cqw] tracking-[.2em]">{String(index + 1).padStart(2, '0')}/{String(total).padStart(2, '0')}</span>
+            {TopRow}
+            {/* 일러스트 (로컬 SVG) — 중앙 히어로 그래픽 */}
+            <div className="flex-1 min-h-0 flex items-center justify-center py-[2%]">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={slide.bgImage} alt="" className="object-contain" style={{ maxHeight: '100%', maxWidth: '86%' }} />
             </div>
-            <div className="mt-[5%]"><IconBadge k={slide.iconKey} t={t} size={15} /></div>
-            <div className="mt-auto">
-              <h2 style={{ fontFamily: DISPLAY }} className="text-[11.5cqw] leading-[0.98] tracking-tight break-keep">
+            <div>
+              <h2 style={{ fontFamily: DISPLAY }} className="text-[8.8cqw] leading-[1.0] tracking-tight break-keep">
                 {slide.title.replace(/\n/g, ' ')}
               </h2>
-              <div className="mt-[4%] flex items-end justify-between gap-[3cqw]">
+              <div className="mt-[3.5%] flex items-end justify-between gap-[3cqw]">
                 <div>
-                  <div className="text-[6.5cqw]"><Sticker t={t}>{slide.bigStat}</Sticker></div>
-                  <div style={{ fontFamily: MONO, color: t.sub }} className="mt-[3cqw] text-[2.9cqw] tracking-[.1em]">{slide.bigStatLabel}</div>
+                  <div className="text-[6cqw]"><Sticker t={t}>{slide.bigStat}</Sticker></div>
+                  <div style={{ fontFamily: MONO, color: t.sub }} className="mt-[2.6cqw] text-[2.8cqw] tracking-[.1em]">{slide.bigStatLabel}</div>
                 </div>
-                <div style={{ fontFamily: DISPLAY }} className="text-[4.4cqw] leading-none pb-[1cqw]">SWIPE →</div>
+                <div style={{ fontFamily: DISPLAY }} className="text-[4.2cqw] leading-none pb-[1cqw]">SWIPE →</div>
               </div>
-              <div className="mt-[4%]"><StepDots index={index} total={total} t={t} /></div>
+              <div className="mt-[3.5%]"><StepDots index={index} total={total} t={t} /></div>
             </div>
           </div>
         </div>

@@ -79,7 +79,7 @@ export type CardSlide =
       bigStatLabel: string;
       iconKey: CardIconKey;
       source?: SlideSource;     // 표지의 거대 통계 출처
-      bgImage?: string;         // 리쿠르팅 전용 — 커버 배경 사진 URL (Pexels). 없으면 비비드 커버.
+      bgImage?: string;         // 리쿠르팅 전용 — 커버 일러스트 경로(로컬 /recruit-illust/*.svg). 없으면 일러스트 없는 비비드 커버.
     }
   | {
       kind: 'point';
