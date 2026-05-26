@@ -4,7 +4,7 @@ import { pickFreshRecruitTopics, RECRUIT_TOPIC_POOL } from '@/lib/content/recrui
 import { generateRecruitCardSet } from '@/lib/content/generator-recruit-card';
 import { lintRecruit } from '@/lib/content/recruit-lint';
 import { calcCost } from '@/lib/content/billing';
-import { recruitIllustration } from '@/lib/content/recruit-illust';
+import { getRecruitImage } from '@/lib/content/recruit-image';
 import type { CardSlide, CardStyleKey } from '@/lib/content/types';
 
 const GENERATOR_MODEL = 'claude-haiku-4-5';
@@ -42,9 +42,22 @@ export async function POST(req: Request) {
   try {
     const set = await generateRecruitCardSet(topic);
 
-    // 커버 일러스트 (로컬 번들, 기둥별) — 실사 사진 대신
+    // 듀오톤 사진 주입 — 커버(0)·통념(2)·증거(4). 풀 비면 undefined → 렌더 단색 fallback.
     const cover = set.slides[0];
-    if (cover && cover.kind === 'cover') cover.bgImage = recruitIllustration(topic.pillar);
+    if (cover && cover.kind === 'cover') {
+      const img = getRecruitImage(topic.pillar, 'cover');
+      if (img) cover.image = img;
+    }
+    const breakthrough = set.slides[2];
+    if (breakthrough && breakthrough.kind === 'point') {
+      const img = getRecruitImage(topic.pillar, 'breakthrough');
+      if (img) breakthrough.image = img;
+    }
+    const evidence = set.slides[4];
+    if (evidence && evidence.kind === 'point') {
+      const img = getRecruitImage(topic.pillar, 'evidence');
+      if (img) evidence.image = img;
+    }
 
     const flat = flatten(set.slides);
     const lint = lintRecruit(flat);

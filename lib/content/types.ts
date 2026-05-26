@@ -62,6 +62,10 @@ export type RecruitCompare = {
 };
 export type RecruitGridItem = { iconKey: CardIconKey; label: string };
 
+// 리쿠르팅 듀오톤 사진 — 커버·통념·증거 카드(1·3·5)에 들어감.
+// src는 로컬 경로(캡처 안정), tint는 듀오톤 브랜드색(pre-bake 시 이미 적용된 경우 표시용).
+export type RecruitImage = { src: string; tint: string };
+
 // 광고심의 통과를 위한 통계 출처 — bigStat 옆에 표시되고 검수자가 검증
 export type SlideSource = {
   organization: string;   // 권위 있는 공식 기관 (예: "국립암센터", "금감원", "통계청")
@@ -79,7 +83,8 @@ export type CardSlide =
       bigStatLabel: string;
       iconKey: CardIconKey;
       source?: SlideSource;     // 표지의 거대 통계 출처
-      bgImage?: string;         // 리쿠르팅 전용 — 커버 일러스트 경로(로컬 /recruit-illust/*.svg). 없으면 일러스트 없는 비비드 커버.
+      bgImage?: string;         // (구) 커버 일러스트 경로. image 도입 후 폴백용.
+      image?: RecruitImage;     // 리쿠르팅 전용 — 커버 듀오톤 사진(로컬). 없으면 비비드 단색 커버.
     }
   | {
       kind: 'point';
@@ -94,6 +99,7 @@ export type CardSlide =
       layout?: 'default' | 'compare' | 'grid';
       compare?: RecruitCompare;        // layout='compare' 일 때
       gridItems?: RecruitGridItem[];   // layout='grid' 일 때 (3~4개)
+      image?: RecruitImage;            // 리쿠르팅 전용 — 통념·증거 카드 듀오톤 사진(로컬). 없으면 단색 fallback.
     }
   | {
       kind: 'closing';

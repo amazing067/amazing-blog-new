@@ -15,8 +15,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const { id } = await ctx.params;
   const body = await req.json().catch(() => ({}));
   const slides = body?.slides as CardSlide[] | undefined;
-  if (!Array.isArray(slides) || slides.length !== 7) {
-    return NextResponse.json({ error: 'slides는 정확히 7개여야 합니다' }, { status: 400 });
+  if (!Array.isArray(slides) || slides.length !== 6) {
+    return NextResponse.json({ error: 'slides는 정확히 6개여야 합니다' }, { status: 400 });
   }
 
   const supa = adminClient();

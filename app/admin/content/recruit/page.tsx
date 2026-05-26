@@ -1,7 +1,6 @@
 import Link from 'next/link';
 import { adminClient } from '@/lib/admin/guard';
 import { RecruitCardStyle } from '../card-preview/styles/RecruitStyle';
-import { recruitColorOffset } from '@/lib/content/recruit-color';
 import { Inbox, Clock, CheckCircle2, XCircle, AlertTriangle, Target, ChevronRight } from 'lucide-react';
 import RecruitGenerateButton from './RecruitGenerateButton';
 import type { CardSlide } from '@/lib/content/types';
@@ -69,7 +68,7 @@ export default async function RecruitListPage({
             <Target className="w-6 h-6 text-lime-600" />
             리쿠르팅 카드 검수
           </h2>
-          <p className="mt-1 text-sm text-slate-500">설계사 모집 · 7장 캐러셀 · 전용 트렌디 디자인 · 심의 면제(가드레일 자동) · 수동 생성 → 검수 → PNG</p>
+          <p className="mt-1 text-sm text-slate-500">설계사 모집 · 6장 캐러셀 · 전용 트렌디 디자인 · 심의 면제(가드레일 자동) · 수동 생성 → 검수 → PNG</p>
         </div>
         <RecruitGenerateButton />
       </div>
@@ -114,7 +113,7 @@ export default async function RecruitListPage({
                     className="flex items-center gap-4 px-4 py-3 hover:bg-lime-50/50 transition group">
                     <div className="flex-none w-[90px] h-[90px]">
                       {cover ? (
-                        <RecruitCardStyle slide={cover} index={0} total={slides.length} colorOffset={recruitColorOffset(row.id)} />
+                        <RecruitCardStyle slide={cover} index={0} total={slides.length} seed={row.id} />
                       ) : (
                         <div className="w-full h-full rounded-xl bg-slate-100" />
                       )}

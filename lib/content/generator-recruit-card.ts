@@ -32,23 +32,22 @@ const BIG_STAT_RULES = `
 `;
 
 const STRUCTURE = `
-**카드뉴스 구조 — 정확히 7장 (인스타 캐러셀 설득 최적):**
+**카드뉴스 구조 — 정확히 6장 (인스타 캐러셀 설득 최적):**
 각 슬라이드는 "한 장 = 한 메시지". 1·2·3장은 각각 따로 봐도 후킹되게 독립적으로.
 
 1. **cover (1장)** — 후킹: 타깃의 현재 고통/욕구를 한 문장으로 찌르기
    - eyebrow: 짧은 키워드(예: "직장인 → 설계사")
    - title: 후킹 문장 (15~24자), bigStat(개념 라벨), bigStatLabel, iconKey
+   - 배경에 듀오톤 사진이 깔리므로 title은 짧고 강하게
 2. **point 01 (2장) — 비교 인포그래픽 (layout:"compare")**: "직장인 vs 설계사" 또는 "예전 vs 지금" 대비
    - compare: { "aTitle":"직장인", "aItems":["..","..(2~3개, 각 8~16자)"], "bTitle":"설계사", "bItems":["..",".."] }
-   - title은 짧은 헤딩(예 "뭐가 다를까?"), body는 한 줄 보조
-3. **point 02 (3장)** — 통념 깨기/전환점 (layout:"default"): "근데 다를 수 있다"
+   - aTitle/bTitle은 카드 헤더로 크게 가운데 표시됨 → 2~4자 짧은 명사. title은 짧은 헤딩(예 "뭐가 다를까?")
+3. **point 02 (3장)** — 통념 깨기/전환점 (layout:"default"): "근데 다를 수 있다". 배경 사진 위 흰 글씨 → title 짧게, body 1문장
 4. **point 03 (4장) — 아이콘 그리드 (layout:"grid")**: 어메이징 강점 4가지
    - gridItems: 4개 [{ "iconKey":"shield", "label":"교육·멘토(10자 이내)" }, ...] (iconKey는 아래 가이드에서)
    - title은 "이런 게 다릅니다" 류
-5. **point 04 (5장)** — 강점·증거 2 또는 사람 증거 (layout:"default", 가드레일: 보장·럭셔리 금지)
-6. **point 05 (6장)** — 중간 CTA: 결정 전 의심 해소 + "DM으로 하나만 물어봐도 됩니다"
-   - title은 가벼운 질문형, body는 DM 유도, bigStat="DM"
-7. **closing (7장)** — 최종 CTA
+5. **point 04 (5장)** — 강점·증거 또는 사람 증거 (layout:"default", 배경 사진 위, 가드레일: 보장·럭셔리 금지). title 짧게, body 1문장
+6. **closing (6장)** — 최종 CTA
    - title: 행동 유도 헤딩 (예: "준비됐을 때, 부담 없이")
    - items: 3개 — "DM으로 '어메이징' 보내기" / "프로필 링크 → 솔직 후기 블로그" / "나중에 볼 거면 저장"
    - footer: 공유 유발 + 압박 회피 (예: "이 글 고민하는 친구에게 공유해주세요. 먼저 연락하지 않습니다.")
@@ -62,13 +61,13 @@ trendingDown(부담↓), alert(통념 깨기), calculator(수수료·구조), st
 `;
 
 const PROMPT = (topic: RecruitTopic) => `당신은 인스타에서 "이거 내 얘기네" 하고 끝까지 넘기게 만드는 보험설계사 리쿠르팅 카드뉴스 작가입니다.
-어메이징 사업부(보험대리점 GA)로 사람을 끌어당기는 7장 캐러셀을 만듭니다. 직접 "모집합니다"가 아니라, 본인이 스스로 궁금해서 지원하게 만드는 톤.
+어메이징 사업부(보험대리점 GA)로 사람을 끌어당기는 6장 캐러셀을 만듭니다. 직접 "모집합니다"가 아니라, 본인이 스스로 궁금해서 지원하게 만드는 톤.
 
 **앵글 제목**: "${topic.title}"
 **커버 후킹**: ${topic.hook}
 **톤**: ${toneLabel(topic.tone)}
 **타깃**: ${targetLabel(topic.target)}
-**7장 흐름(beats)**:
+**흐름(beats)**:
 ${topic.beats.map((b, i) => `${i + 1}. ${b}`).join('\n')}
 
 ${RECRUIT_GUARDRAILS}
@@ -91,7 +90,6 @@ ${ICON_GUIDE}
     { "kind":"point", "number":"02", "bigStat":"...", "bigStatLabel":"...", "title":"...", "body":"...", "iconKey":"arrow" },
     { "kind":"point", "number":"03", "layout":"grid", "gridItems":[{"iconKey":"shield","label":"교육·멘토"},{"iconKey":"search","label":"고객 DB 제공"},{"iconKey":"zap","label":"디지털 툴"},{"iconKey":"calculator","label":"성과형 수수료"}], "bigStat":"강점", "bigStatLabel":"...", "title":"이런 게 다릅니다", "body":"...", "iconKey":"shield" },
     { "kind":"point", "number":"04", "bigStat":"...", "bigStatLabel":"...", "title":"...", "body":"...", "iconKey":"search" },
-    { "kind":"point", "number":"05", "bigStat":"DM", "bigStatLabel":"...", "title":"...", "body":"...", "iconKey":"zap" },
     { "kind":"closing", "title":"...", "items":["DM으로 '어메이징' 보내기","프로필 링크 → 솔직 후기 블로그","나중에 볼 거면 저장"], "footer":"이 글 고민하는 친구에게 공유해주세요. 먼저 연락하지 않습니다.", "iconKey":"sparkles" }
   ]
 }
@@ -167,17 +165,17 @@ function parseGrid(raw: unknown): RecruitGridItem[] | undefined {
 }
 
 function validateRecruitSlides(slides: unknown): CardSlide[] {
-  if (!Array.isArray(slides) || slides.length !== 7) {
-    throw new Error(`slides는 정확히 7개여야 하는데 ${Array.isArray(slides) ? slides.length : 'not array'}개`);
+  if (!Array.isArray(slides) || slides.length !== 6) {
+    throw new Error(`slides는 정확히 6개여야 하는데 ${Array.isArray(slides) ? slides.length : 'not array'}개`);
   }
   const result: CardSlide[] = [];
-  for (let i = 0; i < 7; i++) {
+  for (let i = 0; i < 6; i++) {
     const s = slides[i] as Record<string, unknown>;
-    const expectedKind = i === 0 ? 'cover' : i === 6 ? 'closing' : 'point';
+    const expectedKind = i === 0 ? 'cover' : i === 5 ? 'closing' : 'point';
     if (s.kind !== expectedKind) {
       throw new Error(`slide[${i}].kind는 "${expectedKind}"여야 하는데 "${s.kind}"`);
     }
-    const iconKey = isValidIconKey(s.iconKey) ? s.iconKey : (i === 0 ? 'sparkles' : i === 6 ? 'zap' : 'arrow');
+    const iconKey = isValidIconKey(s.iconKey) ? s.iconKey : (i === 0 ? 'sparkles' : i === 5 ? 'zap' : 'arrow');
     if (expectedKind === 'cover') {
       result.push({
         kind: 'cover',

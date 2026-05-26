@@ -332,7 +332,7 @@ export default async function AdminDashboardPage() {
                   <h3 className="text-lg font-bold">설계사 리쿠르팅</h3>
                 </div>
                 <p className="text-lime-50 text-xs mb-3 leading-relaxed">
-                  심의 면제 · 7장 캐러셀 · 수동 생성 → 검수
+                  심의 면제 · 6장 캐러셀 · 수동 생성 → 검수
                 </p>
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-lime-50">🎯 모집 · 🛡️ 가드레일</span>

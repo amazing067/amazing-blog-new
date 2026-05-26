@@ -17,7 +17,7 @@ type Props = {
   publishUrl: string;
   slides: CardSlide[];
   lint: RecruitLintResult | null;
-  colorOffset?: number;
+  seed?: string;
 };
 
 // 리쿠르팅 인스타 캡션 — 심의 없음. 후킹 + CTA + 해시태그 5개(플레이북).
@@ -38,7 +38,7 @@ function buildRecruitCaption(title: string, slides: CardSlide[]): string {
   ].join('\n');
 }
 
-export default function RecruitDetailClient({ id, title, status, publishUrl, slides: initialSlides, lint, colorOffset = 0 }: Props) {
+export default function RecruitDetailClient({ id, title, status, publishUrl, slides: initialSlides, lint, seed = '' }: Props) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
   const [url, setUrl] = useState(publishUrl);
@@ -147,12 +147,12 @@ export default function RecruitDetailClient({ id, title, status, publishUrl, sli
 
   return (
     <div className="grid gap-6 lg:grid-cols-3">
-      {/* 7장 미리보기 — 캡처 대상 */}
+      {/* 6장 미리보기 — 캡처 대상 */}
       <div className="lg:col-span-2 space-y-6">
         <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
           <div className="flex items-center gap-2">
             <Pencil className={`w-4 h-4 ${editing ? 'text-lime-600' : 'text-slate-400'}`} />
-            <span className="text-sm font-semibold text-slate-700">슬라이드 편집 (7장)</span>
+            <span className="text-sm font-semibold text-slate-700">슬라이드 편집 (6장)</span>
             {dirty && <span className="text-xs text-amber-700 bg-amber-100 rounded-full px-2 py-0.5">수정됨 · 저장 필요</span>}
           </div>
           <div className="flex items-center gap-2">
@@ -184,7 +184,7 @@ export default function RecruitDetailClient({ id, title, status, publishUrl, sli
                 </div>
                 <div className="aspect-square">
                   <div data-slide-capture data-slide-index={i} className="w-full h-full">
-                    <RecruitCardStyle slide={s} index={i} total={total} colorOffset={colorOffset} />
+                    <RecruitCardStyle slide={s} index={i} total={total} seed={seed} />
                   </div>
                 </div>
               </div>
@@ -209,12 +209,12 @@ export default function RecruitDetailClient({ id, title, status, publishUrl, sli
         <div className="rounded-2xl border border-lime-200 bg-lime-50 p-5">
           <h3 className="font-bold text-lime-900 mb-2">PNG + 캡션 다운로드</h3>
           <p className="text-[11px] text-lime-800 mb-3 leading-relaxed">
-            7장 PNG + <strong>instagram_caption.txt</strong> (후킹·CTA·해시태그 5개). 심의필 슬라이드 없음.
+            6장 PNG + <strong>instagram_caption.txt</strong> (후킹·CTA·해시태그 5개). 심의필 슬라이드 없음.
           </p>
           <button disabled={!!busy} onClick={downloadAllPng}
             className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 hover:bg-slate-800 px-4 py-3 text-sm font-bold text-white shadow-sm disabled:opacity-50 transition">
             {busy === 'download' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-            zip 다운로드 (7장)
+            zip 다운로드 (6장)
           </button>
         </div>
 

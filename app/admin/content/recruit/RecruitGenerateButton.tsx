@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Sparkles, Loader2 } from 'lucide-react';
 
-// 수동 생성 버튼 — 안 쓴 앵글 1개를 골라 7장 리쿠르팅 카드를 생성하고 상세로 이동.
+// 수동 생성 버튼 — 안 쓴 앵글 1개를 골라 6장 리쿠르팅 카드를 생성하고 상세로 이동.
 export default function RecruitGenerateButton() {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
