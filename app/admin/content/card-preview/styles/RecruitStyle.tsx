@@ -82,26 +82,31 @@ function StepDots({ index, total, ink }: { index: number; total: number; ink: st
   );
 }
 
-// Before/After 비교 — 칼럼이 높이만큼 stretch(꽉 참). 헤더는 가운데 정렬·크게.
+// Before/After 비교 — 두 칼럼 모두 꽉 찬 블록(일관). 헤더+항목을 한 묶음으로 상하 정중앙.
+// 왼쪽(현재/직장인)=음소거 쿨그레이, 오른쪽(설계사)=브랜드 잉크. 헤더는 가운데·확대.
+const COMPARE_BAD_BG = '#5B6B7A';
 function CompareBlock({ c, t }: { c: RecruitCompare; t: RecruitToken }) {
-  const col = (title: string, items: string[], good: boolean) => (
-    <div className="flex-1 rounded-[2.6cqw] p-[3.4cqw] min-w-0 flex flex-col"
-      style={{ background: good ? t.ink : 'transparent', border: `0.5cqw solid ${t.ink}` }}>
-      <div style={{ fontFamily: DISPLAY, color: good ? t.bg : t.ink, borderBottom: `0.4cqw solid ${good ? t.bg : t.ink}` }}
-        className="text-center text-[5.8cqw] leading-none pb-[2.4cqw] mb-[3cqw] opacity-95">{title}</div>
-      <ul className="flex-1 flex flex-col justify-center gap-[2.6cqw]">
-        {items.map((it, i) => (
-          <li key={i} className="flex items-start gap-[1.8cqw] text-[3.4cqw] font-semibold leading-[1.3]"
-            style={{ fontFamily: SANS, color: good ? t.bg : t.ink, opacity: good ? 1 : 0.78 }}>
-            <span className="flex-none" style={{ color: good ? t.accent : t.ink }}>{good ? '✓' : '✕'}</span>
-            <span className="break-keep">{it}</span>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
+  const col = (title: string, items: string[], good: boolean) => {
+    const fg = good ? t.bg : '#ffffff';
+    return (
+      <div className="flex-1 rounded-[2.8cqw] px-[3.4cqw] py-[3.8cqw] min-w-0 flex flex-col justify-center"
+        style={{ background: good ? t.ink : COMPARE_BAD_BG }}>
+        <div style={{ fontFamily: DISPLAY, color: fg, borderBottom: `0.4cqw solid ${good ? t.bg : 'rgba(255,255,255,.55)'}` }}
+          className="text-center text-[6cqw] leading-none pb-[2.6cqw] mb-[3.6cqw]">{title}</div>
+        <ul className="flex flex-col gap-[2.8cqw]">
+          {items.map((it, i) => (
+            <li key={i} className="flex items-start gap-[1.8cqw] text-[3.4cqw] font-semibold leading-[1.3]"
+              style={{ fontFamily: SANS, color: fg, opacity: good ? 1 : 0.92 }}>
+              <span className="flex-none" style={{ color: good ? t.accent : 'rgba(255,255,255,.72)' }}>{good ? '✓' : '✕'}</span>
+              <span className="break-keep">{it}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    );
+  };
   return (
-    <div className="flex-1 min-h-0 mt-[3%] flex gap-[3cqw] items-stretch">
+    <div className="flex-1 min-h-0 mt-[3.5%] flex gap-[3cqw] items-stretch">
       {col(c.aTitle, c.aItems, false)}
       {col(c.bTitle, c.bItems, true)}
     </div>
