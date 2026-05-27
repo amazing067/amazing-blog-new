@@ -58,3 +58,7 @@ scripts/recruit-photo-src/**/*.jpeg
 scripts/recruit-photo-src/**/*.png
 scripts/recruit-photo-src/**/*.webp
 scripts/recruit-photo-src/**/*.avif
+
+# 임시 탐색/미리보기 (디스크엔 남기되 커밋 안 함) — 마스코트 컨셉·비교 갤러리, 일회성 생성 스크립트
+/public/_*
+scripts/_*.mjs
