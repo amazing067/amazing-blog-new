@@ -5,6 +5,7 @@ import { generateRecruitCardSet } from '@/lib/content/generator-recruit-card';
 import { lintRecruit } from '@/lib/content/recruit-lint';
 import { calcCost } from '@/lib/content/billing';
 import { getRecruitImage } from '@/lib/content/recruit-image';
+import { pickStrengths, RECRUIT_STRENGTH_TITLE, RECRUIT_STRENGTH_CAPSTONE } from '@/lib/content/recruit-strengths';
 import type { CardSlide, CardStyleKey } from '@/lib/content/types';
 
 const GENERATOR_MODEL = 'claude-haiku-4-5';
@@ -13,7 +14,7 @@ const STYLES: CardStyleKey[] = ['A', 'B', 'C', 'D', 'E', 'F'];
 function flatten(slides: CardSlide[]): string {
   return slides.map(s =>
     s.kind === 'cover' ? `${s.eyebrow} ${s.title} ${s.bigStat} ${s.bigStatLabel}`
-    : s.kind === 'point' ? `${s.title} ${s.body} ${s.bigStat} ${s.bigStatLabel}`
+    : s.kind === 'point' ? `${s.title} ${s.body} ${s.bigStat} ${s.bigStatLabel} ${(s.benefits ?? []).map(b => `${b.head} ${b.exp}`).join(' ')} ${s.capstone?.text ?? ''}`
     : `${s.title} ${s.items.join(' ')} ${s.footer}`).join('\n');
 }
 
@@ -52,6 +53,16 @@ export async function POST(req: Request) {
     if (breakthrough && breakthrough.kind === 'point') {
       const img = getRecruitImage(topic.pillar, 'breakthrough');
       if (img) breakthrough.image = img;
+    }
+
+    // 강점 카드(3) — AI 그리드 폐기, 고정 팩트뱅크 혜택 3개 + 캡스톤 주입(topic.slug seed로 변주).
+    const strength = set.slides[3];
+    if (strength && strength.kind === 'point') {
+      strength.layout = 'benefits';
+      strength.title = RECRUIT_STRENGTH_TITLE;
+      strength.benefits = pickStrengths(topic.slug);
+      strength.capstone = RECRUIT_STRENGTH_CAPSTONE;
+      strength.gridItems = undefined; // 구 그리드 데이터 정리
     }
     const evidence = set.slides[4];
     if (evidence && evidence.kind === 'point') {

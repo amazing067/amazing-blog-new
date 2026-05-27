@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>어메이징사업부 레퍼런스 — 시스템·팩트·리쿠르팅 메시지</title>
+<style>
+  :root{
+    --blue:#1E5BFF; --teal:#0E9AA7; --deep:#14307A; --cream:#F1ECE0;
+    --accent:#FFD23D; --ink:#0B1B33; --sub:#5B6B7A; --line:#E3E7EC; --bg:#F7F9FC;
+    --ok:#0E9AA7; --warn:#C2792B; --skip:#9AA6B2;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:'Pretendard','Apple SD Gothic Neo','Malgun Gothic',sans-serif;
+    line-height:1.65;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:960px;margin:0 auto;padding:0 24px 96px;}
+  code,.mono{font-family:'Geist Mono',ui-monospace,'SF Mono',Menlo,monospace;}
+
+  /* hero */
+  .hero{background:linear-gradient(135deg,var(--deep),var(--blue));color:#fff;
+    margin:0 -24px 40px;padding:64px 24px 56px;}
+  .hero .inner{max-width:960px;margin:0 auto;}
+  .eyebrow{font-family:'Geist Mono',monospace;letter-spacing:.18em;font-size:12px;
+    text-transform:uppercase;opacity:.8;margin:0 0 14px;}
+  .hero h1{font-size:40px;font-weight:800;line-height:1.15;margin:0 0 18px;letter-spacing:-.02em;}
+  .hero .slogan{display:inline-block;background:var(--accent);color:var(--ink);
+    font-weight:800;font-size:19px;padding:8px 16px;border-radius:10px;transform:rotate(-1.5deg);}
+  .hero p.meta{opacity:.85;font-size:13px;margin:24px 0 0;}
+
+  h2{font-size:25px;font-weight:800;letter-spacing:-.01em;margin:56px 0 6px;padding-top:8px;}
+  h2 .num{font-family:'Geist Mono',monospace;color:var(--blue);font-size:18px;margin-right:10px;}
+  .lead{color:var(--sub);font-size:15px;margin:0 0 22px;}
+  h3{font-size:17px;font-weight:800;margin:30px 0 10px;}
+
+  /* system cards */
+  .sys{display:grid;gap:14px;}
+  .card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:20px 22px;
+    box-shadow:0 1px 2px rgba(11,27,51,.04);}
+  .card.system{display:grid;grid-template-columns:130px 1fr;gap:20px;align-items:start;}
+  .card .codename{font-family:'Geist Mono',monospace;font-weight:700;font-size:20px;color:var(--blue);}
+  .card .repo{font-family:'Geist Mono',monospace;font-size:11px;color:var(--skip);margin-top:4px;word-break:break-all;}
+  .card .role{font-weight:800;font-size:16px;margin:0 0 6px;}
+  .card .desc{color:var(--ink);font-size:14px;margin:0;}
+  .card .desc .muted{color:var(--sub);}
+  .badge{display:inline-block;font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;
+    font-family:'Geist Mono',monospace;letter-spacing:.02em;margin-top:10px;}
+  .b-prod{background:#E3F6F4;color:#0A7C73;}
+  .b-live{background:#E6EDFF;color:#1E40FF;}
+  .b-build{background:#FFF3D6;color:#9A6B12;}
+  .b-skip{background:#EEF1F4;color:#7A8794;text-decoration:line-through;}
+
+  /* fact grid */
+  .facts{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:8px;}
+  .fact{background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px 18px;}
+  .fact b{display:block;font-size:15px;margin-bottom:3px;}
+  .fact span{color:var(--sub);font-size:13.5px;}
+  @media(max-width:680px){.facts{grid-template-columns:1fr;}.card.system{grid-template-columns:1fr;gap:8px;}}
+
+  table{width:100%;border-collapse:collapse;margin:10px 0;font-size:14px;}
+  th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);}
+  th{background:#fff;font-weight:800;color:var(--sub);font-size:12px;text-transform:uppercase;letter-spacing:.04em;}
+  td .mono{font-size:13px;}
+
+  .callout{border-left:4px solid var(--accent);background:#FFFCEF;padding:16px 20px;border-radius:0 12px 12px 0;margin:18px 0;}
+  .callout.blue{border-color:var(--blue);background:#F3F6FF;}
+  .callout b{font-weight:800;}
+  .guard{background:#fff;border:1px solid var(--line);border-radius:12px;padding:6px 20px;margin-top:12px;}
+  .guard li{margin:10px 0;}
+  .no{color:#C0392B;font-weight:700;}
+  .yes{color:#0A7C73;font-weight:700;}
+  .src{color:var(--skip);font-size:12px;margin-top:6px;}
+  footer{margin-top:64px;padding-top:24px;border-top:1px solid var(--line);color:var(--skip);font-size:12.5px;}
+</style>
+</head>
+<body>
+<div class="hero">
+  <div class="inner">
+    <p class="eyebrow">PRIME ASSET · AMAZING DIVISION — INTERNAL REFERENCE</p>
+    <h1>어메이징사업부 시스템·팩트<br>리쿠르팅 메시지 레퍼런스</h1>
+    <span class="slogan">영업은 재능 + 시스템입니다</span>
+    <p class="meta">입사설명회 PPTX(심플버전=정제 최종본) + 실제 코드베이스 분석 기반 · 콘텐츠 자동생성의 사실 근거 자료</p>
+  </div>
+</div>
+
+<div class="wrap">
+
+  <div class="callout blue">
+    <b>이 문서의 용도</b> — 리쿠르팅 카드·블로그·릴스를 만들 때 <b>"무엇이 진짜 특별한가"</b>의 근거.
+    핵심 결론: 어메이징의 복제 불가능한 무기는 <b>자체 개발한 시스템 생태계</b>다.
+    "교육·멘토 / 고객DB / 전문성 / 수수료" 같은 일반 GA 메시지가 아니라, <b>아래 시스템·팩트</b>로 말해야 차별화된다.
+  </div>
+
+  <h2><span class="num">01</span>핵심 메시지</h2>
+  <p class="lead">모든 리쿠르팅 콘텐츠가 수렴해야 할 한 문장과 그 증거 구조.</p>
+  <div class="callout">
+    <b>"영업은 재능이 아니라 시스템이다."</b><br>
+    타사가 외주로 빌려 쓰는 도구를, 어메이징사업부는 <b>직접 만들고 매주 업데이트</b>한다 — 외주 0, 빌려 쓰는 SaaS 0.
+    신입도 <b>10일 온보딩</b>이면 이 시스템 전부를 손에 쥐고 실전 투입된다.
+  </div>
+
+  <h2><span class="num">02</span>시스템 생태계 — 직접 만든 5개</h2>
+  <p class="lead">
+    각 시스템은 <b>독립 코드베이스(레포)</b>로 실제 존재한다. 아래는 PPTX 주장과 실제 코드를 대조해 <b>사실만</b> 정리한 것.
+    (<code>amazing-biz-work</code>(33개사 전산 통합로그인)는 <b>개발 보류 → 메시지에서 제외</b>.)
+  </p>
+
+  <div class="sys">
+    <div class="card system">
+      <div>
+        <div class="codename">Prime</div>
+        <div class="repo">amazing-biz-prime</div>
+      </div>
+      <div>
+        <p class="role">공식 홈페이지 · 채용 진입점</p>
+        <p class="desc">어메이징사업부 공식 홈페이지 + 채용 사이트. 모든 시스템과 지원자가 처음 만나는 관문. <span class="muted">Next.js 14 App Router.</span></p>
+        <span class="badge b-live">LIVE · 홈페이지</span>
+      </div>
+    </div>
+
+    <div class="card system">
+      <div>
+        <div class="codename">Server</div>
+        <div class="repo">amazing-biz-server</div>
+      </div>
+      <div>
+        <p class="role">영업 운영체제 — 보장분석 · 외부연동 · DB배정 · 전용 앱</p>
+        <p class="desc">
+          가장 큰 핵심 백엔드. <b>AI 보장분석 엔진</b>(설계서 PDF → Gemini 비전 파싱 → 부족·중복 자동 진단),
+          <b>CODEF 35개+ 보험사 계약·HIRA 의료정보 연동</b>, 30개사 <b>보험료 비교견적</b>,
+          <b>검증 DB·EMR 리드 자동배정</b>(카톡 알림톡), 실적관리,
+          그리고 <b>전용 안드로이드 앱</b>(Capacitor)까지.
+          <span class="muted">Express + PostgreSQL(106 마이그레이션) · React/Vite · 라이브 배포(어메이징사업부.com).</span>
+        </p>
+        <span class="badge b-prod">PRODUCTION</span>
+        <span class="badge b-build">메리츠 자동화 = 미완(자격증명 제거) — 과장 금지</span>
+      </div>
+    </div>
+
+    <div class="card system">
+      <div>
+        <div class="codename">Blog</div>
+        <div class="repo">amazing-biz-blog (이 레포)</div>
+      </div>
+      <div>
+        <p class="role">콘텐츠 자동 생성 — 블로그 · 카페 · 카드뉴스</p>
+        <p class="desc">
+          설계서/주제 1개 → <b>네이버 블로그 · 보험카페 Q&amp;A · 인스타 카드뉴스</b>를 AI(Gemini/Claude)로 동시 생성.
+          <b>보험 심의규정을 학습한 품질게이트</b>가 사전 채점, 통과분만 승인자에게.
+          <span class="muted">현재 리쿠르팅 콘텐츠 트랙(설계사 모집 카드·블로그·릴스)도 여기서 작업 중.</span>
+        </p>
+        <span class="badge b-prod">PRODUCTION</span>
+      </div>
+    </div>
+
+    <div class="card system">
+      <div>
+        <div class="codename">Brain</div>
+        <div class="repo">amazing-biz-brain</div>
+      </div>
+      <div>
+        <p class="role">치매·뇌건강 검진 — 검사가 영업을 연다</p>
+        <p class="desc">
+          게임형 인지검사(15종) + AI 위험도 분석 + <b>2026 vs 2036 월 본인부담금 시뮬레이션</b>.
+          "보험이 필요해요"보다 <b>고객이 직접 결과를 보는 검사</b>가 더 강하게 설득 → 상담시간 약 70% 단축.
+          <span class="muted">Next.js · 이대목동병원 등 제휴(검사는 의료 진단 대체 아님).</span>
+        </p>
+        <span class="badge b-prod">구축</span>
+      </div>
+    </div>
+
+    <div class="card system">
+      <div>
+        <div class="codename">Check</div>
+        <div class="repo">amazing-biz-check</div>
+      </div>
+      <div>
+        <p class="role">조직 운영 — 출퇴근 · TV 대시보드 · 공지</p>
+        <p class="desc">
+          태블릿 출/퇴근 체크 + 사무실 <b>TV 대시보드</b> + 실시간 공지. 조직이 한눈에 돌아가는 운영 레이어.
+        </p>
+        <span class="badge b-prod">구축</span>
+      </div>
+    </div>
+
+    <div class="card system" style="opacity:.6;">
+      <div>
+        <div class="codename" style="color:var(--skip);">Work</div>
+        <div class="repo">amazing-biz-work</div>
+      </div>
+      <div>
+        <p class="role" style="color:var(--skip);">33개사 전산 통합 로그인 (RDS)</p>
+        <p class="desc"><span class="muted">개발 보류 결정 — <b>리쿠르팅 메시지·카드에서 제외</b>한다. (이 레포는 존재하나 미진행.)</span></p>
+        <span class="badge b-skip">제외</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="callout">
+    <b>왜 이게 특별한가</b> — 일반 GA는 "교육 잘함 / DB 줌"이라 말한다. 누구나 한다.
+    어메이징은 그것을 <b>이름 붙은 자체 제품(Prime·Server·Blog·Brain·Check)으로 만들어 매주 고친다.</b>
+    이건 카피할 수 없는 엔지니어링 자산 — "이 회사는 진짜 만드는 조직이구나"가 한 장에 박힌다.
+  </div>
+
+  <h2><span class="num">03</span>전용 앱 &amp; DB 영업</h2>
+  <p class="lead">Server 위에서 돌아가는, 신입이 가장 크게 체감하는 부분.</p>
+  <div class="facts">
+    <div class="fact"><b>검증 DB 실시간 자동배정</b><span>퍼미션 DB(2차 동의) · EMR DB(의료데이터/카톡 분류). 콜드콜·지인영업에 의존하지 않아도 됨 — "만날 사람 찾기"를 시스템이 대신.</span></div>
+    <div class="fact"><b>다이렉트 비교견적</b><span>이름·연락처만 입력 → 자동차보험 다이렉트 견적. 부담 없는 첫 접점이 보장 상담으로 연결.</span></div>
+    <div class="fact"><b>사업자 세금환급</b><span>설계사 사업자 세금환급 시스템 연계.</span></div>
+    <div class="fact"><b>생활 복지</b><span>교육·취미·숙박·여행·건강검진·장보기·대형 쇼핑몰 제휴 할인 — 어플 하나에.</span></div>
+  </div>
+
+  <h2><span class="num">04</span>회사(프라임에셋) 팩트</h2>
+  <p class="lead">시스템이 "어떻게 영업하나"라면, 회사는 "오래 함께할 수 있나". 모두 공시·규정집 기반.</p>
+  <table>
+    <tr><th>축</th><th>팩트</th></tr>
+    <tr><td><b>안정성</b></td><td>초대형 GA(설계사 3,000명+ 25개사 = 전체 0.6%)에 포함 · 무차입 경영(금융부채 0) · 보증보험료 업계 최저</td></tr>
+    <tr><td><b>투명성</b></td><td>수수료 모수 <b>100% 공개</b> · 시책 본사 책임지급 · 실시간 확인(PAMS)</td></tr>
+    <tr><td><b>공정성</b></td><td>학연·지연 아닌 <b>규정집 기반 승격</b>(팀장 5천만/지사장 4억/본부장 12억) · 분할수수료 · OR(오버라이딩)</td></tr>
+    <tr><td><b>정직함</b></td><td>"부풀린 1위보다 정직한 5위" — 실활동 인원 <b>8,673명</b>(비활동 코드 제외, 자회사형 제외 시 독립 4위)</td></tr>
+    <tr><td><b>안심</b></td><td><b>환수 연대책임제 2014년 폐지</b> — 관리자가 안심하고 증원 가능</td></tr>
+    <tr><td><b>리더</b></td><td>윤성옥 본부장(대표) · 양창대 본부장(영업이사), 둘 다 13년차 · 사무실 내근 지원팀</td></tr>
+  </table>
+  <p class="src">출처: 금융감독원 · 법인보험대리점 통합공시(2024~2025년 기준) / 회사 공식 소개. 수수료·시책 예시 수치는 상품·실적·차수에 따라 달라짐.</p>
+
+  <h2><span class="num">05</span>리쿠르팅 메시지 가이드</h2>
+  <p class="lead">위 팩트를 카드/블로그/릴스에 쓸 때의 방향과 안전선.</p>
+
+  <h3>강점 카드 — 권장 방향 (제안)</h3>
+  <div class="callout blue">
+    기존 "교육·멘토 / 고객DB / 전문성 / 투명수수료 + 01~04 숫자" = <b>일반 GA 메시지</b>라 약함.<br>
+    → <b>"직접 만든 시스템 5개"를 강점 카드의 주인공으로.</b> 코드네임(영문 모노) + 한 줄 기능.
+    숫자·사물 아이콘 대신 <b>제품 코드네임</b>이 테크 신뢰감을 만든다.<br>
+    · 5개를 <b>다 보여줌</b>(추리지 않음 — "5개·외주 0"이 펀치).
+    · 레이아웃: 2×3 = 시스템 5칸 + "외주 0·전부 자체개발" 선언 1칸(빈칸 없이 꽉 참).
+    · 데이터는 <b>AI 생성 금지 → 고정 팩트뱅크</b>(시스템명·기능은 사실, 할루시 차단).
+  </div>
+
+  <h3>가드레일 (직업안정법·금소법·섀도우밴 — recruit-lint과 동일선)</h3>
+  <div class="guard"><ul>
+    <li><span class="no">금지</span> "고수익 보장 / 월○○ 확정 / 무조건" → 직업안정법 제34조</li>
+    <li><span class="no">금지</span> 외제차·명품·트로피 인증 → 2030 다단계 연상</li>
+    <li><span class="no">금지</span> 연락처 + 구체 수익 동시 노출 → 금소법 업무광고</li>
+    <li><span class="yes">권장</span> "성과에 따라 / 상위 사례 / 범위" + "DM 문의" · 시스템·팩트로 증명</li>
+  </ul></div>
+
+  <footer>
+    어메이징사업부 내부 레퍼런스 · 분석일 2026-05-27 · 근거: 입사설명회(최신/심플버전) PPTX + 6개 시스템 레포 코드 분석.<br>
+    이 문서는 사실 정리용이며 그대로 외부 광고에 쓰지 말 것 — 카드/블로그는 가드레일을 거쳐 발행한다.
+  </footer>
+
+</div>
+</body>
+</html>

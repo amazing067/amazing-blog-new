@@ -9,7 +9,7 @@ import {
   Stethoscope, Calculator, Baby, ArrowRight, Search, ClipboardCheck, Zap,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import type { CardSlide, CardIconKey, RecruitCompare, RecruitGridItem, RecruitImage } from '@/lib/content/types';
+import type { CardSlide, CardIconKey, RecruitCompare, RecruitGridItem, RecruitImage, RecruitBenefit, RecruitCapstone } from '@/lib/content/types';
 import { recruitScheme, roleForIndex, type RecruitToken } from '@/lib/content/recruit-color';
 
 type Props = { slide: CardSlide; index: number; total: number; seed?: string };
@@ -23,8 +23,10 @@ const ICONS: Record<CardIconKey, LucideIcon> = {
 const DISPLAY = "'Black Han Sans', sans-serif";
 const SANS = "'Pretendard', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif";
 const MONO = 'var(--font-geist-mono), ui-monospace, monospace';
+const ACCENT_YELLOW = '#FFD23D'; // 강점(benefits) 카드 전용 — grid 역할 악센트(블루)는 다크 타일 위 대비 약함
 const containerStyle = { containerType: 'size' } as React.CSSProperties;
-const CARD = 'relative w-full h-full overflow-hidden rounded-2xl';
+// break-keep = word-break:keep-all (상속) → 카드 전체 텍스트가 단어 중간에서 줄바뀜 안 됨(한글 음절 분리 방지).
+const CARD = 'relative w-full h-full overflow-hidden rounded-2xl break-keep';
 
 // 커버 제목 auto-fit (Black Han Sans) — 1:1 기준, 글자수↑ → 작게
 function coverTitleStyle(text: string): React.CSSProperties {
@@ -113,20 +115,44 @@ function CompareBlock({ c, t }: { c: RecruitCompare; t: RecruitToken }) {
   );
 }
 
-// 아이콘 그리드 2x2 — 셀이 높이만큼 stretch(꽉 참).
+// 강점 그리드 2x2 — 사물 아이콘 폐기, 번호형(01~04) 에디토리얼. 셀이 높이만큼 stretch(꽉 참).
 function GridBlock({ items, t }: { items: RecruitGridItem[]; t: RecruitToken }) {
   return (
     <div className="flex-1 min-h-0 mt-[3%] grid grid-cols-2 grid-rows-2 gap-[2.8cqw]">
-      {items.slice(0, 4).map((g, i) => {
-        const Icon = ICONS[g.iconKey] ?? Sparkles;
-        return (
-          <div key={i} className="rounded-[2.4cqw] p-[3.4cqw] flex flex-col justify-center gap-[2cqw] min-w-0" style={{ background: t.ink }}>
-            <Icon style={{ width: '8cqw', height: '8cqw', color: t.accent }} strokeWidth={2.6} className="flex-none" />
-            <span style={{ fontFamily: SANS, color: t.bg }} className="text-[3.7cqw] font-extrabold leading-[1.18] break-keep">{g.label}</span>
+      {items.slice(0, 4).map((g, i) => (
+        <div key={i} className="rounded-[2.4cqw] p-[3.8cqw] flex flex-col justify-center gap-[2.6cqw] min-w-0" style={{ background: t.ink }}>
+          <div className="flex flex-col gap-[1.8cqw] flex-none">
+            <span style={{ fontFamily: MONO, color: t.accent, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}
+              className="text-[10cqw] leading-none">{String(i + 1).padStart(2, '0')}</span>
+            <span className="block rounded-full" style={{ width: '7cqw', height: '0.8cqw', background: t.accent }} />
           </div>
-        );
-      })}
+          <span style={{ fontFamily: SANS, color: t.bg }} className="text-[4cqw] font-extrabold leading-[1.2] break-keep">{g.label}</span>
+        </div>
+      ))}
     </div>
+  );
+}
+
+// 강점 카드(혜택 중심) — 다크 타일 3개(혜택 헤드라인+설명) + 옐로 캡스톤 띠(자체개발·연동).
+// exp/capstone.text는 whitespace-pre-line으로 '\n' 수동 줄바꿈 렌더(단어 중간 줄바꿈은 break-keep로 차단).
+function BenefitBlock({ benefits, capstone, t }: { benefits: RecruitBenefit[]; capstone?: RecruitCapstone; t: RecruitToken }) {
+  return (
+    <>
+      <div className="flex-1 min-h-0 mt-[3%] flex flex-col gap-[2.4cqw]">
+        {benefits.slice(0, 3).map((b, i) => (
+          <div key={i} className="flex-1 min-h-0 overflow-hidden rounded-[2.6cqw] px-[4cqw] py-[2.4cqw] flex flex-col justify-center gap-[1.1cqw]" style={{ background: t.ink }}>
+            <span style={{ fontFamily: SANS, color: ACCENT_YELLOW }} className="text-[4.6cqw] font-extrabold leading-[1.1] break-keep">{b.head}</span>
+            <span style={{ fontFamily: SANS, color: t.bg }} className="text-[3.05cqw] font-semibold leading-[1.28] break-keep whitespace-pre-line opacity-95">{b.exp}</span>
+          </div>
+        ))}
+      </div>
+      {capstone && (
+        <div className="flex-none mt-[2.6cqw] rounded-[2.6cqw] px-[3.6cqw] py-[2.6cqw] flex items-center gap-[2.6cqw]" style={{ background: ACCENT_YELLOW }}>
+          <span style={{ fontFamily: MONO, background: t.ink, color: ACCENT_YELLOW }} className="flex-none text-[3cqw] font-bold rounded-[1.2cqw] px-[2cqw] py-[1cqw] whitespace-nowrap">{capstone.chip}</span>
+          <span style={{ fontFamily: SANS, color: t.ink }} className="text-[3.3cqw] font-extrabold leading-[1.22] break-keep whitespace-pre-line">{capstone.text}</span>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -198,7 +224,21 @@ export function RecruitCardStyle({ slide, index, total, seed = '' }: Props) {
     const layout = slide.layout ?? 'default';
     const showCompare = layout === 'compare' && !!slide.compare;
     const showGrid = layout === 'grid' && !!slide.gridItems;
+    const showBenefits = layout === 'benefits' && !!slide.benefits;
 
+    if (showBenefits && slide.benefits) {
+      return (
+        <div style={{ ...containerStyle, background: t.bg, color: t.ink }} className={CARD}>
+          <div className="relative z-10 h-full flex flex-col px-[7%] py-[6.4%]">
+            {TopRow}
+            <h3 style={{ fontFamily: SANS, fontWeight: 800, fontSize: '6.2cqw', lineHeight: 1.12, letterSpacing: '-0.02em' }}
+              className="break-keep flex-none mt-[2.4%]">{slide.title.replace(/\n/g, ' ')}</h3>
+            <BenefitBlock benefits={slide.benefits} capstone={slide.capstone} t={t} />
+            <div className="flex-none pt-[2.8%]"><StepDots index={index} total={total} ink={t.ink} /></div>
+          </div>
+        </div>
+      );
+    }
     if (showCompare && slide.compare) {
       return (
         <div style={{ ...containerStyle, background: t.bg, color: t.ink }} className={CARD}>
@@ -234,7 +274,7 @@ export function RecruitCardStyle({ slide, index, total, seed = '' }: Props) {
           <div className="flex-1 min-h-0 flex flex-col justify-end gap-[3cqw]">
             {!hasPhoto && <IconBadge k={slide.iconKey} t={t} size={13} />}
             <h3 style={bodyTitleStyle(slide.title)} className="tracking-tight break-keep">{slide.title.replace(/\n/g, ' ')}</h3>
-            {slide.body && <p style={{ fontFamily: SANS, color: t.ink }} className="text-[3.8cqw] font-medium leading-[1.5] max-w-[94%]">{slide.body}</p>}
+            {slide.body && <p style={{ fontFamily: SANS, color: t.ink }} className="text-[3.8cqw] font-medium leading-[1.5] max-w-[94%] text-balance">{slide.body}</p>}
             <div><Sticker t={t}>{slide.bigStat}</Sticker></div>
           </div>
           <div className="flex-none pt-[3.5%]"><StepDots index={index} total={total} ink={t.ink} /></div>

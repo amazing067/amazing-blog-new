@@ -62,6 +62,11 @@ export type RecruitCompare = {
 };
 export type RecruitGridItem = { iconKey: CardIconKey; label: string };
 
+// 강점 카드(혜택 중심) — 다크 타일 1개. exp의 '\n'은 의도적 줄바꿈(구절 경계, 단어 중간 금지).
+export type RecruitBenefit = { head: string; exp: string };
+// 강점 카드 하단 캡스톤 띠 — "전부 직접 만들어 하나로 연동" 펀치라인(고정).
+export type RecruitCapstone = { chip: string; text: string };
+
 // 리쿠르팅 듀오톤 사진 — 커버·통념·증거 카드(1·3·5)에 들어감.
 // src는 로컬 경로(캡처 안정), tint는 듀오톤 브랜드색(pre-bake 시 이미 적용된 경우 표시용).
 export type RecruitImage = { src: string; tint: string };
@@ -96,9 +101,11 @@ export type CardSlide =
       iconKey: CardIconKey;
       source?: SlideSource;     // 각 포인트의 통계 출처
       // ↓ 리쿠르팅 전용 인포그래픽 레이아웃 (보험 카드는 미사용 — optional이라 영향 없음)
-      layout?: 'default' | 'compare' | 'grid';
+      layout?: 'default' | 'compare' | 'grid' | 'benefits';
       compare?: RecruitCompare;        // layout='compare' 일 때
-      gridItems?: RecruitGridItem[];   // layout='grid' 일 때 (3~4개)
+      gridItems?: RecruitGridItem[];   // layout='grid' 일 때 (3~4개, 구버전 카드 하위호환)
+      benefits?: RecruitBenefit[];     // layout='benefits' 일 때 (강점 카드, 정확히 3개) — route가 팩트뱅크에서 주입
+      capstone?: RecruitCapstone;      // layout='benefits' 일 때 하단 캡스톤 띠 (고정)
       image?: RecruitImage;            // 리쿠르팅 전용 — 통념·증거 카드 듀오톤 사진(로컬). 없으면 단색 fallback.
     }
   | {
