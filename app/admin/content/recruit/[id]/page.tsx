@@ -56,7 +56,7 @@ export default async function RecruitDetailPage({ params }: { params: Promise<{ 
 
       <div className="mb-6">
         <h1 className="text-3xl font-bold text-slate-900 leading-tight">{item.title}</h1>
-        <p className="mt-2 text-sm text-slate-500">6장 캐러셀 · 전용 트렌디 디자인 · 생성 {new Date(item.created_at).toLocaleString('ko-KR')}</p>
+        <p className="mt-2 text-sm text-slate-500">6장 캐러셀 · 전용 트렌디 디자인 · 생성 {new Date(item.created_at).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}</p>
       </div>
 
       <RecruitDetailClient

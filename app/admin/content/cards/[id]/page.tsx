@@ -66,7 +66,7 @@ export default async function CardsDetailPage({ params }: { params: Promise<{ id
 
       <div className="mb-6">
         <h1 className="text-3xl font-bold text-slate-900 leading-tight">{item.title}</h1>
-        <p className="mt-2 text-sm text-slate-500">5장 시리즈 + 심의필 1장 · 생성 {new Date(item.created_at).toLocaleString('ko-KR')}</p>
+        <p className="mt-2 text-sm text-slate-500">5장 시리즈 + 심의필 1장 · 생성 {new Date(item.created_at).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}</p>
       </div>
 
       <CardsDetailClient

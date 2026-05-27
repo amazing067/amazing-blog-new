@@ -146,7 +146,7 @@ export default async function NewsDetailPage({ params }: { params: Promise<{ id:
               )}
               <span className="inline-flex items-center gap-1.5 text-xs text-slate-500">
                 <Calendar className="w-3 h-3" />
-                {new Date(item.created_at).toLocaleString('ko-KR', { dateStyle: 'medium', timeStyle: 'short' })}
+                {new Date(item.created_at).toLocaleString('ko-KR', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Seoul' })}
               </span>
             </div>
             <h1 className="text-3xl font-bold text-slate-900 leading-tight tracking-tight">{item.title}</h1>

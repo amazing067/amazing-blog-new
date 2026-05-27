@@ -125,7 +125,7 @@ export default async function BillingPage() {
             <tbody>
               {rows.map(r => (
                 <tr key={r.id} className="border-t border-slate-100 hover:bg-slate-50">
-                  <td className="px-4 py-2 text-xs text-slate-500 font-mono">{new Date(r.created_at).toLocaleDateString('ko-KR')}</td>
+                  <td className="px-4 py-2 text-xs text-slate-500 font-mono">{new Date(r.created_at).toLocaleDateString('ko-KR', { timeZone: 'Asia/Seoul' })}</td>
                   <td className="px-4 py-2">
                     <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
                       r.type === 'card' ? 'bg-violet-100 text-violet-800' : 'bg-teal-100 text-teal-800'

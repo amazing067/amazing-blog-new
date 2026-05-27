@@ -118,7 +118,7 @@ export default async function BlogListPage({
                         <p className="mt-1 text-xs text-slate-500 line-clamp-1">{row.meta_description}</p>
                       )}
                       <div className="mt-1.5 flex items-center gap-3 text-[11px] text-slate-500">
-                        <span>{new Date(row.created_at).toLocaleString('ko-KR', { dateStyle: 'short', timeStyle: 'short' })}</span>
+                        <span>{new Date(row.created_at).toLocaleString('ko-KR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'Asia/Seoul' })}</span>
                         <span className="text-slate-400">{charCount.toLocaleString('ko-KR')}자</span>
                         {score != null && (
                           <span className={`font-mono font-semibold ${riskTone(score)}`}>위험도 {score}</span>

@@ -151,7 +151,7 @@ export default async function CardsListPage({
                         {row.title}
                       </h3>
                       <div className="mt-1 flex items-center gap-3 text-[11px] text-slate-500">
-                        <span>{new Date(row.created_at).toLocaleString('ko-KR', { dateStyle: 'short', timeStyle: 'short' })}</span>
+                        <span>{new Date(row.created_at).toLocaleString('ko-KR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'Asia/Seoul' })}</span>
                         {score != null && (
                           <span className={`font-mono font-semibold ${riskTone(score)}`}>위험도 {score}</span>
                         )}

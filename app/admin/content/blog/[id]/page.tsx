@@ -47,7 +47,7 @@ export default async function BlogDetailPage({ params }: { params: Promise<{ id:
           <p className="mt-2 text-sm text-slate-500 leading-relaxed">{item.meta_description}</p>
         )}
         <p className="mt-1 text-xs text-slate-400">
-          생성 {new Date(item.created_at).toLocaleString('ko-KR')} · {(item.body_md?.length ?? 0).toLocaleString('ko-KR')}자
+          생성 {new Date(item.created_at).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })} · {(item.body_md?.length ?? 0).toLocaleString('ko-KR')}자
         </p>
       </div>
 

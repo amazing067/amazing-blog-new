@@ -150,7 +150,7 @@ export default async function NewsListPage({
                 </div>
 
                 <div className="mt-4 flex items-center justify-between text-xs text-slate-400">
-                  <span>{new Date(row.created_at).toLocaleString('ko-KR', { dateStyle: 'short', timeStyle: 'short' })}</span>
+                  <span>{new Date(row.created_at).toLocaleString('ko-KR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'Asia/Seoul' })}</span>
                   <span className="text-emerald-600 group-hover:translate-x-1 transition">상세 →</span>
                 </div>
               </Link>
