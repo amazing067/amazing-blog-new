@@ -14,12 +14,11 @@ export const SLOT_TINT: Record<RecruitImageSlot, string> = {
 
 // 큐레이션된 pre-bake 듀오톤 사진 풀: public/recruit-photos/<slot>/<file>.jpg
 // 국적-중립 장면(노트북·책상·손·카페·도시·뒷모습) 위주. pillar별로 분류.
-// 아직 번들 전이면 빈 배열 → getRecruitImage가 undefined → 렌더는 단색 fallback.
-const POOL: Record<RecruitImageSlot, Partial<Record<RecruitPillar, string[]>>> = {
-  cover: {},
-  breakthrough: {},
-  evidence: {},
-};
+// 이 JSON은 `node scripts/bake-recruit-duotone.mjs`가 자동 생성/갱신한다(수동 편집 금지).
+// 아직 사진을 안 구웠으면 빈 객체 → getRecruitImage가 undefined → 렌더는 단색 fallback.
+import POOL_JSON from './recruit-image-pool.json';
+
+const POOL = POOL_JSON as Record<RecruitImageSlot, Partial<Record<RecruitPillar, string[]>>>;
 
 /** 슬롯+pillar로 듀오톤 사진 1장 선택. 풀이 비면 undefined(렌더 단색 fallback). */
 export function getRecruitImage(pillar: RecruitPillar, slot: RecruitImageSlot): RecruitImage | undefined {

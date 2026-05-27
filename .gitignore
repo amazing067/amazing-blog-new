@@ -48,3 +48,13 @@ data/sheets/*.csv
 /*.zip
 .vercel
 .superpowers/
+
+# playwright MCP temp output
+/.playwright-mcp/
+
+# 리쿠르팅 듀오톤 원본 스톡 (구운 결과 public/recruit-photos만 커밋, 원본은 로컬)
+scripts/recruit-photo-src/**/*.jpg
+scripts/recruit-photo-src/**/*.jpeg
+scripts/recruit-photo-src/**/*.png
+scripts/recruit-photo-src/**/*.webp
+scripts/recruit-photo-src/**/*.avif

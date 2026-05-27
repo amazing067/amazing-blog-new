@@ -1,0 +1,103 @@
+{
+  "cover": {
+    "P1-empathy": [
+      "all__pexels-17735079.jpg",
+      "all__pexels-240038.jpg",
+      "all__pexels-240224.jpg",
+      "all__pexels-5356215.jpg",
+      "all__pexels-6893329.jpg"
+    ],
+    "P2-system": [
+      "all__pexels-17735079.jpg",
+      "all__pexels-240038.jpg",
+      "all__pexels-240224.jpg",
+      "all__pexels-5356215.jpg",
+      "all__pexels-6893329.jpg"
+    ],
+    "P3-income": [
+      "all__pexels-17735079.jpg",
+      "all__pexels-240038.jpg",
+      "all__pexels-240224.jpg",
+      "all__pexels-5356215.jpg",
+      "all__pexels-6893329.jpg"
+    ],
+    "P4-lifestyle": [
+      "all__pexels-17735079.jpg",
+      "all__pexels-240038.jpg",
+      "all__pexels-240224.jpg",
+      "all__pexels-5356215.jpg",
+      "all__pexels-6893329.jpg"
+    ],
+    "P5-story": [
+      "all__pexels-17735079.jpg",
+      "all__pexels-240038.jpg",
+      "all__pexels-240224.jpg",
+      "all__pexels-5356215.jpg",
+      "all__pexels-6893329.jpg"
+    ]
+  },
+  "breakthrough": {
+    "P1-empathy": [
+      "all__pexels-1181644.jpg",
+      "all__pexels-17810854.jpg",
+      "all__pexels-7662061.jpg",
+      "all__pexels-8374259.jpg"
+    ],
+    "P2-system": [
+      "all__pexels-1181644.jpg",
+      "all__pexels-17810854.jpg",
+      "all__pexels-7662061.jpg",
+      "all__pexels-8374259.jpg"
+    ],
+    "P3-income": [
+      "all__pexels-1181644.jpg",
+      "all__pexels-17810854.jpg",
+      "all__pexels-7662061.jpg",
+      "all__pexels-8374259.jpg"
+    ],
+    "P4-lifestyle": [
+      "all__pexels-1181644.jpg",
+      "all__pexels-17810854.jpg",
+      "all__pexels-7662061.jpg",
+      "all__pexels-8374259.jpg"
+    ],
+    "P5-story": [
+      "all__pexels-1181644.jpg",
+      "all__pexels-17810854.jpg",
+      "all__pexels-7662061.jpg",
+      "all__pexels-8374259.jpg"
+    ]
+  },
+  "evidence": {
+    "P1-empathy": [
+      "all__pexels-6285258.jpg",
+      "all__pexels-669613.jpg",
+      "all__pexels-7580769.jpg",
+      "all__pexels-7580854.jpg"
+    ],
+    "P2-system": [
+      "all__pexels-6285258.jpg",
+      "all__pexels-669613.jpg",
+      "all__pexels-7580769.jpg",
+      "all__pexels-7580854.jpg"
+    ],
+    "P3-income": [
+      "all__pexels-6285258.jpg",
+      "all__pexels-669613.jpg",
+      "all__pexels-7580769.jpg",
+      "all__pexels-7580854.jpg"
+    ],
+    "P4-lifestyle": [
+      "all__pexels-6285258.jpg",
+      "all__pexels-669613.jpg",
+      "all__pexels-7580769.jpg",
+      "all__pexels-7580854.jpg"
+    ],
+    "P5-story": [
+      "all__pexels-6285258.jpg",
+      "all__pexels-669613.jpg",
+      "all__pexels-7580769.jpg",
+      "all__pexels-7580854.jpg"
+    ]
+  }
+}
