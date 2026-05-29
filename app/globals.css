@@ -1,7 +1,11 @@
 @import "tailwindcss";
 @plugin "@tailwindcss/typography";
 
+/* 어드민/콘텐츠 UI는 라이트 전용 디자인(다크 대응 미설계). OS가 다크모드여도
+   라이트로 고정해 "검정 배경 위 검정 글씨"로 글씨가 안 보이는 문제를 막는다.
+   (color-scheme: light → 폼 컨트롤·스크롤바도 라이트로 강제) */
 :root {
+  color-scheme: light;
   --background: #ffffff;
   --foreground: #171717;
 }
@@ -11,13 +15,6 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
 }
 
 body {

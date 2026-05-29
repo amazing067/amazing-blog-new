@@ -1,12 +1,16 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
-import { Copy, Download, CheckCircle2, X, Trash2, Loader2, Shield, Search, Pencil, Save, Code } from 'lucide-react';
+import { Copy, CheckCircle2, X, Trash2, Loader2, Shield, Search, Pencil, Save, Code, FileDown, ImageDown } from 'lucide-react';
 import { mdComponents } from '../../news/[id]/MdComponents';
+import { copyArticleForNaver } from '@/lib/content/naver-clipboard';
+import { downloadArticlePdf } from '@/lib/content/article-pdf';
+import { downloadArticleImages } from '@/lib/content/article-image';
+import { complianceFooterHtml } from '@/lib/content/compliance-footer';
 import type { ComplianceInfo } from '@/lib/content/types';
 
 const LS_REG = (uid: string) => `insurance_registration_number_${uid}`;
@@ -51,6 +55,8 @@ export default function BlogDetailClient({ id, userId, defaultDesigner, title, b
   const [url, setUrl] = useState(publishUrl);
   const [body, setBody] = useState(initialBody);
   const [editing, setEditing] = useState(false);
+  const [naverProg, setNaverProg] = useState<string | null>(null);
+  const articleRef = useRef<HTMLDivElement>(null);
   const dirty = body !== initialBody;
 
   const [comp, setComp] = useState<ComplianceInfo>({
@@ -116,6 +122,54 @@ export default function BlogDetailClient({ id, userId, defaultDesigner, title, b
       router.refresh();
     } catch (e) {
       alert('본문 저장 실패: ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function copyForNaver() {
+    if (editing) { alert('편집 모드에서는 복사할 수 없습니다. 먼저 저장하세요.'); return; }
+    if (!articleRef.current) return;
+    setBusy('naver');
+    setNaverProg(null);
+    try {
+      await copyArticleForNaver(articleRef.current, title, {
+        footerHtml: complianceFooterHtml(comp),
+        onProgress: (d, t) => setNaverProg(t > 0 ? `이미지 변환 ${d}/${t}` : null),
+      });
+      alert('네이버 블로그용으로 복사됐습니다.\n네이버 글쓰기 화면에서 붙여넣기(Ctrl+V) 하세요.\n(통계·비교 같은 시각 블록은 이미지로, 본문은 글자로, 심의번호 입력 시 푸터까지 들어갑니다)');
+    } catch (e) {
+      alert('복사 실패: ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setBusy(null);
+      setNaverProg(null);
+    }
+  }
+
+  async function downloadPdf() {
+    if (editing) { alert('편집 모드에서는 PDF를 만들 수 없습니다. 먼저 저장하세요.'); return; }
+    if (!articleRef.current) return;
+    setBusy('pdf');
+    try {
+      await downloadArticlePdf(articleRef.current, title, complianceFooterHtml(comp));
+    } catch (e) {
+      alert('PDF 생성 실패: ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function downloadImages() {
+    if (editing) { alert('편집 모드에서는 만들 수 없습니다. 먼저 저장하세요.'); return; }
+    if (!articleRef.current) return;
+    setBusy('image');
+    try {
+      const { count } = await downloadArticleImages(articleRef.current, title, complianceFooterHtml(comp));
+      alert(count > 1
+        ? `전체 이미지 ${count}장이 ZIP으로 저장됐습니다. 네이버에 순서대로 올리세요.`
+        : '전체 이미지(PNG)가 저장됐습니다.');
+    } catch (e) {
+      alert('이미지 생성 실패: ' + (e instanceof Error ? e.message : String(e)));
     } finally {
       setBusy(null);
     }
@@ -204,7 +258,7 @@ export default function BlogDetailClient({ id, userId, defaultDesigner, title, b
               className="w-full min-h-[600px] rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-mono leading-relaxed focus:border-blue-400 focus:outline-none"
             />
           ) : (
-            <div className="max-w-none">
+            <div className="max-w-none" ref={articleRef}>
               <ReactMarkdown remarkPlugins={[[remarkGfm, { singleTilde: false }]]} rehypePlugins={[rehypeRaw]} components={mdComponents}>
                 {body}
               </ReactMarkdown>
@@ -217,25 +271,38 @@ export default function BlogDetailClient({ id, userId, defaultDesigner, title, b
       <div className="space-y-4">
         {/* 다운로드 */}
         <div className="rounded-2xl border border-blue-200 bg-blue-50 p-5">
-          <h3 className="font-bold text-blue-900 mb-2">블로그 게시용 다운로드</h3>
+          <h3 className="font-bold text-blue-900 mb-2">블로그 게시용 복사·다운로드</h3>
           <p className="text-[11px] text-blue-800 mb-3 leading-relaxed">
-            심의번호 입력하면 본문 끝에 자동 삽입됩니다.
+            네이버는 HTML을 못 받습니다. <b>네이버용 복사</b>는 본문은 글자로, 시각 블록은 이미지로 붙여넣어집니다.
           </p>
-          <button disabled={!!busy} onClick={copyAsHtml}
-            className="w-full mb-2 inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 hover:bg-slate-800 px-4 py-3 text-sm font-bold text-white shadow-sm disabled:opacity-50 transition">
-            {busy === 'copyhtml' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Copy className="w-4 h-4" />}
-            HTML 클립보드 복사
+          {/* 네이버용 복사 — 가장 강조 */}
+          <button disabled={!!busy} onClick={copyForNaver}
+            className="w-full mb-2 inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 px-4 py-3 text-sm font-bold text-white shadow-sm disabled:opacity-50 transition">
+            {busy === 'naver' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Copy className="w-4 h-4" />}
+            {busy === 'naver' ? (naverProg ?? '복사 준비 중…') : '네이버 블로그용 복사'}
           </button>
-          <div className="grid grid-cols-2 gap-2">
-            <button disabled={!!busy} onClick={() => downloadFile('html')}
-              className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-blue-200 hover:bg-white px-3 py-2 text-xs font-medium text-blue-700 disabled:opacity-50 transition">
-              <Code className="w-3.5 h-3.5" /> .html
-            </button>
-            <button disabled={!!busy} onClick={() => downloadFile('md')}
-              className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-blue-200 hover:bg-white px-3 py-2 text-xs font-medium text-blue-700 disabled:opacity-50 transition">
-              <Download className="w-3.5 h-3.5" /> .md
-            </button>
-          </div>
+          {/* 전체 이미지 — 픽셀 그대로(긴 글은 여러 장 ZIP) */}
+          <button disabled={!!busy} onClick={downloadImages}
+            className="w-full mb-2 inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm disabled:opacity-50 transition">
+            {busy === 'image' ? <Loader2 className="w-4 h-4 animate-spin" /> : <ImageDown className="w-4 h-4" />}
+            전체 이미지로 저장
+          </button>
+          {/* PDF */}
+          <button disabled={!!busy} onClick={downloadPdf}
+            className="w-full mb-2 inline-flex items-center justify-center gap-2 rounded-xl bg-rose-600 hover:bg-rose-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm disabled:opacity-50 transition">
+            {busy === 'pdf' ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileDown className="w-4 h-4" />}
+            PDF 다운로드
+          </button>
+          {/* 보조: HTML(티스토리 등 HTML 지원처) */}
+          <button disabled={!!busy} onClick={copyAsHtml}
+            className="w-full mb-2 inline-flex items-center justify-center gap-2 rounded-lg border border-blue-200 hover:bg-white px-4 py-2 text-xs font-medium text-blue-700 disabled:opacity-50 transition">
+            {busy === 'copyhtml' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Code className="w-3.5 h-3.5" />}
+            HTML 복사 (티스토리 등)
+          </button>
+          <button disabled={!!busy} onClick={() => downloadFile('html')}
+            className="w-full inline-flex items-center justify-center gap-1.5 rounded-lg border border-blue-200 hover:bg-white px-3 py-2 text-xs font-medium text-blue-700 disabled:opacity-50 transition">
+            <Code className="w-3.5 h-3.5" /> .html 파일 저장
+          </button>
         </div>
 
         {/* 발행 마킹 */}

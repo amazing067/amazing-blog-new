@@ -24,7 +24,7 @@ export function CompareCard({ raw }: { raw: string }) {
   ];
 
   return (
-    <div className="my-5 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+    <div data-naver-image className="my-5 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
       <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 px-1">⚖️ 비교</div>
       <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${cardCount}, minmax(0, 1fr))` }}>
         {header.slice(1).map((name, i) => (
@@ -63,7 +63,7 @@ export function StepsCard({ raw }: { raw: string }) {
   }).filter(Boolean) as { num: string; title: string; desc: string }[];
 
   return (
-    <div className="my-5">
+    <div data-naver-image className="my-5">
       <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 px-1">📋 단계별 진행</div>
       <ol className="space-y-2">
         {steps.map((s, i) => (
@@ -97,7 +97,7 @@ export function StatBox({ raw }: { raw: string }) {
   if (stats.length === 0) return <pre>{raw}</pre>;
   const cols = stats.length === 1 ? 'grid-cols-1' : stats.length === 2 ? 'grid-cols-2' : 'grid-cols-3';
   return (
-    <div className={`my-5 grid gap-2 ${cols}`}>
+    <div data-naver-image className={`my-5 grid gap-2 ${cols}`}>
       {stats.map((s, i) => (
         <div key={i} className="rounded-2xl bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white shadow-md flex flex-col justify-center items-center text-center px-4 py-7 min-h-[140px]">
           <div className="text-[44px] font-black leading-none tracking-tight">{s.value}</div>
@@ -125,7 +125,7 @@ export function ChecklistCard({ raw }: { raw: string }) {
     if (m) items.push(m[1].trim());
   }
   return (
-    <div className="my-5 rounded-2xl bg-gradient-to-br from-emerald-50 to-teal-50 ring-2 ring-emerald-300 p-5 shadow-sm">
+    <div data-naver-image className="my-5 rounded-2xl bg-gradient-to-br from-emerald-50 to-teal-50 ring-2 ring-emerald-300 p-5 shadow-sm">
       <div className="flex items-center gap-2 mb-3 pb-3 border-b border-emerald-200">
         <CheckCircle2 className="w-6 h-6 text-emerald-600" />
         <h4 className="font-black text-emerald-900 text-[18px]">{title}</h4>
@@ -165,7 +165,7 @@ export function CtaBox({ raw }: { raw: string }) {
     else if (!body && l.trim()) body += (body ? ' ' : '') + l.trim();
   }
   return (
-    <div className="my-6 rounded-3xl bg-gradient-to-br from-emerald-600 via-teal-600 to-cyan-700 text-white shadow-xl relative overflow-hidden">
+    <div data-naver-image className="my-6 rounded-3xl bg-gradient-to-br from-emerald-600 via-teal-600 to-cyan-700 text-white shadow-xl relative overflow-hidden">
       <div className="absolute -top-10 -right-10 w-44 h-44 rounded-full bg-white/10" />
       <div className="absolute -bottom-12 -left-10 w-56 h-56 rounded-full bg-white/5" />
       <div className="relative px-7 py-7 flex flex-col">
@@ -197,7 +197,7 @@ export function SvgInfographic({ raw }: { raw: string }) {
     .replace(/\son\w+\s*=\s*"[^"]*"/gi, '')
     .replace(/\son\w+\s*=\s*'[^']*'/gi, '');
   return (
-    <div className="my-5 rounded-2xl bg-slate-50 ring-1 ring-slate-200 px-4 py-5 flex justify-center">
+    <div data-naver-image className="my-5 rounded-2xl bg-slate-50 ring-1 ring-slate-200 px-4 py-5 flex justify-center">
       <div className="w-full max-w-full overflow-x-auto" dangerouslySetInnerHTML={{ __html: sanitized }} />
     </div>
   );

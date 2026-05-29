@@ -1,15 +1,68 @@
 'use client';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { Copy, Download, CheckCircle2, X, RefreshCw, Loader2, Trash2 } from 'lucide-react';
+import { Copy, CheckCircle2, X, RefreshCw, Loader2, Trash2, FileDown, ImageDown } from 'lucide-react';
+import { copyArticleForNaver } from '@/lib/content/naver-clipboard';
+import { downloadArticlePdf } from '@/lib/content/article-pdf';
+import { downloadArticleImages } from '@/lib/content/article-image';
 
 type Props = { id: string; status: string; title: string; bodyMd: string; publishUrl: string };
 
-export default function NewsActions({ id, status, title, bodyMd, publishUrl }: Props) {
+const articleEl = () => document.getElementById('naver-article-body') as HTMLElement | null;
+
+export default function NewsActions({ id, status, title, publishUrl }: Props) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
   const [url, setUrl] = useState(publishUrl);
   const [copied, setCopied] = useState(false);
+  const [naverProg, setNaverProg] = useState<string | null>(null);
+
+  async function copyForNaver() {
+    const el = articleEl();
+    if (!el) { alert('본문을 찾지 못했습니다.'); return; }
+    setBusy('naver');
+    setNaverProg(null);
+    try {
+      await copyArticleForNaver(el, title, {
+        onProgress: (d, t) => setNaverProg(t > 0 ? `이미지 변환 ${d}/${t}` : null),
+      });
+      alert('네이버 블로그용으로 복사됐습니다.\n네이버 글쓰기 화면에서 붙여넣기(Ctrl+V) 하세요.\n(통계·비교 같은 시각 블록은 이미지로, 본문은 글자로 들어갑니다)');
+    } catch (e) {
+      alert('복사 실패: ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setBusy(null);
+      setNaverProg(null);
+    }
+  }
+
+  async function downloadPdf() {
+    const el = articleEl();
+    if (!el) { alert('본문을 찾지 못했습니다.'); return; }
+    setBusy('pdf');
+    try {
+      await downloadArticlePdf(el, title);
+    } catch (e) {
+      alert('PDF 생성 실패: ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function downloadImages() {
+    const el = articleEl();
+    if (!el) { alert('본문을 찾지 못했습니다.'); return; }
+    setBusy('image');
+    try {
+      const { count } = await downloadArticleImages(el, title);
+      alert(count > 1
+        ? `전체 이미지 ${count}장이 ZIP으로 저장됐습니다. 네이버에 순서대로 올리세요.`
+        : '전체 이미지(PNG)가 저장됐습니다.');
+    } catch (e) {
+      alert('이미지 생성 실패: ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setBusy(null);
+    }
+  }
 
   async function copyToCafe() {
     setBusy('copy');
@@ -25,17 +78,6 @@ export default function NewsActions({ id, status, title, bodyMd, publishUrl }: P
     } finally {
       setBusy(null);
     }
-  }
-
-  function downloadMd() {
-    setBusy('download');
-    const blob = new Blob([`# ${title}\n\n${bodyMd}\n`], { type: 'text/markdown;charset=utf-8' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `${title.replace(/[\\/:*?"<>|]/g, '_')}.md`;
-    a.click();
-    URL.revokeObjectURL(a.href);
-    setTimeout(() => setBusy(null), 500);
   }
 
   async function call(action: string, path: string, label: string, body?: unknown, method: 'POST' | 'DELETE' = 'POST') {
@@ -62,25 +104,46 @@ export default function NewsActions({ id, status, title, bodyMd, publishUrl }: P
 
   return (
     <div className="space-y-3">
-      {/* 1. 카페용 복사 — 가장 큰 강조 */}
+      {/* 1. 네이버 블로그용 복사 — 서식글+이미지 (가장 강조) */}
+      <button
+        disabled={!!busy}
+        onClick={copyForNaver}
+        className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 px-4 py-3 text-sm font-bold text-white shadow-sm disabled:opacity-50 transition"
+      >
+        {busy === 'naver' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Copy className="w-4 h-4" />}
+        {busy === 'naver' ? (naverProg ?? '복사 준비 중…') : '네이버 블로그용 복사'}
+      </button>
+
+      {/* 2. 전체 이미지로 저장 (긴 글은 여러 장 ZIP) */}
+      <button
+        disabled={!!busy}
+        onClick={downloadImages}
+        className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm disabled:opacity-50 transition"
+      >
+        {busy === 'image' ? <Loader2 className="w-4 h-4 animate-spin" /> : <ImageDown className="w-4 h-4" />}
+        전체 이미지로 저장
+      </button>
+
+      {/* 3. PDF 다운로드 */}
+      <button
+        disabled={!!busy}
+        onClick={downloadPdf}
+        className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-rose-600 hover:bg-rose-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm disabled:opacity-50 transition"
+      >
+        {busy === 'pdf' ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileDown className="w-4 h-4" />}
+        PDF 다운로드
+      </button>
+
+      {/* 3. 카페용 텍스트 복사 (순수 텍스트) */}
       <button
         disabled={!!busy}
         onClick={copyToCafe}
-        className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 hover:bg-slate-800 px-4 py-3 text-sm font-semibold text-white shadow-sm disabled:opacity-50 transition"
-      >
-        {busy === 'copy' ? <Loader2 className="w-4 h-4 animate-spin" /> :
-         copied ? <CheckCircle2 className="w-4 h-4 text-emerald-300" /> :
-                  <Copy className="w-4 h-4" />}
-        {copied ? '복사 완료!' : '카페용 텍스트 복사'}
-      </button>
-
-      <button
-        disabled={!!busy}
-        onClick={downloadMd}
         className="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 hover:bg-slate-50 px-4 py-2.5 text-sm font-medium text-slate-700 disabled:opacity-50 transition"
       >
-        <Download className="w-4 h-4" />
-        .md 다운로드
+        {busy === 'copy' ? <Loader2 className="w-4 h-4 animate-spin" /> :
+         copied ? <CheckCircle2 className="w-4 h-4 text-emerald-600" /> :
+                  <Copy className="w-4 h-4" />}
+        {copied ? '복사 완료!' : '카페용 텍스트 복사 (순수 텍스트)'}
       </button>
 
       {/* 2. 발행 마킹 */}

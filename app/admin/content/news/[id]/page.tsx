@@ -154,7 +154,7 @@ export default async function NewsDetailPage({ params }: { params: Promise<{ id:
 
           {/* 본문 영역 — 카카오페이 머니콘텐츠 톤 마크다운 컴포넌트 */}
           <div className="px-8 py-10">
-            <div className="max-w-none">
+            <div className="max-w-none" id="naver-article-body">
               <ArticleBody markdown={item.body_md ?? ''} />
             </div>
 
