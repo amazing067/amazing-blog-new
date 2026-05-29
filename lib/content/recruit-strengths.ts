@@ -14,6 +14,8 @@ export const RECRUIT_STRENGTH_POOL: RecruitBenefit[] = [
   { head: '거절당한 고객도 되살립니다', exp: '예외질환 검색으로\n"가입 불가"를 계약으로' },
   { head: '안 받은 실손, 찾아드립니다', exp: '고객이 놓친 진료비 청구를 찾아\n먼저 돌려주며 신뢰부터' },
   { head: '진료내역, 즉시 조회', exp: '고객 병력을 바로 확인해\n정확한 보장·고지까지 한 번에' },
+  // 수수료 — "우리가 원하는 내용". 가드레일: 보장·단정 회피, 구조·범위로만.
+  { head: '수수료 체계부터 다릅니다', exp: 'GA라 30개사 비교 설계\n한 만큼 가져가는 성과형 구조' },
 ];
 
 export const RECRUIT_STRENGTH_TITLE = '어메이징이 다른 이유';
@@ -56,4 +58,32 @@ export function pickStrengths(seed: string, n = 3): RecruitBenefit[] {
     [arr[i], arr[j]] = [arr[j], arr[i]];
   }
   return arr.slice(0, n);
+}
+
+/**
+ * 최근 사용 이력(head 배열)을 받아 "가장 덜 쓴 n개" 선택 — 8개(+수수료) 전부가 골고루 순환.
+ * recentHeads: 최근 생성 카드들이 쓴 강점 head들(중복 포함, 최신이 앞). 동률은 seed로 안정 셔플.
+ * 풀에 새 항목이 추가되면 usage=0 → 우선 노출되어 자연히 합류한다.
+ */
+export function pickStrengthsLRU(recentHeads: string[], seed: string, n = 3): RecruitBenefit[] {
+  const pool = RECRUIT_STRENGTH_POOL;
+  if (n >= pool.length) return pool.slice();
+  const usage = new Map<string, number>();
+  for (const h of recentHeads) usage.set(h, (usage.get(h) ?? 0) + 1);
+
+  // 동률 tie-break용 seeded 셔플 인덱스
+  const rand = mulberry32(hashSeed(seed));
+  const order = pool.map((_, i) => i);
+  for (let i = order.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    [order[i], order[j]] = [order[j], order[i]];
+  }
+  const tiebreak = new Map<number, number>();
+  order.forEach((poolIdx, rank) => tiebreak.set(poolIdx, rank));
+
+  return pool
+    .map((b, i) => ({ b, i, used: usage.get(b.head) ?? 0 }))
+    .sort((x, y) => x.used - y.used || (tiebreak.get(x.i)! - tiebreak.get(y.i)!))
+    .slice(0, n)
+    .map((x) => x.b);
 }

@@ -151,6 +151,14 @@ export type RecruitPillar =
 export type RecruitTone = 'empathy' | 'flex-reframed' | 'authentic';
 export type RecruitTarget = '2030-newbie' | 'career-changer' | 'side-job' | 'mix';
 
+// 토픽별 이미지 장면 — 슬롯(커버·통념전환·증거)마다 내용에 맞는 장면을 직접 기술.
+// 실시간 생성 시 이 영문 프롬프트 + 공통 STYLE로 Imagen을 호출한다. (얼굴·글자 없음 전제)
+export type RecruitScenes = {
+  cover: string;          // 1장: 타깃의 고통/욕구 장면
+  breakthrough: string;   // 3장: 통념 깨기/전환점 장면
+  evidence: string;       // 5장: 강점·증거 장면
+};
+
 export type RecruitTopic = {
   slug: string;            // 안정적 식별자 (30일 중복 차단)
   pillar: RecruitPillar;
@@ -159,4 +167,5 @@ export type RecruitTopic = {
   title: string;           // 앵글 제목
   hook: string;            // 커버 후킹 한 문장
   beats: string[];         // 7장 흐름을 위한 핵심 비트 (공감→전환→강점→증거→CTA)
+  scenes: RecruitScenes;   // 내용 맞춤 이미지 장면(슬롯별) — 실시간 생성 프롬프트 코어
 };

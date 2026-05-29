@@ -45,8 +45,9 @@ function bodyTitleStyle(text: string): React.CSSProperties {
 function PhotoBg({ image }: { image: RecruitImage }) {
   return (
     <>
+      {/* crossOrigin: 외부(Supabase) 이미지 캡처 시 canvas-taint 방지 */}
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={image.src} alt="" className="absolute inset-0 w-full h-full object-cover z-0" />
+      <img src={image.src} alt="" crossOrigin="anonymous" className="absolute inset-0 w-full h-full object-cover z-0" />
       <div className="absolute inset-0 z-0" style={{ background: 'linear-gradient(180deg, rgba(6,16,45,0) 34%, rgba(6,16,45,.86) 100%)' }} />
     </>
   );
