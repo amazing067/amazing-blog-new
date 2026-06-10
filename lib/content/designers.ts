@@ -7,7 +7,7 @@ export type DesignerName = typeof DESIGNERS[number];
 export const DESIGNER_REG_DEFAULTS: Record<DesignerName, string> = {
   '김성민': '20201014201039',
   '고준하': '20241120005168',
-  '양창대': '',
+  '양창대': '20120590080006',
   '윤준민': '20230920003295',
   '이혜인': '20251117401088',
 };
