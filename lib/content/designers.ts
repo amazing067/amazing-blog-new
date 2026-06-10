@@ -14,5 +14,16 @@ export const DESIGNER_REG_DEFAULTS: Record<DesignerName, string> = {
 
 export const LS_REG_BY_DESIGNER = (name: string) => `compliance_reg_by_designer_${name}`;
 
+// 고정 전화번호 — 운영 확정값. 빈 문자열은 미입력(직접 입력 시 localStorage 캐시로 복원).
+export const DESIGNER_PHONE_DEFAULTS: Record<DesignerName, string> = {
+  '김성민': '010-5604-0424',
+  '고준하': '010-9014-4687',
+  '양창대': '010-2335-7922',
+  '윤준민': '010-2250-6507',
+  '이혜인': '010-9468-3813',
+};
+
+export const LS_PHONE_BY_DESIGNER = (name: string) => `compliance_phone_by_designer_${name}`;
+
 export const isKnownDesigner = (s: string | undefined | null): s is DesignerName =>
   !!s && (DESIGNERS as readonly string[]).includes(s);

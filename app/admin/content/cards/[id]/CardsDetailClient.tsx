@@ -10,7 +10,7 @@ import { ComplianceSlide } from '../../card-preview/ComplianceSlide';
 import SlideEditor from './SlideEditor';
 import type { CardSlide, ComplianceInfo, CardStyleKey } from '@/lib/content/types';
 import { buildCaption } from '@/lib/content/caption-builder';
-import { DESIGNERS, DESIGNER_REG_DEFAULTS, LS_REG_BY_DESIGNER, isKnownDesigner, type DesignerName } from '@/lib/content/designers';
+import { DESIGNERS, DESIGNER_REG_DEFAULTS, LS_REG_BY_DESIGNER, DESIGNER_PHONE_DEFAULTS, LS_PHONE_BY_DESIGNER, isKnownDesigner, type DesignerName } from '@/lib/content/designers';
 
 type Props = {
   id: string;
@@ -115,6 +115,7 @@ export default function CardsDetailClient({ id, userId, defaultDesigner, title, 
     company: compliance?.company ?? '프라임에셋',
     branch: compliance?.branch ?? '',
     designer: compliance?.designer ?? defaultDesigner,
+    phone: compliance?.phone ?? '',
     registration: compliance?.registration ?? '',
     number: compliance?.number ?? '',
     start_date: compliance?.start_date ?? '',
@@ -134,12 +135,18 @@ export default function CardsDetailClient({ id, userId, defaultDesigner, title, 
             || '')
         : '';
       const regFromUser = localStorage.getItem(LS_REG(userId)) || '';
+      const phoneFromDesigner = isKnownDesigner(prev.designer)
+        ? (DESIGNER_PHONE_DEFAULTS[prev.designer]
+            || localStorage.getItem(LS_PHONE_BY_DESIGNER(prev.designer))
+            || '')
+        : '';
       const start = prev.start_date || todayKst();
       const end = prev.end_date || oneYearMinusOneDay(start);
       return {
         ...prev,
         branch: prev.branch || storedBranch,
         registration: prev.registration || regFromDesigner || regFromUser,
+        phone: prev.phone || phoneFromDesigner,
         start_date: start,
         end_date: end,
       };
@@ -163,6 +170,10 @@ export default function CardsDetailClient({ id, userId, defaultDesigner, title, 
             localStorage.setItem(LS_REG(userId), String(value ?? ''));
           }
         }
+        // 전화번호도 4명 중 하나면 그 사람 캐시에 저장(다음에 칩 누를 때 복원)
+        if (field === 'phone' && isKnownDesigner(next.designer)) {
+          localStorage.setItem(LS_PHONE_BY_DESIGNER(next.designer), String(value ?? ''));
+        }
       }
       return next;
     });
@@ -177,10 +188,16 @@ export default function CardsDetailClient({ id, userId, defaultDesigner, title, 
         ? localStorage.getItem(LS_REG_BY_DESIGNER(name)) || ''
         : '';
       const reg = def || cached;
+      const phoneDef = DESIGNER_PHONE_DEFAULTS[name];
+      const phoneCached = typeof window !== 'undefined'
+        ? localStorage.getItem(LS_PHONE_BY_DESIGNER(name)) || ''
+        : '';
+      const phone = phoneDef || phoneCached;
       return {
         ...prev,
         designer: name,
         registration: reg || prev.registration,
+        phone: phone || prev.phone,
       };
     });
   }
@@ -669,6 +686,12 @@ export default function CardsDetailClient({ id, userId, defaultDesigner, title, 
               <label className="text-[11px] font-medium text-slate-600 block mb-1">설계사명</label>
               <input type="text" value={comp.designer ?? ''}
                 onChange={e => updateComp('designer', e.target.value)}
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm focus:border-amber-400 focus:outline-none" />
+            </div>
+            <div>
+              <label className="text-[11px] font-medium text-slate-600 block mb-1">연락처</label>
+              <input type="text" placeholder="예: 010-1234-5678" value={comp.phone ?? ''}
+                onChange={e => updateComp('phone', e.target.value)}
                 className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm focus:border-amber-400 focus:outline-none" />
             </div>
             <div>

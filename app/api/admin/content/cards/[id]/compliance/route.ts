@@ -10,6 +10,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     company: body.company || '프라임에셋',
     branch: body.branch || '',
     designer: body.designer || '',
+    phone: body.phone || '',
     registration: body.registration || '',
     number: body.number || '',
     start_date: body.start_date || '',

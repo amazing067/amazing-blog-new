@@ -18,8 +18,8 @@ type Props = {
 
 export function ComplianceSlide({ compliance, index, total, shareBlank = false }: Props) {
   const c = compliance;
-  const companyText = c.branch ? `${c.company} ${c.branch}` : c.company;
   const designer = c.designer || '○○○';
+  const phone = c.phone || '010-0000-0000';
   const registration = c.registration || '00000000000000';
   const num = c.number || '제000000호';
   const start = c.start_date || '2026.00.00';
@@ -64,15 +64,15 @@ export function ComplianceSlide({ compliance, index, total, shareBlank = false }
                 <div>등록번호 <span className="inline-block border-b border-slate-300 w-[26cqw] align-middle" /></div>
               </div>
             ) : (
-              <>
-                <h2 className="text-[5cqw] font-black bg-gradient-to-r from-[#0d9488] via-[#14b8a6] to-[#0d9488] bg-clip-text text-transparent leading-tight truncate">
-                  {companyText}
-                </h2>
-                <div className="text-[2.7cqw] text-slate-700 mt-[0.4cqw] truncate">
-                  설계사 <span className="font-bold text-slate-900">{designer}</span>
-                  <span className="ml-[1cqw]">· 등록번호 {registration}</span>
+              // 서버 심의필 렌더(cardComplianceSlide.js)와 동일 — 이름·전화 한 줄 + 아래 손·생보 협회 등록번호.
+              <div className="flex flex-col items-center justify-center rounded-2xl bg-slate-50 ring-1 ring-slate-200 px-[2cqw] py-[1.6cqw] text-center">
+                <div className="text-[4.7cqw] font-extrabold text-slate-900 leading-tight truncate max-w-full">
+                  {designer}<span className="inline-block w-[3cqw]" />{phone}
                 </div>
-              </>
+                <div className="text-[2.9cqw] font-semibold text-slate-600 mt-[1.6cqw] truncate max-w-full">
+                  손·생보 협회 등록번호 {registration}
+                </div>
+              </div>
             )}
           </div>
         </div>

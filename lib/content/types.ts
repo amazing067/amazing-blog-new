@@ -127,6 +127,7 @@ export type ComplianceInfo = {
   company: string;          // 회사명 (default "프라임에셋")
   branch?: string;          // 지점명
   designer?: string;        // 설계사명
+  phone?: string;           // 설계사 연락처(전화번호)
   registration?: string;    // 협회등록번호
   number?: string;          // 심의번호 (예: "제2026-1234호")
   start_date?: string;      // 심의 시작일 (YYYY-MM-DD)
