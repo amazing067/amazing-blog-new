@@ -12,6 +12,7 @@ import { downloadArticlePdf } from '@/lib/content/article-pdf';
 import { downloadArticleImages } from '@/lib/content/article-image';
 import { complianceFooterHtml } from '@/lib/content/compliance-footer';
 import type { ComplianceInfo } from '@/lib/content/types';
+import { DESIGNERS, DESIGNER_REG_DEFAULTS, LS_REG_BY_DESIGNER, isKnownDesigner, type DesignerName } from '@/lib/content/designers';
 
 const LS_REG = (uid: string) => `insurance_registration_number_${uid}`;
 const LS_BRANCH = (uid: string) => `insurance_branch_name_${uid}`;
@@ -87,10 +88,25 @@ export default function BlogDetailClient({ id, userId, defaultDesigner, title, b
     setComp(prev => {
       const next = { ...prev, [field]: value };
       if (typeof window !== 'undefined' && userId) {
-        if (field === 'registration') localStorage.setItem(LS_REG(userId), String(value ?? ''));
+        if (field === 'registration') {
+          localStorage.setItem(LS_REG(userId), String(value ?? ''));
+          // 설계사가 명단에 있으면 그 사람 캐시에도 저장 → 다음에 칩 누를 때 복원
+          if (isKnownDesigner(next.designer)) localStorage.setItem(LS_REG_BY_DESIGNER(next.designer), String(value ?? ''));
+        }
         if (field === 'branch') localStorage.setItem(LS_BRANCH(userId), String(value ?? ''));
       }
       return next;
+    });
+  }
+
+  // 칩 클릭 — 설계사명 + 그 사람의 등록번호를 한 번에 채움 (고정 DEFAULTS → LS 캐시 → 현재값 유지)
+  function pickDesigner(name: DesignerName) {
+    setComp(prev => {
+      const cached = typeof window !== 'undefined'
+        ? localStorage.getItem(LS_REG_BY_DESIGNER(name)) || ''
+        : '';
+      const reg = DESIGNER_REG_DEFAULTS[name] || cached;
+      return { ...prev, designer: name, registration: reg || prev.registration };
     });
   }
 
@@ -425,6 +441,32 @@ export default function BlogDetailClient({ id, userId, defaultDesigner, title, b
           <p className="text-[11px] text-amber-800 mb-3 leading-relaxed">
             입력하면 다운로드 시 본문 마지막에 자동 삽입됩니다.
           </p>
+          {/* 돌아가며 광고심의 — 빠른 전환 칩 (설계사명 + 협회등록번호 동시 교체) */}
+          <div className="mb-3">
+            <label className="text-[11px] font-medium text-amber-900 block mb-1.5">빠른 전환</label>
+            <div className="flex flex-wrap gap-1.5">
+              {DESIGNERS.map(name => {
+                const active = comp.designer === name;
+                return (
+                  <button
+                    key={name}
+                    type="button"
+                    onClick={() => pickDesigner(name)}
+                    className={`px-2.5 py-1 rounded-full text-[11px] font-semibold border transition ${
+                      active
+                        ? 'bg-amber-600 text-white border-amber-600 shadow-sm'
+                        : 'bg-white text-amber-900 border-amber-300 hover:bg-amber-100'
+                    }`}
+                  >
+                    {name}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="mt-1.5 text-[10px] text-amber-700 leading-relaxed">
+              누르면 설계사명·협회등록번호가 그 사람 값으로 바뀝니다. 등록번호를 직접 입력하면 자동 저장되어 다음에 같은 사람을 누를 때 복원됩니다.
+            </p>
+          </div>
           <div className="space-y-2.5">
             {[
               ['지점명', 'branch', 'text', '예: 강남지점'],

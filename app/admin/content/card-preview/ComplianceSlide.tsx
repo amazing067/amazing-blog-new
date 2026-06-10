@@ -56,14 +56,23 @@ export function ComplianceSlide({ compliance, index, total, shareBlank = false }
             crossOrigin="anonymous"
           />
           <div className="flex-1 min-w-0">
-            <h2 className="text-[5cqw] font-black bg-gradient-to-r from-[#0d9488] via-[#14b8a6] to-[#0d9488] bg-clip-text text-transparent leading-tight truncate">
-              {companyText}
-            </h2>
-            {!shareBlank && (
-              <div className="text-[2.7cqw] text-slate-700 mt-[0.4cqw] truncate">
-                설계사 <span className="font-bold text-slate-900">{designer}</span>
-                <span className="ml-[1cqw]">· 등록번호 {registration}</span>
+            {shareBlank ? (
+              // 전송용 — 회사명·지점 제거(왼쪽 로고로 충분). 받는 설계사가 채울 빈 기입란만.
+              <div className="flex flex-col gap-[0.8cqw] text-[2.7cqw] text-slate-700">
+                <div>설계사 <span className="inline-block border-b border-slate-300 w-[30cqw] align-middle" /></div>
+                <div>연락처 <span className="inline-block border-b border-slate-300 w-[30cqw] align-middle" /></div>
+                <div>등록번호 <span className="inline-block border-b border-slate-300 w-[26cqw] align-middle" /></div>
               </div>
+            ) : (
+              <>
+                <h2 className="text-[5cqw] font-black bg-gradient-to-r from-[#0d9488] via-[#14b8a6] to-[#0d9488] bg-clip-text text-transparent leading-tight truncate">
+                  {companyText}
+                </h2>
+                <div className="text-[2.7cqw] text-slate-700 mt-[0.4cqw] truncate">
+                  설계사 <span className="font-bold text-slate-900">{designer}</span>
+                  <span className="ml-[1cqw]">· 등록번호 {registration}</span>
+                </div>
+              </>
             )}
           </div>
         </div>

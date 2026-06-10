@@ -10,6 +10,7 @@ import { ComplianceSlide } from '../../card-preview/ComplianceSlide';
 import SlideEditor from './SlideEditor';
 import type { CardSlide, ComplianceInfo, CardStyleKey } from '@/lib/content/types';
 import { buildCaption } from '@/lib/content/caption-builder';
+import { DESIGNERS, DESIGNER_REG_DEFAULTS, LS_REG_BY_DESIGNER, isKnownDesigner, type DesignerName } from '@/lib/content/designers';
 
 type Props = {
   id: string;
@@ -52,20 +53,7 @@ function riskTone(score: number) {
 const LS_REG = (uid: string) => `insurance_registration_number_${uid}`;
 const LS_BRANCH = (uid: string) => `insurance_branch_name_${uid}`;
 
-// 4명 돌아가며 광고심의받는 운영 — 설계사별 협회등록번호 캐시
-const DESIGNERS = ['김성민', '고준하', '양창대', '윤준민'] as const;
-type DesignerName = typeof DESIGNERS[number];
-const LS_REG_BY_DESIGNER = (name: string) => `compliance_reg_by_designer_${name}`;
-const isKnownDesigner = (s: string | undefined | null): s is DesignerName =>
-  !!s && (DESIGNERS as readonly string[]).includes(s);
-
-// 고정 등록번호 — 운영 확정값. 빈 문자열은 아직 미입력 상태 (localStorage 캐시로 대체됨)
-const DESIGNER_REG_DEFAULTS: Record<DesignerName, string> = {
-  '김성민': '20201014201039',
-  '고준하': '',
-  '양창대': '',
-  '윤준민': '20230920003295',
-};
+// 돌아가며 광고심의받는 설계사 명단·등록번호 — @/lib/content/designers 공용 모듈 사용
 
 function todayKst(): string {
   // 한국 시각 기준 YYYY-MM-DD — 브라우저 TZ에 무관하게 Asia/Seoul로 포맷
