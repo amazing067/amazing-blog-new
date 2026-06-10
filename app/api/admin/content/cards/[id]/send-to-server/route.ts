@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requireContentAccess, adminClient } from '@/lib/admin/guard';
-import type { ComplianceInfo } from '@/lib/content/types';
+import { buildCaption, buildHashtags } from '@/lib/content/caption-builder';
+import type { ComplianceInfo, CardSlide } from '@/lib/content/types';
 
 // 확정된 카드뉴스를 amazing-biz-server(설계사방)로 전송.
 // 클라가 캡처한 PNG(multipart: 본문 5장 + 설계사 정보 비운 공유용 심의필 1장)를
@@ -43,7 +44,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     // 심의 메타(번호·회사·기간)는 DB에서 읽고, 설계사 정보는 비워서 보낸다.
     const { data: item, error } = await supa
       .from('content_items')
-      .select('title, source_refs, compliance')
+      .select('title, source_refs, compliance, card_slides')
       .eq('id', id)
       .single();
     if (error || !item) {
@@ -51,6 +52,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     }
     const compliance = (item.compliance ?? {}) as Partial<ComplianceInfo>;
     const category = (item.source_refs as Array<{ category?: string | null }> | null)?.[0]?.category ?? null;
+
+    // SNS 게시용 본문 캡션·해시태그(설계사가 자료실에서 복사해 사용). card_slides 로 생성.
+    const slides = (item.card_slides ?? null) as CardSlide[] | null;
+    const hasSlides = Array.isArray(slides) && slides.length > 0;
+    const caption = hasSlides
+      ? buildCaption({ title: item.title, slides, compliance: compliance as ComplianceInfo, category })
+      : null;
+    const hashtags = hasSlides ? buildHashtags({ title: item.title, slides, category }) : null;
 
     await ensureBucket();
     // 재전송 시 같은 경로 덮어쓰기(upsert) + 캐시버스트(?v=) → 자료실에서 옛 이미지 안 보이게
@@ -78,6 +87,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         start_date: compliance.start_date ?? '',
         end_date: compliance.end_date ?? '',
       },
+      caption,   // SNS 더보기 본문(설계사 정보는 비움 — 받는 설계사가 본인 정보 보강)
+      hashtags,  // 해시태그 배열(#포함)
       image_urls: imageUrls,
     };
 
