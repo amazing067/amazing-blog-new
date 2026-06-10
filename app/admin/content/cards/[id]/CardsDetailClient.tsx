@@ -317,16 +317,6 @@ export default function CardsDetailClient({ id, userId, defaultDesigner, title, 
     }
   }
 
-  async function uploadBlob(blob: Blob): Promise<string> {
-    const fd = new FormData();
-    fd.append('file', blob, 'slide.png');
-    const res = await fetch('/api/admin/content/upload-image', { method: 'POST', body: fd });
-    if (!res.ok) throw new Error(await res.text());
-    const { url } = await res.json();
-    if (!url) throw new Error('업로드 URL 누락');
-    return url as string;
-  }
-
   // 설계사방(amazing-biz-server)으로 전송 — 본문 5장 + 공유용 심의필 1장(설계사 정보 비움)
   async function sendToServer() {
     if (editing) { alert('편집 모드에서는 전송할 수 없습니다. 먼저 저장하세요.'); return; }
@@ -343,21 +333,16 @@ export default function CardsDetailClient({ id, userId, defaultDesigner, title, 
         throw new Error('슬라이드 요소를 찾지 못했습니다. 새로고침 후 다시 시도하세요.');
       }
 
-      const blobs: Blob[] = [];
-      for (const el of contentEls) blobs.push(await captureElToBlob(el));
-      blobs.push(await captureElToBlob(shareEl));
+      // 3) multipart로 묶어 전송 — 서버가 공개버킷 업로드(고정 경로·캐시버스트) 후 ingest
+      const fd = new FormData();
+      let n = 1;
+      for (const el of contentEls) fd.append('images', await captureElToBlob(el), `slide-${String(n++).padStart(2, '0')}.png`);
+      fd.append('images', await captureElToBlob(shareEl), `slide-${String(n++).padStart(2, '0')}.png`);
 
-      // 3) 공개버킷 업로드 → URL
-      const urls: string[] = [];
-      for (const b of blobs) urls.push(await uploadBlob(b));
-
-      // 4) 서버 전송
-      const res = await fetch(`/api/admin/content/cards/${id}/send-to-server`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ image_urls: urls }),
-      });
+      const res = await fetch(`/api/admin/content/cards/${id}/send-to-server`, { method: 'POST', body: fd });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || '전송 실패');
-      alert('설계사방으로 전송 완료' + (data.warning ? `\n(${data.warning})` : ''));
+      alert(`설계사방으로 전송 완료 (${data.count ?? ''}장)`);
       router.refresh();
     } catch (e) {
       alert('전송 실패: ' + (e instanceof Error ? e.message : String(e)));
