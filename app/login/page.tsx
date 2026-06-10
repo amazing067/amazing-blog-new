@@ -149,6 +149,9 @@ export default function LoginPage() {
         // 로그인 성공
         if (profileData.role === 'admin') {
           router.push('/admin/dashboard')
+        } else if (profileData.role === 'content_editor') {
+          // 콘텐츠 운영자는 콘텐츠 허브로 바로 진입
+          router.push('/admin/content/recruit')
         } else {
           router.push('/dashboard')
         }

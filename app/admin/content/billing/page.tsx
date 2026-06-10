@@ -1,4 +1,4 @@
-import { adminClient } from '@/lib/admin/guard';
+import { adminClient, requireAdmin } from '@/lib/admin/guard';
 import { formatKrw, formatUsd, USD_TO_KRW } from '@/lib/content/billing';
 import { Newspaper, Images, DollarSign, Calendar, TrendingUp } from 'lucide-react';
 
@@ -17,6 +17,7 @@ type Row = {
 };
 
 export default async function BillingPage() {
+  await requireAdmin(); // 비용/정산은 관리자 전용 (content_editor 차단)
   const supa = adminClient();
   const since = new Date(Date.now() - 30 * 86400_000).toISOString();
   const { data: items } = await supa

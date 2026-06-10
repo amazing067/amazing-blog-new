@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Loader2, Shield, Crown, Building2, MapPin, Users, User } from 'lucide-react'
-import { ROLES, ROLE_LABELS, ASSIGNABLE_ROLES } from '@/lib/constants/roles'
+import { ROLES, ROLE_LABELS, ASSIGNABLE_ROLES, ROLES_REQUIRING_DEPARTMENT } from '@/lib/constants/roles'
 import { DEPARTMENTS } from '@/lib/constants/departments'
 
 interface RoleSelectorProps {
@@ -93,8 +93,8 @@ export default function RoleSelector({
       return
     }
 
-    // 본부장, 지사장, 팀장은 본부 선택 필수
-    if ([ROLES.DEPARTMENT_HEAD, ROLES.BRANCH_HEAD, ROLES.TEAM_LEADER].includes(selectedRole as any) && !selectedDepartmentId) {
+    // 본부장, 지사장, 팀장은 본부 선택 필수 (content_editor·fc는 본부 불필요)
+    if (ROLES_REQUIRING_DEPARTMENT.includes(selectedRole as any) && !selectedDepartmentId) {
       alert('본부장, 지사장, 팀장 역할은 본부 선택이 필수입니다')
       return
     }
@@ -223,7 +223,7 @@ export default function RoleSelector({
             <div className="flex gap-2 mt-6">
               <button
                 onClick={handleUpdate}
-                disabled={isLoading || !selectedDepartmentId}
+                disabled={isLoading || (ROLES_REQUIRING_DEPARTMENT.includes(selectedRole as any) && !selectedDepartmentId)}
                 className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-semibold flex items-center justify-center gap-2"
               >
                 {isLoading ? (

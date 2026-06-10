@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
-import { Copy, CheckCircle2, X, Trash2, Loader2, Shield, Search, Pencil, Save, Code, FileDown, ImageDown } from 'lucide-react';
+import { Copy, CheckCircle2, X, Trash2, Loader2, Shield, Search, Pencil, Save, Code, FileDown, ImageDown, Undo2 } from 'lucide-react';
 import { mdComponents } from '../../news/[id]/MdComponents';
 import { copyArticleForNaver } from '@/lib/content/naver-clipboard';
 import { downloadArticlePdf } from '@/lib/content/article-pdf';
@@ -35,6 +35,8 @@ type Props = {
     product_mentions: string[] | null;
   } | null;
   factCheck: { passed: boolean; issues: { claim: string; reason: string; severity: 'high'|'medium'|'low' }[] } | null;
+  isAdmin?: boolean;
+  returnReason?: string | null;
 };
 
 const SEV: Record<string, { bg: string; label: string }> = {
@@ -49,7 +51,7 @@ function riskTone(score: number) {
   return                  { text: 'text-emerald-700', bar: 'bg-emerald-500', label: '안전' };
 }
 
-export default function BlogDetailClient({ id, userId, defaultDesigner, title, bodyMd: initialBody, metaDescription, status, publishUrl, compliance, lint, factCheck }: Props) {
+export default function BlogDetailClient({ id, userId, defaultDesigner, title, bodyMd: initialBody, metaDescription, status, publishUrl, compliance, lint, factCheck, isAdmin = false, returnReason }: Props) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
   const [url, setUrl] = useState(publishUrl);
@@ -104,6 +106,82 @@ export default function BlogDetailClient({ id, userId, defaultDesigner, title, b
       router.refresh();
     } catch (e) {
       alert('심의번호 저장 실패: ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  // 심의 확정 — 최신 심의필 저장 후 status='approved'로 승격(검토대기에서 제외)
+  async function confirmApprove() {
+    if (!comp.number?.trim()) {
+      alert('심의필번호를 입력한 뒤 확정하세요.');
+      return;
+    }
+    if (!confirm('이 글을 확정(심의 승인) 처리할까요? 검토대기 목록에서 빠집니다.')) return;
+    setBusy('approve');
+    try {
+      const r1 = await fetch(`/api/admin/content/blog/${id}/compliance`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(comp),
+      });
+      if (!r1.ok) throw new Error(await r1.text());
+      const r2 = await fetch(`/api/admin/content/blog/${id}/approve`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ approved: true }),
+      });
+      if (!r2.ok) throw new Error(await r2.text());
+      router.refresh();
+    } catch (e) {
+      alert('확정 실패: ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function revertApprove() {
+    if (!confirm('확정을 취소하고 검토대기로 되돌릴까요?')) return;
+    setBusy('approve');
+    try {
+      const res = await fetch(`/api/admin/content/blog/${id}/approve`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ approved: false }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      router.refresh();
+    } catch (e) {
+      alert('되돌리기 실패: ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  // 반송 (관리자 전용) — 사유 입력 후 status='returned'
+  async function returnCard() {
+    const reason = window.prompt('반송 사유를 입력하세요 (관리자만 보입니다):', returnReason ?? '');
+    if (reason == null) return;
+    if (!reason.trim()) { alert('반송 사유를 입력해야 합니다.'); return; }
+    setBusy('return');
+    try {
+      const res = await fetch(`/api/admin/content/blog/${id}/return`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      router.refresh();
+    } catch (e) {
+      alert('반송 실패: ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function reopenCard() {
+    if (!confirm('반송을 취소하고 검토대기로 되돌릴까요?')) return;
+    setBusy('return');
+    try {
+      const res = await fetch(`/api/admin/content/blog/${id}/return`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reopen: true }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      router.refresh();
+    } catch (e) {
+      alert('되돌리기 실패: ' + (e instanceof Error ? e.message : String(e)));
     } finally {
       setBusy(null);
     }
@@ -219,6 +297,29 @@ export default function BlogDetailClient({ id, userId, defaultDesigner, title, b
   const tone = lint ? riskTone(lint.risk_score) : null;
 
   return (
+    <>
+      {/* 반송 배너 — 관리자 전용 */}
+      {isAdmin && status === 'returned' && (
+        <div className="mb-4 rounded-2xl border border-rose-300 bg-rose-50 p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-start gap-2 min-w-0">
+              <Undo2 className="w-4 h-4 text-rose-600 mt-0.5 flex-none" />
+              <div className="min-w-0">
+                <p className="text-sm font-bold text-rose-800">반송됨 <span className="font-normal text-rose-500 text-[11px]">· 관리자만 표시</span></p>
+                {returnReason && <p className="mt-1 text-sm text-rose-700 whitespace-pre-wrap break-words">{returnReason}</p>}
+              </div>
+            </div>
+            <button
+              disabled={!!busy}
+              onClick={reopenCard}
+              className="flex-none text-xs px-3 py-1.5 rounded-lg border border-rose-300 bg-white text-rose-700 hover:bg-rose-100 disabled:opacity-50"
+            >
+              {busy === 'return' ? <Loader2 className="w-3.5 h-3.5 animate-spin inline" /> : '검토대기로 되돌리기'}
+            </button>
+          </div>
+        </div>
+      )}
+
     <div className="grid gap-6 lg:grid-cols-3">
       {/* 본문 */}
       <article className="lg:col-span-2 rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
@@ -363,6 +464,48 @@ export default function BlogDetailClient({ id, userId, defaultDesigner, title, b
           </div>
         </div>
 
+        {/* 심의 확정 */}
+        <div className="rounded-2xl border border-blue-200 bg-blue-50/50 p-4 space-y-2">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-bold text-slate-800">심의 확정</h3>
+            {status === 'approved' ? (
+              <span className="inline-flex items-center gap-1 rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-700">✅ 확정됨</span>
+            ) : (
+              <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-100 px-2.5 py-0.5 text-[11px] font-semibold text-amber-800">검토 대기</span>
+            )}
+          </div>
+          {status === 'approved' ? (
+            <>
+              <p className="text-[11px] text-emerald-700 leading-relaxed">심의 승인 확정됨 — 검토대기 목록에서 제외됩니다.</p>
+              <button
+                disabled={!!busy}
+                onClick={revertApprove}
+                className="w-full inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50 transition"
+              >
+                {busy === 'approve' ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                검토대기로 되돌리기
+              </button>
+            </>
+          ) : (
+            <>
+              <p className="text-[11px] text-blue-800 leading-relaxed">
+                협회 심의 통과 후 심의필번호를 입력하면 <strong>확정</strong>할 수 있습니다. 확정 시 심의필 정보가 함께 저장됩니다.
+              </p>
+              <button
+                disabled={!!busy || !comp.number?.trim()}
+                onClick={confirmApprove}
+                className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 hover:bg-blue-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-40 disabled:cursor-not-allowed transition"
+              >
+                {busy === 'approve' ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                확정 (심의 승인)
+              </button>
+              {!comp.number?.trim() && (
+                <p className="text-[11px] text-amber-700">심의필번호를 입력하면 확정 버튼이 활성화됩니다.</p>
+              )}
+            </>
+          )}
+        </div>
+
         {/* Fact Check */}
         {factCheck && (
           <div className={`rounded-2xl border p-5 ${factCheck.passed ? 'border-emerald-200 bg-emerald-50' : 'border-red-200 bg-red-50'}`}>
@@ -412,6 +555,18 @@ export default function BlogDetailClient({ id, userId, defaultDesigner, title, b
           </div>
         )}
 
+        {/* 반송 — 관리자 전용 (사유 입력) */}
+        {isAdmin && status !== 'returned' && (
+          <button
+            disabled={!!busy}
+            onClick={returnCard}
+            className="w-full inline-flex items-center justify-center gap-1.5 rounded-lg border border-rose-300 text-rose-700 hover:bg-rose-50 px-3 py-2 text-xs font-medium disabled:opacity-50 transition"
+          >
+            {busy === 'return' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Undo2 className="w-3.5 h-3.5" />}
+            반송 (사유 입력)
+          </button>
+        )}
+
         {/* 보조 액션 */}
         <div className="grid grid-cols-2 gap-2">
           <button disabled={!!busy || status === 'expired'}
@@ -428,5 +583,6 @@ export default function BlogDetailClient({ id, userId, defaultDesigner, title, b
         </div>
       </div>
     </div>
+    </>
   );
 }

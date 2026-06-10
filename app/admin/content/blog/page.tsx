@@ -1,9 +1,11 @@
 import Link from 'next/link';
-import { adminClient } from '@/lib/admin/guard';
-import { FileText, Clock, CheckCircle2, XCircle, AlertTriangle, Inbox, ChevronRight } from 'lucide-react';
+import { adminClient, requireContentAccess } from '@/lib/admin/guard';
+import { FileText, Clock, CheckCircle2, XCircle, AlertTriangle, Inbox, ChevronRight, ShieldCheck, Undo2 } from 'lucide-react';
 
 const STATUSES = [
   { key: 'review',    label: '검토 대기', icon: Clock },
+  { key: 'approved',  label: '확정',      icon: ShieldCheck },
+  { key: 'returned',  label: '반송',      icon: Undo2, adminOnly: true },
   { key: 'published', label: '발행 완료', icon: CheckCircle2 },
   { key: 'expired',   label: '거절',      icon: XCircle },
   { key: 'failed',    label: '실패',      icon: AlertTriangle },
@@ -13,6 +15,8 @@ type Status = typeof STATUSES[number]['key'];
 
 const STATUS_BADGE: Record<string, string> = {
   review:    'bg-amber-100 text-amber-800 border-amber-200',
+  approved:  'bg-blue-100 text-blue-800 border-blue-200',
+  returned:  'bg-rose-100 text-rose-800 border-rose-200',
   published: 'bg-emerald-100 text-emerald-800 border-emerald-200',
   expired:   'bg-gray-100 text-gray-600 border-gray-200',
   failed:    'bg-red-100 text-red-800 border-red-200',
@@ -29,7 +33,10 @@ export default async function BlogListPage({
   searchParams,
 }: { searchParams?: Promise<{ status?: string }> }) {
   const sp = (await searchParams) ?? {};
-  const status = (STATUSES.find(s => s.key === sp.status)?.key ?? 'review') as Status;
+  const { role } = await requireContentAccess();
+  const isAdmin = role === 'admin';
+  let status = (STATUSES.find(s => s.key === sp.status)?.key ?? 'review') as Status;
+  if (status === 'returned' && !isAdmin) status = 'review';
 
   const supa = adminClient();
   let q = supa.from('content_items')
@@ -66,7 +73,7 @@ export default async function BlogListPage({
       </div>
 
       <div className="mb-6 flex flex-wrap gap-2">
-        {STATUSES.map(s => {
+        {STATUSES.filter(s => isAdmin || !(s as { adminOnly?: boolean }).adminOnly).map(s => {
           const Icon = s.icon;
           const isActive = s.key === status;
           const count = statusCount[s.key] ?? 0;
@@ -107,9 +114,16 @@ export default async function BlogListPage({
                             📝 {category}
                           </span>
                         )}
-                        <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${STATUS_BADGE[row.status] ?? 'bg-slate-100 text-slate-700'}`}>
-                          {STATUSES.find(s => s.key === row.status)?.label ?? row.status}
-                        </span>
+                        {(() => {
+                          const returnedHidden = row.status === 'returned' && !isAdmin;
+                          const cls = returnedHidden ? STATUS_BADGE.review : (STATUS_BADGE[row.status] ?? 'bg-slate-100 text-slate-700');
+                          const label = returnedHidden ? '검토 대기' : (STATUSES.find(s => s.key === row.status)?.label ?? row.status);
+                          return (
+                            <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${cls}`}>
+                              {label}
+                            </span>
+                          );
+                        })()}
                       </div>
                       <h3 className="font-semibold text-slate-900 leading-snug line-clamp-1 group-hover:text-blue-700 transition">
                         {row.title}

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { requireAdmin, adminClient } from '@/lib/admin/guard';
+import { requireContentAccess, adminClient } from '@/lib/admin/guard';
 
 // 네이버용 복사 시 시각 블록(통계·비교·SVG 등)을 PNG로 구워 올리는 범용 업로드.
 // 네이버 에디터는 data: URL을 막으므로 반드시 공개 URL이 필요하다.
@@ -16,7 +16,7 @@ async function ensureBucket() {
 }
 
 export async function POST(req: Request) {
-  await requireAdmin();
+  await requireContentAccess();
   try {
     const form = await req.formData();
     const file = form.get('file');

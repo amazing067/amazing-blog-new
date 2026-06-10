@@ -1,4 +1,4 @@
-import { requireAdmin, adminClient } from '@/lib/admin/guard';
+import { requireContentAccess, adminClient } from '@/lib/admin/guard';
 import type { ComplianceInfo } from '@/lib/content/types';
 import { complianceFooterHtml } from '@/lib/content/compliance-footer';
 
@@ -87,7 +87,7 @@ ${warn ? `⚠ **보험계약자가 기존 보험계약을 해지하고 새로운
 }
 
 export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
-  await requireAdmin();
+  await requireContentAccess();
   const { id } = await ctx.params;
   const { searchParams } = new URL(req.url);
   const format = searchParams.get('format') ?? 'html';

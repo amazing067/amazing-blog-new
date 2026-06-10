@@ -1,12 +1,14 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { adminClient, requireAdmin } from '@/lib/admin/guard';
+import { adminClient, requireContentAccess } from '@/lib/admin/guard';
 import { ArrowLeft, FileText } from 'lucide-react';
 import BlogDetailClient from './BlogDetailClient';
 import type { ComplianceInfo } from '@/lib/content/types';
 
 const STATUS_LABEL: Record<string, { label: string; cls: string }> = {
   review:    { label: '검토 대기', cls: 'bg-amber-100 text-amber-800 border-amber-200' },
+  approved:  { label: '확정',      cls: 'bg-blue-100 text-blue-800 border-blue-200' },
+  returned:  { label: '반송',      cls: 'bg-rose-100 text-rose-800 border-rose-200' },
   published: { label: '발행 완료', cls: 'bg-emerald-100 text-emerald-800 border-emerald-200' },
   expired:   { label: '거절',      cls: 'bg-gray-100 text-gray-600 border-gray-200' },
   failed:    { label: '실패',      cls: 'bg-red-100 text-red-800 border-red-200' },
@@ -14,7 +16,8 @@ const STATUS_LABEL: Record<string, { label: string; cls: string }> = {
 
 export default async function BlogDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const { user } = await requireAdmin();
+  const { user, role } = await requireContentAccess();
+  const isAdmin = role === 'admin';
   const supa = adminClient();
   const { data: item } = await supa.from('content_items').select('*').eq('id', id).single();
   if (!item || item.type !== 'blog') notFound();
@@ -22,7 +25,10 @@ export default async function BlogDetailPage({ params }: { params: Promise<{ id:
   const { data: lint } = await supa.from('compliance_lints')
     .select('*').eq('content_id', id).order('created_at', { ascending: false }).limit(1).maybeSingle();
 
-  const statusInfo = STATUS_LABEL[item.status] ?? { label: item.status, cls: 'bg-slate-100 text-slate-700 border-slate-200' };
+  const returnedHidden = item.status === 'returned' && !isAdmin;
+  const statusInfo = returnedHidden
+    ? STATUS_LABEL.review
+    : (STATUS_LABEL[item.status] ?? { label: item.status, cls: 'bg-slate-100 text-slate-700 border-slate-200' });
   const factCheck = item.fact_check as { passed: boolean; issues: { claim: string; reason: string; severity: 'high'|'medium'|'low' }[] } | null;
 
   return (
@@ -63,6 +69,8 @@ export default async function BlogDetailPage({ params }: { params: Promise<{ id:
         compliance={(item.compliance as ComplianceInfo | null) ?? null}
         lint={lint}
         factCheck={factCheck}
+        isAdmin={isAdmin}
+        returnReason={(item.return_reason as string | null) ?? null}
       />
     </div>
   );

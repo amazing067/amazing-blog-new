@@ -1,8 +1,8 @@
-import { requireAdmin, adminClient } from '@/lib/admin/guard';
+import { requireContentAccess, adminClient } from '@/lib/admin/guard';
 import { mdToCafeText } from '@/lib/content/cafe-formatter';
 
 export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
-  await requireAdmin();
+  await requireContentAccess();
   const { id } = await ctx.params;
   const { searchParams } = new URL(req.url);
   const format = searchParams.get('format') ?? 'md';

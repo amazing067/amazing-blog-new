@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { adminClient, requireAdmin } from '@/lib/admin/guard';
+import { adminClient, requireContentAccess } from '@/lib/admin/guard';
 import { ArrowLeft, Target } from 'lucide-react';
 import RecruitDetailClient from './RecruitDetailClient';
 import type { CardSlide } from '@/lib/content/types';
@@ -19,7 +19,7 @@ const PILLAR_LABEL: Record<string, string> = {
 
 export default async function RecruitDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  await requireAdmin();
+  await requireContentAccess();
   const supa = adminClient();
   const { data: item } = await supa.from('content_items').select('*').eq('id', id).single();
   if (!item || item.type !== 'recruit-card') notFound();

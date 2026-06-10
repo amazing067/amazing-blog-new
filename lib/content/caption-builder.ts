@@ -4,8 +4,22 @@
 
 import type { CardSlide, ComplianceInfo, SlideSource } from './types';
 import { resolveSourceUrl } from './source-registry';
+import { requiredDisclaimers } from './disclaimers';
 
 const HR = '━━━━━━━━━━━━━━━━';
+
+// 캡션도 준법심의 대상 — 부정·공포 금지어("[함정]" 등)를 안전망으로 제거/순화.
+function scrubForbidden(text: string): string {
+  return text
+    // 괄호로 감싼 금지어: "[함정]", "(낚시)" → 제거
+    .replace(/[\[\(（［]\s*(함정|낚시|호구|호갱|눈탱이|바가지|사기|폭탄|깡통)\s*[\]\)）］]/g, '')
+    // 단독 금지어 순화/제거
+    .replace(/함정/g, '유의점')
+    .replace(/낚시|호구|호갱|눈탱이|바가지|등쳐먹|뒤통수|독박|삥\s*뜯/g, '')
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
 
 const BASE_TAGS = [
   '#보험', '#보험정보', '#보험상식', '#카드뉴스',
@@ -17,7 +31,8 @@ const CATEGORY_TAGS: Record<string, string[]> = {
   '자동차': ['#자동차보험', '#운전자보험', '#자차보험'],
   '암·진단': ['#암보험', '#진단비보험', '#건강보험', '#암진단'],
   '치매·간병': ['#치매보험', '#간병보험', '#간병인보험', '#실버케어'],
-  '연금·저축': ['#연금보험', '#연금저축', '#노후준비', '#재테크', '#개인연금'],
+  '연금·노후': ['#연금보험', '#노후준비', '#개인연금'],
+  '연금·저축': ['#연금보험', '#노후준비', '#개인연금'], // 구 카테고리 호환(저축·재테크 태그 제거 — 목적 오인)
   '청구·분쟁': ['#보험금청구', '#보험분쟁', '#금감원', '#보험상담'],
   '세제·환급': ['#세액공제', '#연말정산', '#환급', '#비과세'],
   '가입전략': ['#보험가입', '#보험비교', '#보험리모델링', '#보험점검'],
@@ -131,6 +146,24 @@ export function buildCaption({
     }
   }
 
+  // ── 상품별 필수 유의문구 (협회 심의 — 누락 시 반송) ──
+  const haystack = [
+    title,
+    ...slides.flatMap((s) =>
+      s.kind === 'cover' ? [s.eyebrow, s.title, s.bigStatLabel]
+      : s.kind === 'point' ? [s.title, s.body, s.bigStatLabel]
+      : [s.title, ...s.items, s.footer],
+    ),
+  ].join(' ');
+  const disclaimers = requiredDisclaimers(haystack);
+  if (disclaimers.length > 0) {
+    lines.push(HR);
+    lines.push('');
+    lines.push('⚠️ 유의사항');
+    for (const d of disclaimers) lines.push(`• ${d}`);
+    lines.push('');
+  }
+
   // ── 출처 (검증된 URL만) ──
   const sources: SlideSource[] = [];
   for (const s of slides) {
@@ -190,5 +223,5 @@ export function buildCaption({
   lines.push('');
   lines.push(buildHashtags({ title, slides, category }).join(' '));
 
-  return lines.join('\n');
+  return scrubForbidden(lines.join('\n'));
 }

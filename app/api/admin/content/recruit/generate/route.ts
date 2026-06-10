@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { requireAdmin, adminClient } from '@/lib/admin/guard';
+import { requireContentAccess, adminClient } from '@/lib/admin/guard';
 import { pickFreshRecruitTopics, RECRUIT_TOPIC_POOL } from '@/lib/content/recruit-topics';
 import { generateRecruitCardSet } from '@/lib/content/generator-recruit-card';
 import { lintRecruit } from '@/lib/content/recruit-lint';
@@ -22,7 +22,7 @@ function flatten(slides: CardSlide[]): string {
 
 // 수동 생성 — 어드민 "새 카드 생성" 버튼. (cron 자동화는 Phase 2)
 export async function POST(req: Request) {
-  await requireAdmin();
+  await requireContentAccess();
   const supa = adminClient();
   const body = await req.json().catch(() => ({}));
   const requestedSlug = typeof body?.slug === 'string' ? body.slug : undefined;

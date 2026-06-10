@@ -1,4 +1,4 @@
-import { requireAdmin } from '@/lib/admin/guard';
+import { requireContentAccess } from '@/lib/admin/guard';
 import { HybridStyle, type CardSlide } from './CardStyles';
 import { ComplianceSlide } from './ComplianceSlide';
 import type { ComplianceInfo } from '@/lib/content/types';
@@ -65,7 +65,7 @@ const SAMPLE: CardSlide[] = [
 ];
 
 export default async function CardPreviewPage() {
-  await requireAdmin();
+  await requireContentAccess();
 
   return (
     <div>

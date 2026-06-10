@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server';
-import { requireAdmin, adminClient } from '@/lib/admin/guard';
+import { requireContentAccess, adminClient } from '@/lib/admin/guard';
 
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
-  await requireAdmin();
+  await requireContentAccess();
   const { id } = await ctx.params;
   const { publish_url } = await req.json().catch(() => ({}));
   await adminClient().from('content_items').update({

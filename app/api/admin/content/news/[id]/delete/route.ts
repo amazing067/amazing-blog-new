@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server';
-import { requireAdmin, adminClient } from '@/lib/admin/guard';
+import { requireContentAccess, adminClient } from '@/lib/admin/guard';
 
 export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string }> }) {
-  await requireAdmin();
+  await requireContentAccess();
   const { id } = await ctx.params;
   // CASCADE로 compliance_lints도 함께 삭제됨
   const { error } = await adminClient().from('content_items').delete().eq('id', id);

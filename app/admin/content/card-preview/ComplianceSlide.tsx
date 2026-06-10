@@ -11,9 +11,12 @@ type Props = {
   compliance: ComplianceInfo;
   index: number;
   total: number;
+  // 공유용(설계사방 전송) — 설계사명·협회등록번호 줄을 아예 비운다.
+  // 받는 설계사가 본인 정보를 채워 쓰도록. 심의번호·회사·지점·기간·경고문구는 유지.
+  shareBlank?: boolean;
 };
 
-export function ComplianceSlide({ compliance, index, total }: Props) {
+export function ComplianceSlide({ compliance, index, total, shareBlank = false }: Props) {
   const c = compliance;
   const companyText = c.branch ? `${c.company} ${c.branch}` : c.company;
   const designer = c.designer || '○○○';
@@ -56,10 +59,12 @@ export function ComplianceSlide({ compliance, index, total }: Props) {
             <h2 className="text-[5cqw] font-black bg-gradient-to-r from-[#0d9488] via-[#14b8a6] to-[#0d9488] bg-clip-text text-transparent leading-tight truncate">
               {companyText}
             </h2>
-            <div className="text-[2.7cqw] text-slate-700 mt-[0.4cqw] truncate">
-              설계사 <span className="font-bold text-slate-900">{designer}</span>
-              <span className="ml-[1cqw]">· 등록번호 {registration}</span>
-            </div>
+            {!shareBlank && (
+              <div className="text-[2.7cqw] text-slate-700 mt-[0.4cqw] truncate">
+                설계사 <span className="font-bold text-slate-900">{designer}</span>
+                <span className="ml-[1cqw]">· 등록번호 {registration}</span>
+              </div>
+            )}
           </div>
         </div>
 

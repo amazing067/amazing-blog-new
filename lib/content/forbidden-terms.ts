@@ -6,6 +6,14 @@ export const ABSOLUTE_TERMS = [
   '대박','특별한','파격','획기적',
 ];
 
+// 부정·공포·비하 자극 표현 — 손보협회 금지단어(반송 사유 확인).
+// "[함정]" 등은 보험을 부정적으로 묘사 → 즉시 반송. 생성·캡션 모두에서 제거 대상.
+export const NEGATIVE_TERMS = [
+  '함정','낚시','호구','호갱','눈탱이','바가지','독박','등쳐','등쳐먹',
+  '사기','사기당','속는','속았','속임','당한다','당했','뒤통수','뒤통수맞',
+  '폭탄','깡통','눈먼','눈먼돈','바보','멍청','호구잡','삥뜯','삥 뜯',
+];
+
 export const COMPARISON_PATTERNS: { pattern: RegExp; label: string }[] = [
   { pattern: /다른\s*(회사|보험사|상품)\s*(보다|에\s*비해)/g, label: '타사 비교' },
   { pattern: /타사\s*(대비|보다|비교)/g, label: '타사 대비' },
@@ -25,6 +33,14 @@ export const COMPARISON_PATTERNS: { pattern: RegExp; label: string }[] = [
   { pattern: /\d[\d,]*\s*(만|천만|백만|억|조)\s*원/g, label: '금액(구체 액수)' },
   { pattern: /\d[\d,]*\s*(만|천만|백만|억|조)\s*(짜리)?/g, label: '금액(원 단위 생략)' },
   { pattern: /\d[\d,]{2,}\s*원/g, label: '금액(원)' },
+];
+
+// 상품 목적 오인 표현 — 보장성·연금보험을 저축/적금/재테크/투자로 묘사 금지(반송 사유).
+// 연금보험은 노후소득 보장 상품이지 저축·투자상품이 아님.
+export const MISLEADING_PATTERNS: { pattern: RegExp; label: string }[] = [
+  { pattern: /(연금|종신|변액|보장성|건강|암|실손)\s*보험[^\n]{0,8}(저축|적금|재테크|투자|예금)/g, label: '보험을 저축/투자로 오인' },
+  { pattern: /(저축|적금|재테크|투자|예금)[^\n]{0,8}(연금보험|보장성\s*보험|종신보험|변액보험)/g, label: '저축/투자로 보험 오인' },
+  { pattern: /보험\s*으?로\s*(저축|재테크|투자|돈\s*굴)/g, label: '보험으로 저축/투자 권유' },
 ];
 
 export const GUARANTEE_TERMS = [

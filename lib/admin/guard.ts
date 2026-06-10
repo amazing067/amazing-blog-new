@@ -1,8 +1,10 @@
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import { createClient as createAdmin } from '@supabase/supabase-js';
+import { canAccessContent } from '@/lib/constants/roles';
 
-export async function requireAdmin() {
+// 로그인 사용자 + role 조회 (SERVICE_ROLE 우선, 없으면 일반 클라이언트로 RLS 경유)
+async function getSessionUserAndRole() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect('/login');
@@ -18,8 +20,23 @@ export async function requireAdmin() {
     const { data } = await supabase.from('profiles').select('role').eq('id', user.id).single();
     role = (data?.role as string) ?? null;
   }
+  return { user, supabase, role };
+}
+
+export async function requireAdmin() {
+  const { user, supabase, role } = await getSessionUserAndRole();
   if (role !== 'admin') redirect('/dashboard');
-  return { user, supabase };
+  return { user, supabase, role };
+}
+
+/**
+ * 콘텐츠 허브 접근 가드 — 관리자 또는 콘텐츠 운영자(content_editor) 허용.
+ * 회원관리·통계·품질은 여전히 requireAdmin() 으로만 보호된다.
+ */
+export async function requireContentAccess() {
+  const { user, supabase, role } = await getSessionUserAndRole();
+  if (!canAccessContent(role)) redirect('/dashboard');
+  return { user, supabase, role };
 }
 
 export function adminClient() {

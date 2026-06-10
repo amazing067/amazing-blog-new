@@ -1,7 +1,7 @@
 import Link from 'next/link';
-import { adminClient } from '@/lib/admin/guard';
+import { adminClient, requireContentAccess } from '@/lib/admin/guard';
 import { CardStyleRouter } from '../card-preview/CardStyles';
-import { Inbox, Clock, CheckCircle2, XCircle, AlertTriangle, Images, ChevronRight } from 'lucide-react';
+import { Inbox, Clock, CheckCircle2, XCircle, AlertTriangle, Images, ChevronRight, ShieldCheck, Undo2 } from 'lucide-react';
 import type { CardSlide, CardStyleKey, ComplianceInfo } from '@/lib/content/types';
 
 const STYLE_BADGE: Record<CardStyleKey, { name: string; cls: string }> = {
@@ -15,6 +15,8 @@ const STYLE_BADGE: Record<CardStyleKey, { name: string; cls: string }> = {
 
 const STATUSES = [
   { key: 'review',    label: '검토 대기', icon: Clock },
+  { key: 'approved',  label: '확정',      icon: ShieldCheck },
+  { key: 'returned',  label: '반송',      icon: Undo2, adminOnly: true },
   { key: 'published', label: '발행 완료', icon: CheckCircle2 },
   { key: 'expired',   label: '거절',      icon: XCircle },
   { key: 'failed',    label: '실패',      icon: AlertTriangle },
@@ -24,12 +26,14 @@ type Status = typeof STATUSES[number]['key'];
 
 const STATUS_BADGE: Record<string, string> = {
   review:    'bg-amber-100 text-amber-800 border-amber-200',
+  approved:  'bg-blue-100 text-blue-800 border-blue-200',
+  returned:  'bg-rose-100 text-rose-800 border-rose-200',
   published: 'bg-emerald-100 text-emerald-800 border-emerald-200',
   expired:   'bg-gray-100 text-gray-600 border-gray-200',
   failed:    'bg-red-100 text-red-800 border-red-200',
 };
 
-// status='review'이지만 협회 심의번호가 채워진 행은 별도 배지로 구분.
+// status='review'이지만 협회 심의번호가 채워진 행(=확정 직전) 구분 배지.
 const APPROVED_BADGE_CLS = 'bg-emerald-50 text-emerald-700 border-emerald-300';
 
 function riskTone(score: number | null | undefined) {
@@ -43,7 +47,11 @@ export default async function CardsListPage({
   searchParams,
 }: { searchParams?: Promise<{ status?: string }> }) {
   const sp = (await searchParams) ?? {};
-  const status = (STATUSES.find(s => s.key === sp.status)?.key ?? 'review') as Status;
+  const { role } = await requireContentAccess();
+  const isAdmin = role === 'admin';
+  let status = (STATUSES.find(s => s.key === sp.status)?.key ?? 'review') as Status;
+  // 반송은 관리자 전용 — content_editor가 URL로 접근 시 검토대기로
+  if (status === 'returned' && !isAdmin) status = 'review';
 
   const supa = adminClient();
   // billing 컬럼이 적용 안 됐을 수도 있어 별표 select로 안전하게 (없으면 그냥 undefined)
@@ -81,7 +89,7 @@ export default async function CardsListPage({
       </div>
 
       <div className="mb-6 flex flex-wrap gap-2">
-        {STATUSES.map(s => {
+        {STATUSES.filter(s => isAdmin || !(s as { adminOnly?: boolean }).adminOnly).map(s => {
           const Icon = s.icon;
           const isActive = s.key === status;
           const count = statusCount[s.key] ?? 0;
@@ -117,8 +125,14 @@ export default async function CardsListPage({
               const styleKey = (row.card_style ?? 'A') as CardStyleKey;
               const styleInfo = STYLE_BADGE[styleKey];
               const approved = row.status === 'review' && !!row.compliance?.number?.trim();
-              const badgeCls = approved ? APPROVED_BADGE_CLS : (STATUS_BADGE[row.status] ?? 'bg-slate-100 text-slate-700');
-              const badgeLabel = approved ? '심의 완료' : (STATUSES.find(s => s.key === row.status)?.label ?? row.status);
+              // 반송은 관리자만 배지로 표시 — content_editor에겐 검토대기로 보임
+              const returnedHidden = row.status === 'returned' && !isAdmin;
+              const badgeCls = approved ? APPROVED_BADGE_CLS
+                : returnedHidden ? STATUS_BADGE.review
+                : (STATUS_BADGE[row.status] ?? 'bg-slate-100 text-slate-700');
+              const badgeLabel = approved ? '심의 완료'
+                : returnedHidden ? '검토 대기'
+                : (STATUSES.find(s => s.key === row.status)?.label ?? row.status);
               return (
                 <li key={row.id}>
                   <Link href={`/admin/content/cards/${row.id}`}

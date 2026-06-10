@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { adminClient, requireAdmin } from '@/lib/admin/guard';
+import { adminClient, requireContentAccess } from '@/lib/admin/guard';
 import { ArrowLeft, Images } from 'lucide-react';
 import CardsDetailClient from './CardsDetailClient';
 import type { CardSlide, ComplianceInfo, CardStyleKey } from '@/lib/content/types';
@@ -16,6 +16,8 @@ const STYLE_LABEL: Record<CardStyleKey, { name: string; cls: string }> = {
 
 const STATUS_LABEL: Record<string, { label: string; cls: string }> = {
   review:    { label: '검토 대기', cls: 'bg-amber-100 text-amber-800 border-amber-200' },
+  approved:  { label: '확정',      cls: 'bg-blue-100 text-blue-800 border-blue-200' },
+  returned:  { label: '반송',      cls: 'bg-rose-100 text-rose-800 border-rose-200' },
   published: { label: '발행 완료', cls: 'bg-emerald-100 text-emerald-800 border-emerald-200' },
   expired:   { label: '거절',      cls: 'bg-gray-100 text-gray-600 border-gray-200' },
   failed:    { label: '실패',      cls: 'bg-red-100 text-red-800 border-red-200' },
@@ -23,7 +25,8 @@ const STATUS_LABEL: Record<string, { label: string; cls: string }> = {
 
 export default async function CardsDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const { user } = await requireAdmin();
+  const { user, role } = await requireContentAccess();
+  const isAdmin = role === 'admin';
   const supa = adminClient();
   const { data: item } = await supa.from('content_items').select('*').eq('id', id).single();
   if (!item || item.type !== 'card') notFound();
@@ -35,8 +38,12 @@ export default async function CardsDetailPage({ params }: { params: Promise<{ id
   const compliance = (item.compliance as ComplianceInfo | null) ?? null;
   // 협회 심의번호가 채워졌으면 status='review'여도 "심의 완료" 표시
   const approved = item.status === 'review' && !!compliance?.number?.trim();
+  // 반송은 관리자만 — content_editor에겐 검토대기로 표시
+  const returnedHidden = item.status === 'returned' && !isAdmin;
   const statusInfo = approved
     ? { label: '심의 완료', cls: 'bg-emerald-50 text-emerald-700 border-emerald-300' }
+    : returnedHidden
+    ? STATUS_LABEL.review
     : (STATUS_LABEL[item.status] ?? { label: item.status, cls: 'bg-slate-100 text-slate-700 border-slate-200' });
   const factCheck = item.fact_check as { passed: boolean; issues: { claim: string; reason: string; severity: 'high'|'medium'|'low' }[] } | null;
   const cardStyle = ((item.card_style as CardStyleKey | null) ?? 'A') as CardStyleKey;
@@ -82,6 +89,9 @@ export default async function CardsDetailPage({ params }: { params: Promise<{ id
         factCheck={factCheck}
         cardStyle={cardStyle}
         category={category}
+        sentAt={(item.sent_to_server_at as string | null) ?? null}
+        isAdmin={isAdmin}
+        returnReason={(item.return_reason as string | null) ?? null}
       />
     </div>
   );

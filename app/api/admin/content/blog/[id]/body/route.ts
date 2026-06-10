@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server';
-import { requireAdmin, adminClient } from '@/lib/admin/guard';
+import { requireContentAccess, adminClient } from '@/lib/admin/guard';
 import { lintContent } from '@/lib/content/compliance-lint';
 import { LINT_ENABLED } from '@/lib/content/lint-config';
 
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
-  await requireAdmin();
+  await requireContentAccess();
   const { id } = await ctx.params;
   const { body_md } = await req.json().catch(() => ({}));
   if (typeof body_md !== 'string') {

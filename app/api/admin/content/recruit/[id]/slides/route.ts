@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { requireAdmin, adminClient } from '@/lib/admin/guard';
+import { requireContentAccess, adminClient } from '@/lib/admin/guard';
 import { lintRecruit } from '@/lib/content/recruit-lint';
 import type { CardSlide } from '@/lib/content/types';
 
@@ -11,7 +11,7 @@ function flatten(slides: CardSlide[]): string {
 }
 
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
-  await requireAdmin();
+  await requireContentAccess();
   const { id } = await ctx.params;
   const body = await req.json().catch(() => ({}));
   const slides = body?.slides as CardSlide[] | undefined;
