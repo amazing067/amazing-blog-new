@@ -6,7 +6,7 @@ export type DesignerName = typeof DESIGNERS[number];
 // 고정 등록번호 — 운영 확정값. 빈 문자열은 아직 미입력 상태 (localStorage 캐시로 대체됨)
 export const DESIGNER_REG_DEFAULTS: Record<DesignerName, string> = {
   '김성민': '20201014201039',
-  '고준하': '',
+  '고준하': '20241120005168',
   '양창대': '',
   '윤준민': '20230920003295',
   '이혜인': '20251117401088',
