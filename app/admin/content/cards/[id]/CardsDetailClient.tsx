@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { domToBlob } from 'modern-screenshot';
 import JSZip from 'jszip';
-import { Download, CheckCircle2, X, Trash2, Loader2, Shield, Search, Pencil, Save } from 'lucide-react';
+import { Download, CheckCircle2, X, Trash2, Loader2, Shield, Search, Pencil, Save, Send } from 'lucide-react';
 import { CardStyleRouter } from '../../card-preview/CardStyles';
 import { ComplianceSlide } from '../../card-preview/ComplianceSlide';
 import SlideEditor from './SlideEditor';
@@ -79,6 +79,48 @@ function oneYearMinusOneDay(yyyyMmDd: string): string {
   const [y, m, d] = yyyyMmDd.split('-').map(Number);
   const next = new Date(Date.UTC(y + 1, m - 1, d - 1));
   return next.toISOString().slice(0, 10);
+}
+
+// 화면의 [data-slide-capture] 슬라이드들을 1080×1080 PNG blob 배열로 캡처(슬라이드 순서).
+// zip 다운로드와 영업자료실 보내기가 공유. off-screen 1080px clone 으로 cqw 정확히 계산.
+async function captureSlideBlobs(): Promise<Blob[]> {
+  const elements = Array.from(document.querySelectorAll<HTMLElement>('[data-slide-capture]'))
+    .sort((a, b) => Number(a.dataset.slideIndex ?? 0) - Number(b.dataset.slideIndex ?? 0));
+  if (elements.length === 0) {
+    throw new Error('캡처할 슬라이드 요소를 찾지 못했습니다. 페이지 새로고침 후 다시 시도하세요.');
+  }
+  const blobs: Blob[] = [];
+  for (const el of elements) {
+    const i = Number(el.dataset.slideIndex ?? 0);
+    const clone = el.cloneNode(true) as HTMLElement;
+    clone.style.width = '1080px';
+    clone.style.height = '1080px';
+    clone.style.position = 'fixed';
+    clone.style.left = '-99999px';
+    clone.style.top = '0';
+    clone.style.zIndex = '-1';
+    document.body.appendChild(clone);
+
+    // 폰트·이미지 로딩 + 레이아웃 안정 대기
+    await document.fonts.ready;
+    await new Promise(r => setTimeout(r, 300));
+
+    try {
+      const blob = await domToBlob(clone, {
+        width: 1080,
+        height: 1080,
+        scale: 1,
+        backgroundColor: '#ffffff',
+        type: 'image/png',
+        quality: 1,
+      });
+      if (!blob) throw new Error(`슬라이드 ${i + 1} 캡처 실패 (blob null)`);
+      blobs.push(blob);
+    } finally {
+      document.body.removeChild(clone);
+    }
+  }
+  return blobs;
 }
 
 export default function CardsDetailClient({ id, userId, defaultDesigner, title, status, publishUrl, slides: initialSlides, compliance, lint, factCheck, cardStyle, category }: Props) {
@@ -219,59 +261,10 @@ export default function CardsDetailClient({ id, userId, defaultDesigner, title, 
       const folder = zip.folder(safeTitle);
       if (!folder) throw new Error('zip folder fail');
 
-      // ref 대신 DOM 직접 조회 — 편집/비편집 모드 전환 시 ref 동기화 이슈 회피
-      const elements = Array.from(document.querySelectorAll<HTMLElement>('[data-slide-capture]'))
-        .sort((a, b) => Number(a.dataset.slideIndex ?? 0) - Number(b.dataset.slideIndex ?? 0));
-
-      console.log(`[capture] 캡처 대상 슬라이드 ${elements.length}개 발견`);
-      if (elements.length === 0) {
-        throw new Error('캡처할 슬라이드 요소를 찾지 못했습니다. 페이지 새로고침 후 다시 시도하세요.');
-      }
-
-      let successCount = 0;
-      for (const el of elements) {
-        const i = Number(el.dataset.slideIndex ?? 0);
-        // off-screen 1080×1080 컨테이너로 clone — cqw가 1080 기준으로 정확히 계산됨
-        const clone = el.cloneNode(true) as HTMLElement;
-        clone.style.width = '1080px';
-        clone.style.height = '1080px';
-        clone.style.position = 'fixed';
-        clone.style.left = '-99999px';
-        clone.style.top = '0';
-        clone.style.zIndex = '-1';
-        document.body.appendChild(clone);
-
-        // 폰트·이미지 로딩 + 레이아웃 안정 대기
-        await document.fonts.ready;
-        await new Promise(r => setTimeout(r, 300));
-
-        try {
-          // modern-screenshot — container query units(cqw), flex auto-margin, modern CSS 정확히 지원
-          const blob = await domToBlob(clone, {
-            width: 1080,
-            height: 1080,
-            scale: 1,
-            backgroundColor: '#ffffff',
-            type: 'image/png',
-            quality: 1,
-          });
-          if (!blob) {
-            console.warn(`[capture] slide ${i + 1}: blob null`);
-            continue;
-          }
-          folder.file(`slide-${String(i + 1).padStart(2, '0')}.png`, blob);
-          successCount++;
-        } catch (capErr) {
-          console.error(`[capture] slide ${i + 1} 실패:`, capErr);
-          throw new Error(`슬라이드 ${i + 1} 캡처 실패: ${capErr instanceof Error ? capErr.message : String(capErr)}`);
-        } finally {
-          document.body.removeChild(clone);
-        }
-      }
-
-      if (successCount === 0) {
-        throw new Error('모든 슬라이드 캡처가 실패했습니다.');
-      }
+      const blobs = await captureSlideBlobs();
+      console.log(`[capture] 캡처 ${blobs.length}장 완료`);
+      blobs.forEach((blob, i) => folder.file(`slide-${String(i + 1).padStart(2, '0')}.png`, blob));
+      const successCount = blobs.length;
 
       // 인스타 캡션 + 해시태그 + 광고심의 메모를 한 .txt로 동봉.
       // 협회 반송 사유: "캡션·해시태그도 준법심의 대상이라 압축파일에 포함해야 함" 대응.
@@ -340,6 +333,33 @@ export default function CardsDetailClient({ id, userId, defaultDesigner, title, 
       }
     } catch (e) {
       alert('심의필 PNG 다운로드 실패: ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  // 심의완료 카드뉴스를 어메이징 영업자료실로 보내기.
+  // 6장 캡처(심의필 포함) → 서버 라우트가 Supabase Storage 업로드 + 어메이징 ingest 호출.
+  async function sendToSales() {
+    if (!comp.number?.trim()) {
+      alert('심의번호를 먼저 입력·저장한 뒤 보낼 수 있습니다.');
+      return;
+    }
+    if (!confirm('이 카드뉴스를 어메이징 영업자료실로 보냅니다. (심의필 포함 전체 슬라이드)\n진행할까요?')) return;
+    setBusy('send-sales');
+    try {
+      const blobs = await captureSlideBlobs();
+      const fd = new FormData();
+      blobs.forEach((b, i) => fd.append('images', b, `slide-${String(i + 1).padStart(2, '0')}.png`));
+      fd.append('title', title);
+      if (category) fd.append('category', category);
+      fd.append('compliance', JSON.stringify(comp));
+      const res = await fetch(`/api/admin/content/cards/${id}/send-to-sales`, { method: 'POST', body: fd });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.ok === false) throw new Error(data.error || '전송 실패');
+      alert(`영업자료실로 보냈습니다. (${data.count}장)\n다시 보내면 자료실에서 갱신됩니다.`);
+    } catch (e) {
+      alert('영업자료실 전송 실패: ' + (e instanceof Error ? e.message : String(e)));
     } finally {
       setBusy(null);
     }
@@ -607,6 +627,36 @@ export default function CardsDetailClient({ id, userId, defaultDesigner, title, 
             );
           })()}
         </div>
+
+        {/* 영업자료실로 보내기 — 심의완료 건만 */}
+        {(() => {
+          const ready = !!comp.number?.trim();
+          return (
+            <div className="rounded-2xl border border-indigo-200 bg-indigo-50 p-5">
+              <h3 className="font-bold text-indigo-900 mb-1 inline-flex items-center gap-1.5">
+                <Send className="w-4 h-4" /> 영업자료실로 보내기
+              </h3>
+              <p className="text-[11px] text-indigo-700 mb-3 leading-relaxed">
+                심의필 포함 전체 슬라이드를 어메이징 <strong>영업자료실 카드뉴스</strong>로 전송합니다.
+                설계사들이 앱에서 바로 받아볼 수 있어요.
+              </p>
+              <button
+                disabled={!!busy || !ready}
+                onClick={sendToSales}
+                className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 px-4 py-3 text-sm font-bold text-white shadow-sm disabled:opacity-40 disabled:cursor-not-allowed transition"
+              >
+                {busy === 'send-sales' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                {busy === 'send-sales' ? '전송 중…' : '영업자료실로 보내기'}
+              </button>
+              {!ready && (
+                <p className="mt-1.5 text-[11px] text-amber-700">심의번호를 먼저 입력·저장하세요.</p>
+              )}
+              <p className="mt-2 text-[11px] text-indigo-700 leading-relaxed">
+                같은 카드를 다시 보내면 자료실에서 <strong>덮어써집니다</strong>(중복 X).
+              </p>
+            </div>
+          );
+        })()}
 
         {/* 발행 마킹 */}
         <div className="rounded-2xl border border-emerald-200 bg-emerald-50/40 p-4 space-y-2">
