@@ -2079,7 +2079,31 @@ h2 {
                 대시보드
               </button>
             )}
-            <div 
+            {(profile?.role === 'admin' || profile?.role === 'content_editor') && (
+              <button
+                onClick={() => router.push('/admin/content/recruit')}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 bg-emerald-500/90 backdrop-blur-sm text-white text-sm font-semibold rounded-md hover:bg-emerald-500 transition-colors"
+                style={isEditMode ? {
+                  padding: '0.375rem 0.625rem',
+                  fontSize: '0.875rem',
+                  fontWeight: 600,
+                  margin: 0,
+                  height: 'auto',
+                  minHeight: 'auto',
+                  maxHeight: 'none',
+                  lineHeight: 'normal',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.375rem',
+                  whiteSpace: 'nowrap',
+                  boxSizing: 'border-box'
+                } : {}}
+              >
+                <FileText className="w-3.5 h-3.5" style={isEditMode ? { width: '0.875rem', height: '0.875rem', margin: 0, padding: 0 } : {}} />
+                콘텐츠
+              </button>
+            )}
+            <div
               className="flex items-center gap-2.5"
               style={isEditMode ? {
                 display: 'flex',
