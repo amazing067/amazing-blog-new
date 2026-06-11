@@ -92,6 +92,12 @@ export default async function DashboardPage() {
     )
   }
 
+  // 콘텐츠 운영자는 FC용 대시보드(블로그 생성기)가 아니라 콘텐츠 허브로 보낸다.
+  // 이렇게 해야 처음 로그인 외에도(뒤로가기·북마크·로고 클릭 등) 항상 콘텐츠로 진입된다.
+  if (profile?.role === 'content_editor') {
+    redirect('/admin/content/recruit')
+  }
+
   // 정지 상태면 안내 메시지 (pending도 정지로 처리)
   if (profile?.membership_status === 'pending' || profile?.membership_status === 'suspended') {
     return (
