@@ -65,3 +65,10 @@ scripts/_*.mjs
 
 # 모델 A/B 생성 리포트(로컬 산출물)
 model-ab-report.html
+
+# 삭제 카드 백업
+deleted-card-*.json
+
+# 임시 목업 페이지(공개 라우트 — 배포 금지) + Playwright 산출물
+app/mock-ab/
+.playwright-mcp/

@@ -3,6 +3,7 @@
 
 export const MODEL_PRICING = {
   'claude-haiku-4-5': { input: 1.0, output: 5.0 },
+  'claude-opus-4-8': { input: 5.0, output: 25.0 },
   'gemini-2.5-flash': { input: 0.30, output: 2.50 },
 } as const;
 

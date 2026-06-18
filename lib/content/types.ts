@@ -1,8 +1,9 @@
 export type EnforcementMode = 'open' | 'strict';
 
-// 카드뉴스 디자인 스타일 — 요일별 로테이션 (월=A 화=B 수=C 목=D 금=E 토=F, 일=쉼)
-// A=BoldColor(현재), B=Magazine, C=Pastel, D=DarkPremium, E=DataReport, F=Y2KRetro
-export type CardStyleKey = 'A' | 'B' | 'C' | 'D' | 'E' | 'F';
+// 카드뉴스 디자인 스타일 — A~F 기존 + G~I 신규.
+// A=BoldColor, B=Magazine, C=Pastel, D=DarkPremium, E=DataReport, F=Y2KRetro,
+// G=CleanMinimal, H=NeoBrutal, I=MeshGlass
+export type CardStyleKey = 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G' | 'H' | 'I';
 
 export type Topic = {
   slug: string;              // 안정적 식별자 (중복 차단용)

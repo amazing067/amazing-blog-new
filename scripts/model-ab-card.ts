@@ -32,7 +32,27 @@ import { factCheckArticle } from '../lib/content/fact-check';
 import type { CardSlide, Topic } from '../lib/content/types';
 
 // ---- 설정 ----------------------------------------------------------------
-const TEST_SLUGS = ['claim-non-disc', 'cancer-stage', 'sl-self-burden'];
+// 완전히 새로운 주제(기존 28개 풀에 없는 신규 콘텐츠)로 생성.
+const NEW_TOPICS: Topic[] = [
+  {
+    slug: 'mock-low-surrender', category: '가입전략',
+    title: '무·저해지환급형, 싸다고 들었다 후회하는 이유',
+    hook: '보험료가 저렴한 데는 이유가 있다. 해지하면 돌려받는 돈이 다르다.',
+    outline: ['저해지·무해지 구조 차이', '중도해지 시 환급금', '완납 후 환급률 비교', '어떤 사람에게 맞나'],
+  },
+  {
+    slug: 'mock-claim-docs', category: '청구·분쟁',
+    title: '보험금 청구, 진단서·소견서·진단코드 뭐가 다를까',
+    hook: '서류 하나 잘못 떼면 청구가 막힌다. 무엇을 떼야 할까.',
+    outline: ['진단서 vs 소견서 차이', '진단코드(KCD)가 중요한 이유', '입퇴원확인서·진료비세부내역서', '서류 준비 체크리스트'],
+  },
+  {
+    slug: 'mock-simplified-issue', category: '가입전략',
+    title: '유병자도 드는 간편심사 보험, 일반보험과 뭐가 다를까',
+    hook: '아파도 가입된다는 그 보험, 따져볼 게 있다.',
+    outline: ['간편심사 고지항목 차이', '보험료·보장 차이', '부담보·할증 가능성', '일반심사 먼저 시도해볼 조건'],
+  },
+];
 const OPUS_MODEL = 'claude-opus-4-8';
 const GEMINI_MODEL = 'gemini-2.5-pro';
 const NO_FACTCHECK = process.argv.includes('--no-factcheck');
@@ -242,25 +262,13 @@ async function main() {
 
   const supaUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supaKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  const supa = supaUrl && supaKey ? createClient(supaUrl, supaKey) : null;
+  void supaUrl; void supaKey; void createClient; // 신규 주제라 DB 조회 불필요
 
   const blocks: Array<{ topic: Topic; opus: Scored; gemini: Scored }> = [];
 
-  for (const slug of TEST_SLUGS) {
-    const topic = TOPIC_POOL.find(t => t.slug === slug);
-    if (!topic) { console.error(`주제 없음: ${slug}`); continue; }
-    console.log(`\n▶ ${topic.title} (${slug})`);
-
-    // 기존(5월) 카드 텍스트 — 유사도 비교용
-    let existingText: string | null = null;
-    if (supa) {
-      const { data } = await supa.from('content_items')
-        .select('title, card_slides')
-        .eq('type', 'card').contains('source_refs', [{ topic_slug: slug }])
-        .order('created_at', { ascending: true }).limit(1);
-      const row = data?.[0] as { title?: string; card_slides?: CardSlide[] } | undefined;
-      if (row?.card_slides) existingText = slidesText(row.title ?? '', row.card_slides);
-    }
+  for (const topic of NEW_TOPICS) {
+    console.log(`\n▶ ${topic.title} (${topic.slug})`);
+    const existingText: string | null = null; // 신규 주제 — 기존 카드 비교 없음
 
     console.log('  · Opus 4.8 생성...');
     const opusR = await genOpus(topic);
@@ -279,6 +287,22 @@ async function main() {
   const html = buildHtml(blocks);
   const out = path.join(process.cwd(), 'model-ab-report.html');
   fs.writeFileSync(out, html, 'utf-8');
+
+  // 시각 비교 페이지(/mock-ab)용 데이터 — 실제 카드 컴포넌트로 렌더
+  const sc = (s: Scored) => ({ total: s.total, riskScore: s.riskScore, sourceFill: s.sourceFill, factHigh: s.factHigh, factMedium: s.factMedium, costUsd: s.costUsd, ms: s.ms, forbidden: s.forbidden });
+  const mockData = {
+    generatedAt: new Date().toISOString(),
+    noFactcheck: NO_FACTCHECK,
+    blocks: blocks.map(b => ({
+      topic: { slug: b.topic.slug, title: b.topic.title, category: b.topic.category },
+      opus: { model: OPUS_MODEL, title: b.opus.title, slides: b.opus.slides, error: b.opus.error ?? null, score: sc(b.opus) },
+      gemini: { model: GEMINI_MODEL, title: b.gemini.title, slides: b.gemini.slides, error: b.gemini.error ?? null, score: sc(b.gemini) },
+    })),
+  };
+  const mockDir = path.join(process.cwd(), 'app', 'mock-ab');
+  fs.mkdirSync(mockDir, { recursive: true });
+  fs.writeFileSync(path.join(mockDir, 'cards.json'), JSON.stringify(mockData, null, 2), 'utf-8');
+  console.log('시각 페이지 데이터: app/mock-ab/cards.json');
 
   // 콘솔 요약
   console.log('\n===== 종합 =====');

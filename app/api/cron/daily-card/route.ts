@@ -10,7 +10,7 @@ import { pickCardStyle } from '@/lib/content/style-picker';
 import type { CardSlide, EnforcementMode } from '@/lib/content/types';
 
 const DAILY_LIMIT = 1;
-const GENERATOR_MODEL = 'claude-haiku-4-5';
+const GENERATOR_MODEL = 'claude-opus-4-8';
 
 function slidesToPlainText(slides: CardSlide[]): string {
   return slides.map(s => {
@@ -67,7 +67,7 @@ export async function GET(req: Request) {
       const genOut = set.usage?.output_tokens ?? 0;
       const fcIn = fc.usage?.input_tokens ?? 0;
       const fcOut = fc.usage?.output_tokens ?? 0;
-      const genCost = calcCost('claude-haiku-4-5', genIn, genOut);
+      const genCost = calcCost(GENERATOR_MODEL, genIn, genOut);
       const fcCost = calcCost('gemini-2.5-flash', fcIn, fcOut);
 
       const cardStyle = pickCardStyle();   // 요일별 자동 매핑 (월=A 화=B...토=F)

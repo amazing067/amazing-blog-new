@@ -300,10 +300,10 @@ export async function generateCardSet(topic: Topic): Promise<GeneratedCardSet> {
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY missing');
   const client = new Anthropic({ apiKey });
 
+  // Opus 4.8 — temperature 등 샘플링 파라미터 미지원(보내면 400). thinking 생략(기본 off).
   const message = await client.messages.create({
-    model: 'claude-haiku-4-5',
+    model: 'claude-opus-4-8',
     max_tokens: 4096,
-    temperature: 0.85,
     messages: [{ role: 'user', content: buildCardPrompt(topic) }],
   });
 

@@ -13,6 +13,9 @@ import { PastelStyle } from './styles/Pastel';
 import { DarkPremiumStyle } from './styles/DarkPremium';
 import { DataReportStyle } from './styles/DataReport';
 import { Y2KRetroStyle } from './styles/Y2KRetro';
+import { CleanMinimalStyle } from './styles/CleanMinimal';
+import { NeoBrutalStyle } from './styles/NeoBrutal';
+import { MeshGlassStyle } from './styles/MeshGlass';
 import { SourceLine } from './styles/_SourceLine';
 import { bigStatFontStyle } from './styles/_bigStat';
 
@@ -239,6 +242,9 @@ export function CardStyleRouter({
     case 'D': return <DarkPremiumStyle slide={slide} index={index} total={total} />;
     case 'E': return <DataReportStyle slide={slide} index={index} total={total} />;
     case 'F': return <Y2KRetroStyle slide={slide} index={index} total={total} />;
+    case 'G': return <CleanMinimalStyle slide={slide} index={index} total={total} />;
+    case 'H': return <NeoBrutalStyle slide={slide} index={index} total={total} />;
+    case 'I': return <MeshGlassStyle slide={slide} index={index} total={total} />;
     case 'A':
     default:
       return <HybridStyle slide={slide} index={index} total={total} compliance={compliance} />;
