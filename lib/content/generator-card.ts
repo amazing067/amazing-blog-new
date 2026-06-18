@@ -123,7 +123,7 @@ const ICON_GUIDE = `
 - arrow: 변환·갈아타기
 `;
 
-const PROMPT = (topic: Topic) => `당신은 카카오페이/토스피드 톤의 보험 카드뉴스 작가입니다.
+export const buildCardPrompt = (topic: Topic) => `당신은 카카오페이/토스피드 톤의 보험 카드뉴스 작가입니다.
 일반 고객이 인스타에서 슬라이드를 끝까지 넘기게 만드는 5장 시리즈를 만듭니다.
 
 **주제**: "${topic.title}"
@@ -237,7 +237,7 @@ function parseSource(raw: unknown, contextText: string): SlideSource | undefined
   };
 }
 
-function validateSlides(slides: unknown): CardSlide[] {
+export function validateSlides(slides: unknown): CardSlide[] {
   if (!Array.isArray(slides) || slides.length !== 5) {
     throw new Error(`slides는 정확히 5개여야 하는데 ${Array.isArray(slides) ? slides.length : 'not array'}개`);
   }
@@ -304,7 +304,7 @@ export async function generateCardSet(topic: Topic): Promise<GeneratedCardSet> {
     model: 'claude-haiku-4-5',
     max_tokens: 4096,
     temperature: 0.85,
-    messages: [{ role: 'user', content: PROMPT(topic) }],
+    messages: [{ role: 'user', content: buildCardPrompt(topic) }],
   });
 
   const block = message.content.find(b => b.type === 'text');
