@@ -12,6 +12,9 @@ const STYLE_LABEL: Record<CardStyleKey, { name: string; cls: string }> = {
   D: { name: 'D · Dark Premium (목)',   cls: 'bg-neutral-900 text-amber-200  border-neutral-700' },
   E: { name: 'E · Data Report (금)',    cls: 'bg-emerald-100 text-emerald-800 border-emerald-200' },
   F: { name: 'F · Y2K Retro (토)',      cls: 'bg-fuchsia-100 text-fuchsia-800 border-fuchsia-200' },
+  G: { name: 'G · Clean Minimal (일)',  cls: 'bg-slate-100  text-slate-800  border-slate-200' },
+  H: { name: 'H · Neo Brutal',          cls: 'bg-yellow-100 text-yellow-900 border-yellow-300' },
+  I: { name: 'I · Mesh Glass',          cls: 'bg-violet-100 text-violet-800 border-violet-200' },
 };
 
 const STATUS_LABEL: Record<string, { label: string; cls: string }> = {

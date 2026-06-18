@@ -11,6 +11,9 @@ const STYLE_BADGE: Record<CardStyleKey, { name: string; cls: string }> = {
   D: { name: 'D·Premium',  cls: 'bg-neutral-900 text-amber-200   border-neutral-700' },
   E: { name: 'E·Report',   cls: 'bg-emerald-100 text-emerald-800 border-emerald-200' },
   F: { name: 'F·Y2K',      cls: 'bg-fuchsia-100 text-fuchsia-800 border-fuchsia-200' },
+  G: { name: 'G·Minimal',  cls: 'bg-slate-100   text-slate-800   border-slate-200' },
+  H: { name: 'H·Brutal',   cls: 'bg-yellow-100  text-yellow-900  border-yellow-300' },
+  I: { name: 'I·Glass',    cls: 'bg-violet-100  text-violet-800  border-violet-200' },
 };
 
 const STATUSES = [
