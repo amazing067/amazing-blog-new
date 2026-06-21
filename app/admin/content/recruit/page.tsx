@@ -100,9 +100,11 @@ export default async function RecruitListPage({
       ) : (
         <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden shadow-sm">
           <ul className="divide-y divide-slate-100">
-            {(items ?? []).map((row: { id: string; title: string; status: string; created_at: string; card_slides: CardSlide[] | null; source_refs: { pillar?: string }[] | null; total_cost_usd: number | null }) => {
+            {(items ?? []).map((row: { id: string; title: string; status: string; created_at: string; card_slides: CardSlide[] | null; image_urls: string[] | null; source_refs: { pillar?: string }[] | null; total_cost_usd: number | null }) => {
               const slides = row.card_slides ?? [];
               const cover = slides[0];
+              const imageUrls = row.image_urls ?? [];
+              const isImageCard = imageUrls.length > 0;
               const pillar = row.source_refs?.[0]?.pillar;
               const score = lintMap.get(row.id);
               const badgeCls = STATUS_BADGE[row.status] ?? 'bg-slate-100 text-slate-700';
@@ -111,8 +113,10 @@ export default async function RecruitListPage({
                 <li key={row.id}>
                   <Link href={`/admin/content/recruit/${row.id}`}
                     className="flex items-center gap-4 px-4 py-3 hover:bg-lime-50/50 transition group">
-                    <div className="flex-none w-[90px] h-[90px]">
-                      {cover ? (
+                    <div className={`flex-none w-[90px] ${isImageCard ? 'h-[112px]' : 'h-[90px]'}`}>
+                      {isImageCard ? (
+                        <img src={imageUrls[0]} alt="" className="w-full h-full object-cover rounded-xl border border-slate-200" />
+                      ) : cover ? (
                         <RecruitCardStyle slide={cover} index={0} total={slides.length} seed={row.id} />
                       ) : (
                         <div className="w-full h-full rounded-xl bg-slate-100" />

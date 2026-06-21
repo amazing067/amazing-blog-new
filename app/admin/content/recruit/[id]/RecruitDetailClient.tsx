@@ -16,6 +16,7 @@ type Props = {
   status: string;
   publishUrl: string;
   slides: CardSlide[];
+  imageUrls: string[];
   lint: RecruitLintResult | null;
   seed?: string;
 };
@@ -38,8 +39,9 @@ function buildRecruitCaption(title: string, slides: CardSlide[]): string {
   ].join('\n');
 }
 
-export default function RecruitDetailClient({ id, title, status, publishUrl, slides: initialSlides, lint, seed = '' }: Props) {
+export default function RecruitDetailClient({ id, title, status, publishUrl, slides: initialSlides, imageUrls = [], lint, seed = '' }: Props) {
   const router = useRouter();
+  const isImageCard = imageUrls.length > 0;
   const [busy, setBusy] = useState<string | null>(null);
   const [url, setUrl] = useState(publishUrl);
   const [slides, setSlides] = useState<CardSlide[]>(initialSlides);
@@ -81,6 +83,26 @@ export default function RecruitDetailClient({ id, title, status, publishUrl, sli
       const safeTitle = title.replace(/[\\/:*?"<>|]/g, '_').slice(0, 40);
       const folder = zip.folder(safeTitle);
       if (!folder) throw new Error('zip folder fail');
+
+      // 이미지형 카드: 렌더된 PNG를 직접 받아 압축 (캡처 불필요)
+      if (isImageCard) {
+        let ok = 0;
+        for (let i = 0; i < imageUrls.length; i++) {
+          const resp = await fetch(imageUrls[i]);
+          if (!resp.ok) continue;
+          folder.file(`slide-${String(i + 1).padStart(2, '0')}.png`, await resp.blob());
+          ok++;
+        }
+        if (ok === 0) throw new Error('이미지를 불러오지 못했습니다.');
+        folder.file('instagram_caption.txt', '﻿' + buildRecruitCaption(title, slides));
+        const archive = await zip.generateAsync({ type: 'blob' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(archive);
+        a.download = `${safeTitle}.zip`;
+        a.click();
+        URL.revokeObjectURL(a.href);
+        return;
+      }
 
       const elements = Array.from(document.querySelectorAll<HTMLElement>('[data-slide-capture]'))
         .sort((a, b) => Number(a.dataset.slideIndex ?? 0) - Number(b.dataset.slideIndex ?? 0));
@@ -149,6 +171,7 @@ export default function RecruitDetailClient({ id, title, status, publishUrl, sli
     <div className="grid gap-6 lg:grid-cols-3">
       {/* 6장 미리보기 — 캡처 대상 */}
       <div className="lg:col-span-2 space-y-6">
+        {!isImageCard && (
         <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
           <div className="flex items-center gap-2">
             <Pencil className={`w-4 h-4 ${editing ? 'text-lime-600' : 'text-slate-400'}`} />
@@ -174,8 +197,17 @@ export default function RecruitDetailClient({ id, title, status, publishUrl, sli
             )}
           </div>
         </div>
+        )}
 
-        {editing ? (
+        {isImageCard ? (
+          <div className="grid gap-5 grid-cols-1 sm:grid-cols-2">
+            {imageUrls.map((u, i) => (
+              <div key={i} className="overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
+                <img src={u} alt={`슬라이드 ${i + 1}`} className="block w-full h-auto" />
+              </div>
+            ))}
+          </div>
+        ) : editing ? (
           <div className="space-y-5">
             {slides.map((s, i) => (
               <div key={i} className="grid gap-4 grid-cols-1 lg:grid-cols-2 items-stretch">

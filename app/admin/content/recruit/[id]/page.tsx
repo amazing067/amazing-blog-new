@@ -29,6 +29,7 @@ export default async function RecruitDetailPage({ params }: { params: Promise<{ 
   const recruitLint = (lintRow?.raw_report ?? null) as RecruitLintResult | null;
 
   const slides = (item.card_slides ?? []) as CardSlide[];
+  const imageUrls = (item.image_urls ?? []) as string[];
   const statusInfo = STATUS_LABEL[item.status] ?? { label: item.status, cls: 'bg-slate-100 text-slate-700 border-slate-200' };
   const sourceRefs = (item.source_refs ?? []) as Array<{ pillar?: string | null; tone?: string | null }>;
   const pillar = sourceRefs[0]?.pillar ?? null;
@@ -65,6 +66,7 @@ export default async function RecruitDetailPage({ params }: { params: Promise<{ 
         status={item.status}
         publishUrl={item.publish_url ?? ''}
         slides={slides}
+        imageUrls={imageUrls}
         lint={recruitLint}
         seed={item.id}
       />
