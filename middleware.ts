@@ -1,7 +1,33 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
+import { SITE_CLOSED, SITE_REDIRECT_URL } from '@/lib/site-status'
 
 export async function middleware(request: NextRequest) {
+  const { pathname } = request.nextUrl
+
+  // ── 사이트 폐쇄 스위치 (lib/site-status.ts) ─────────────────────────
+  // 켜져 있으면: 모든 /api 차단(유료 호출 0) + 모든 페이지를 안내 페이지로 리라이트.
+  if (SITE_CLOSED) {
+    if (pathname.startsWith('/api')) {
+      return NextResponse.json(
+        {
+          closed: true,
+          message: '이 서비스는 어메이징사업부 통합 사이트로 이전되었습니다.',
+          url: SITE_REDIRECT_URL,
+        },
+        { status: 503 },
+      )
+    }
+    // 안내 페이지 자체는 통과(리라이트 루프 방지)
+    if (pathname === '/site-closed') {
+      return NextResponse.next()
+    }
+    const url = request.nextUrl.clone()
+    url.pathname = '/site-closed'
+    return NextResponse.rewrite(url)
+  }
+  // ────────────────────────────────────────────────────────────────
+
   let supabaseResponse = NextResponse.next({
     request,
   })
