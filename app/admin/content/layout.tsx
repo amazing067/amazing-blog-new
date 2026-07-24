@@ -25,9 +25,7 @@ export default async function ContentLayout({ children }: { children: React.Reac
             <h1 className="text-base font-semibold text-slate-900">Content Hub</h1>
           </div>
           <nav className="ml-auto flex gap-1 text-sm">
-            <Link href="/admin/content/news" className="rounded-lg px-3 py-1.5 text-slate-700 hover:bg-slate-100">보험뉴스</Link>
-            <Link href="/admin/content/cards" className="rounded-lg px-3 py-1.5 text-slate-700 hover:bg-slate-100">카드뉴스</Link>
-            <Link href="/admin/content/blog" className="rounded-lg px-3 py-1.5 text-slate-700 hover:bg-slate-100">블로그</Link>
+            {/* 보험뉴스·카드뉴스·블로그 탭은 amazing-biz-server로 이전되어 제거됨 (중복 방지) */}
             <Link href="/admin/content/recruit" className="rounded-lg px-3 py-1.5 font-medium text-lime-700 hover:bg-lime-50">🎯 리쿠르팅</Link>
             {isAdmin && (
               <Link href="/admin/content/billing" className="rounded-lg px-3 py-1.5 text-slate-700 hover:bg-slate-100">💰 비용</Link>

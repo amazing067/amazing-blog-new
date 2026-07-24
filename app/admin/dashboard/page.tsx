@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
-import { Shield, LogOut, UserCheck, UserX, Sparkles, BarChart3, FileText, Lock, ClipboardCheck, Newspaper, Images, Target } from 'lucide-react'
+import { Shield, LogOut, UserCheck, UserX, Sparkles, BarChart3, Lock, ClipboardCheck, Target } from 'lucide-react'
 import Link from 'next/link'
 
 export default async function AdminDashboardPage() {
@@ -247,77 +247,12 @@ export default async function AdminDashboardPage() {
             </div>
           </Link>
 
-          {/* 자동 콘텐츠 트랙 — 보험뉴스 + 카드뉴스 + 블로그 + 리쿠르팅 4단 */}
-          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4 mt-6">
-            {/* 보험뉴스 */}
-            <Link
-              href="/admin/content/news"
-              className="block bg-gradient-to-br from-emerald-600 to-teal-700 rounded-2xl shadow-lg p-5 text-white hover:shadow-xl transition-all hover:scale-[1.01] relative overflow-hidden group"
-            >
-              <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -translate-y-12 translate-x-12 group-hover:scale-110 transition-transform" />
-              <div className="relative z-10">
-                <div className="flex items-center gap-3 mb-2">
-                  <div className="bg-white/20 p-2 rounded-xl backdrop-blur-sm">
-                    <Newspaper className="w-5 h-5 text-yellow-200" />
-                  </div>
-                  <h3 className="text-lg font-bold">AI 보험 콘텐츠</h3>
-                </div>
-                <p className="text-emerald-100 text-xs mb-3 leading-relaxed">
-                  매일 KST 08:00 자동 생성 · 카페 게시용 텍스트 복사
-                </p>
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-emerald-100">🤖 AI작성 · 🔍 검증 · 🛡️ 심의</span>
-                  <span className="text-xs font-semibold bg-white/20 rounded-full px-2.5 py-1 group-hover:bg-white group-hover:text-emerald-700 transition">검수 →</span>
-                </div>
-              </div>
-            </Link>
-
-            {/* 카드뉴스 */}
-            <Link
-              href="/admin/content/cards"
-              className="block bg-gradient-to-br from-violet-600 to-fuchsia-600 rounded-2xl shadow-lg p-5 text-white hover:shadow-xl transition-all hover:scale-[1.01] relative overflow-hidden group"
-            >
-              <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -translate-y-12 translate-x-12 group-hover:scale-110 transition-transform" />
-              <div className="relative z-10">
-                <div className="flex items-center gap-3 mb-2">
-                  <div className="bg-white/20 p-2 rounded-xl backdrop-blur-sm">
-                    <Images className="w-5 h-5 text-yellow-200" />
-                  </div>
-                  <h3 className="text-lg font-bold">인스타 카드뉴스</h3>
-                </div>
-                <p className="text-violet-100 text-xs mb-3 leading-relaxed">
-                  매일 KST 08:00 · 본문 5장 + 심의필 PNG zip
-                </p>
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-violet-100">🎴 PNG · 🛡️ 심의</span>
-                  <span className="text-xs font-semibold bg-white/20 rounded-full px-2.5 py-1 group-hover:bg-white group-hover:text-violet-700 transition">검수 →</span>
-                </div>
-              </div>
-            </Link>
-
-            {/* 블로그 */}
-            <Link
-              href="/admin/content/blog"
-              className="block bg-gradient-to-br from-blue-600 to-indigo-600 rounded-2xl shadow-lg p-5 text-white hover:shadow-xl transition-all hover:scale-[1.01] relative overflow-hidden group"
-            >
-              <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -translate-y-12 translate-x-12 group-hover:scale-110 transition-transform" />
-              <div className="relative z-10">
-                <div className="flex items-center gap-3 mb-2">
-                  <div className="bg-white/20 p-2 rounded-xl backdrop-blur-sm">
-                    <FileText className="w-5 h-5 text-yellow-200" />
-                  </div>
-                  <h3 className="text-lg font-bold">블로그 자동 생성</h3>
-                </div>
-                <p className="text-blue-100 text-xs mb-3 leading-relaxed">
-                  매일 KST 08:00 · 3,000~5,000자 SEO 톤 · HTML/MD
-                </p>
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-blue-100">📝 SEO · 🛡️ 심의 · 📋 심의필</span>
-                  <span className="text-xs font-semibold bg-white/20 rounded-full px-2.5 py-1 group-hover:bg-white group-hover:text-blue-700 transition">검수 →</span>
-                </div>
-              </div>
-            </Link>
-
+          {/* 콘텐츠 자동생성(보험뉴스·카드뉴스·블로그)은 amazing-biz-server로 이전됨 — 중복 방지 위해 여기선 제거.
+              리쿠르팅(수동 생성)만 유지 */}
+          <div className="mt-6">
+            <p className="mb-3 text-xs text-slate-500">
+              보험뉴스·카드뉴스·블로그 자동생성은 <span className="font-semibold text-slate-700">amazing-biz-server(설계사 서버)</span>로 이전되었습니다. 여기서는 리쿠르팅만 관리합니다.
+            </p>
             {/* 리쿠르팅 */}
             <Link
               href="/admin/content/recruit"
