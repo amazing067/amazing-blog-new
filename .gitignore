@@ -72,3 +72,10 @@ deleted-card-*.json
 # 임시 목업 페이지(공개 라우트 — 배포 금지) + Playwright 산출물
 app/mock-ab/
 .playwright-mcp/
+
+# 영상 작업은 amazing-biz-video repo로 분리 — 배포 repo에 영상 바이너리 금지(실수 방지 안전망)
+*.mp4
+*.mov
+*.webm
+*.mkv
+/public/recruit-reels/
