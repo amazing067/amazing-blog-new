@@ -1,12 +1,15 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
-import { SITE_CLOSED, SITE_REDIRECT_URL } from '@/lib/site-status'
+import { SITE_CLOSED, SITE_REDIRECT_URL, SITE_REDIRECT_URL_ASCII } from '@/lib/site-status'
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
 
   // ── 사이트 폐쇄 스위치 (lib/site-status.ts) ─────────────────────────
-  // 켜져 있으면: 모든 /api 차단(유료 호출 0) + 모든 페이지를 안내 페이지로 리라이트.
+  // 켜져 있으면: 모든 /api 차단(유료 호출 0) + 모든 페이지를 통합 사이트로 301 영구 이동.
+  // 안내 페이지(200 + JS 6초 이동)는 이전 초기 사용자 안내용이었다. 이전 완료 후에도 200을
+  // 반환하면 검색엔진이 옛 blog 주소를 계속 색인해 통합 사이트의 브랜드 검색을 갉아먹는다.
+  // 301은 기존 색인·링크 평가를 통합 사이트로 넘긴다 (2026-08-07).
   if (SITE_CLOSED) {
     if (pathname.startsWith('/api')) {
       return NextResponse.json(
@@ -18,13 +21,7 @@ export async function middleware(request: NextRequest) {
         { status: 503 },
       )
     }
-    // 안내 페이지 자체는 통과(리라이트 루프 방지)
-    if (pathname === '/site-closed') {
-      return NextResponse.next()
-    }
-    const url = request.nextUrl.clone()
-    url.pathname = '/site-closed'
-    return NextResponse.rewrite(url)
+    return NextResponse.redirect(`${SITE_REDIRECT_URL_ASCII}/`, 301)
   }
   // ────────────────────────────────────────────────────────────────
 
